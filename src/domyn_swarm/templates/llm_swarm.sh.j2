@@ -22,9 +22,9 @@ set -eu
 ###############################################################################
 export VLLM_IMAGE="{{ cfg.vllm_image }}"
 export DRIVER_PATH="{{ cfg.driver_script }}"
-export HF_HOME=/leonardo_work/iGen_train/shared_hf_cache/
+export HF_HOME="{{ cfg.hf_home }}"
 export HF_HUB_OFFLINE=1
-export LOG_DIR=/leonardo_work/iGen_train/fdambro1/llm-swarm/logs/${SLURM_JOB_ID}
+export LOG_DIR={{ cfg.log_directory }}/${SLURM_JOB_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -35,7 +35,7 @@ NODES=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 HEAD_NODE=${NODES[0]}
 INSTANCE_TAG="{{ job_name }}_${SLURM_JOB_ID}_head"
 HEAD_PORT=6379           # Ray control port
-REST_PORT=8000           # vLLM REST port
+REST_PORT="{{ cfg.vllm_port }}"           # vLLM REST port
 
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers=${NODES[*]:1}"
 
@@ -84,6 +84,7 @@ singularity exec -B $HF_HOME:$HF_HOME instance://"$INSTANCE_TAG" \
         vllm serve {{ cfg.model }} \
         --tensor-parallel-size {{ cfg.gpus_per_node }} \
         --pipeline-parallel-size {{ cfg.instances }} \
+        {{ cfg.vllm_args | default('') }} \
         --port $REST_PORT \
         >> "$LOG_DIR/vllm_head.log" 2>&1 &
 
@@ -115,9 +116,9 @@ echo "[head] REST ready  →  http://$HEAD_NODE:$REST_PORT"
 #  (3)  RUN THE USER DRIVER (blocking)
 ###############################################################################
 echo "[driver] running $DRIVER_PATH ..."
-source .venv/bin/activate
+source {{ cfg.venv_path }}/bin/activate
 ENDPOINT="http://$HEAD_NODE:$REST_PORT" \
-python -m "$DRIVER_PATH"
+python "$DRIVER_PATH"
 deactivate
 
 echo "✅  Driver completed, cleaning up ..."

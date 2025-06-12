@@ -11,6 +11,7 @@ from shutil import get_terminal_size
 from threading import Thread
 from time import sleep
 import socket
+import requests
 from rich import print as rprint
 
 
@@ -53,7 +54,12 @@ class DomynLLMSwarmConfig:
     template_path: pathlib.Path = (
         pathlib.Path(__file__).with_suffix("").parent / "templates" / "llm_swarm.sh.j2"
     )
-
+    hf_home = pathlib.Path(
+        "/leonardo_work/iGen_train/shared_hf_cache/"
+    )
+    vllm_args: str = ""
+    vllm_port: int = 8000
+    venv_path: pathlib.Path = pathlib.Path(os.getcwd()) / ".venv"
 
 def run_command(command: str):
     print(f"running {command}")
@@ -160,6 +166,7 @@ class DomynLLMSwarm:
     def __init__(self, cfg: DomynLLMSwarmConfig):
         self.cfg = cfg
         self.jobid: Optional[int] = None
+        self.head_node: Optional[str] = None  # the node where the LB is running
         self._cleaned = False
 
         # sanity check
@@ -167,6 +174,12 @@ class DomynLLMSwarm:
             raise FileNotFoundError(
                 f"driver_script not found: {self.cfg.driver_script}"
             )
+        if not self.cfg.template_path.is_file():
+            raise FileNotFoundError(
+                f"template_path not found: {self.cfg.template_path}"
+            )
+
+        os.makedirs(self.cfg.log_directory, exist_ok=True)
 
     def __enter__(self):
         self._submit_job()
@@ -208,6 +221,18 @@ class DomynLLMSwarm:
         # sbatch --parsable returns "<jobid>;<array_task_id>"
         self.jobid = int(out.split(";")[0])
         rprint(f"[LLMSwarm] submitted Slurm job {self.jobid}")
+    
+    def _get_head_node(self) -> str:
+        nodespec = subprocess.check_output(
+            ["squeue", "-j", self.jobid, "-h", "-O", "NodeList:2048"],
+                        text=True,
+        ).strip()
+        head_node = subprocess.check_output(
+                        ["scontrol", "show", "hostnames", nodespec],
+                        text=True,
+                    ).splitlines()[0]
+        return head_node
+
 
     def _wait_for_running_job(self):
         if self.jobid is None:
@@ -227,10 +252,26 @@ class DomynLLMSwarm:
             if state in {"PENDING", "RUNNING"}:
                 rprint(f"[LLMSwarm] job {self.jobid} is still pending, waiting …")
                 if state == "RUNNING":
+                    self.head_node = self._get_head_node()
                     rprint(
-                        f"[LLMSwarm] job {self.jobid} is running, checking endpoints …"
+                        f"[LLMSwarm] job {self.jobid} is running, waiting for vLLM to be up on the {self.head_node}…"
                     )
-                    return
+                    response = requests.get(f"http://{self.head_node}:{self.cfg.vllm_port}/v1/models", timeout=10)
+                    if response.status_code == 200:
+                        rprint(f"[LLMSwarm] vLLM is up on {self.head_node}")
+                        return
+                    else:
+                        rprint(f"[LLMSwarm] vLLM not ready yet, waiting …")
+            elif state in {"COMPLETED", "FAILED", "CANCELLED"}:
+                rprint(f"[LLMSwarm] job {self.jobid} finished with state: {state}")
+                if state == "COMPLETED":
+                    rprint("[LLMSwarm] job completed successfully")
+                else:
+                    rprint(f"[LLMSwarm] job failed with state: {state}")
+                return
+            else:
+                rprint(f"[LLMSwarm] job {self.jobid} finished with unknown state: {state}")
+                return
             time.sleep(self.cfg.poll_interval)
 
     def cleanup(self):
