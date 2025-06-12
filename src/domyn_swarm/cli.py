@@ -6,7 +6,7 @@ import typer
 from typing_extensions import Annotated
 
 def launch_swarm(
-        driver_script: Annotated[pathlib.Path, typer.Argument(file_okay=True)], 
+        driver_script: Annotated[pathlib.Path, typer.Argument(file_okay=True, help="Path to the driver script that will be executed inside the swarm allocation")], 
         config: Annotated[str, typer.Option(..., "-c", "--config", help="Path to YAML config for LLMSwarmConfig")]
     ):
 
