@@ -34,7 +34,7 @@ mkdir -p "$LOG_DIR"
 NODES=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 HEAD_NODE=${NODES[0]}
 INSTANCE_TAG="{{ job_name }}_${SLURM_JOB_ID}_head"
-HEAD_PORT=6379           # Ray control port
+HEAD_PORT="{{ cfg.ray_port }}"           # Ray control port
 REST_PORT="{{ cfg.vllm_port }}"           # vLLM REST port
 
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers=${NODES[*]:1}"
@@ -44,7 +44,7 @@ echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers
 ###############################################################################
 echo "[head] starting Singularity instance ..."
 singularity instance start -B $HF_HOME:$HF_HOME --writable-tmpfs --nv --env VLLM_HOST_IP="$VLLM_HOST_IP" "$VLLM_IMAGE" "$INSTANCE_TAG" \
-        --disable-usage-stats --head --block --port=$HEAD_PORT
+        --disable-usage-stats --head --block --port=$HEAD_PORT --dashboard-host=0.0.0.0
 
 # ---- wait until Ray head is healthy ----------------------------------------
 echo "[head] waiting for Ray to come up ..."

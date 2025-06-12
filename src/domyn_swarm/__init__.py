@@ -33,8 +33,8 @@ class DomynLLMSwarmConfig:
     account: str = "iGen_train"
 
     # container images --------------------------------------------------------
-    vllm_image: str = "/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif"
-    nginx_image: str = "/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif"
+    vllm_image: str | pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif")
+    nginx_image: str | pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif")
 
     # user driver -------------------------------------------------------------
     driver_script: pathlib.Path = pathlib.Path(
@@ -54,22 +54,15 @@ class DomynLLMSwarmConfig:
     template_path: pathlib.Path = (
         pathlib.Path(__file__).with_suffix("").parent / "templates" / "llm_swarm.sh.j2"
     )
-    hf_home = pathlib.Path(
-        "/leonardo_work/iGen_train/shared_hf_cache/"
+    nginx_template_path: pathlib.Path = (
+        pathlib.Path(__file__).with_suffix("").parent / "templates" / "nginx.conf.j2"
     )
+    hf_home = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
     vllm_args: str = ""
     vllm_port: int = 8000
+    ray_port: int = 6379
+    ray_dashboard_port: int = 8265
     venv_path: pathlib.Path = pathlib.Path(os.getcwd()) / ".venv"
-
-def run_command(command: str):
-    print(f"running {command}")
-    process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-    )
-    output, errors = process.communicate()
-    return_code = process.returncode
-    assert return_code == 0, f"Command failed with error: {errors.decode('utf-8')}"
-    return output.decode("utf-8").strip()
 
 
 def is_job_running(job_id: str):
@@ -79,19 +72,6 @@ def is_job_running(job_id: str):
         command, shell=True, text=True, capture_output=True
     ).stdout.splitlines()
     return job_id in my_running_jobs
-
-
-def get_unused_port(start=50000, end=65535):
-    for port in range(start, end + 1):
-        try:
-            sock = socket.socket()
-            sock.bind(("", port))
-            sock.listen(1)
-            sock.close()
-            return port
-        except OSError:
-            continue
-    raise IOError("No free ports available in range {}-{}".format(start, end))
 
 
 class Loader:
@@ -168,6 +148,7 @@ class DomynLLMSwarm:
         self.jobid: Optional[int] = None
         self.head_node: Optional[str] = None  # the node where the LB is running
         self._cleaned = False
+        self.endpoint: Optional[str] = None  # LB endpoint, set after job submission
 
         # sanity check
         if not self.cfg.driver_script.is_file():
@@ -221,18 +202,17 @@ class DomynLLMSwarm:
         # sbatch --parsable returns "<jobid>;<array_task_id>"
         self.jobid = int(out.split(";")[0])
         rprint(f"[LLMSwarm] submitted Slurm job {self.jobid}")
-    
+
     def _get_head_node(self) -> str:
         nodespec = subprocess.check_output(
-            ["squeue", "-j", self.jobid, "-h", "-O", "NodeList:2048"],
-                        text=True,
+            ["squeue", "-j", str(self.jobid), "-h", "-O", "NodeList:2048"],
+            text=True,
         ).strip()
         head_node = subprocess.check_output(
-                        ["scontrol", "show", "hostnames", nodespec],
-                        text=True,
-                    ).splitlines()[0]
+            ["scontrol", "show", "hostnames", nodespec],
+            text=True,
+        ).splitlines()[0]
         return head_node
-
 
     def _wait_for_running_job(self):
         if self.jobid is None:
@@ -254,13 +234,18 @@ class DomynLLMSwarm:
                 if state == "RUNNING":
                     self.head_node = self._get_head_node()
                     rprint(
-                        f"[LLMSwarm] job {self.jobid} is running, waiting for vLLM to be up on the {self.head_node}…"
+                        f"[LLMSwarm] job {self.jobid} is running, waiting for vLLM to be up on the head node ({self.head_node})…"
                     )
-                    response = requests.get(f"http://{self.head_node}:{self.cfg.vllm_port}/v1/models", timeout=10)
-                    if response.status_code == 200:
-                        rprint(f"[LLMSwarm] vLLM is up on {self.head_node}")
-                        return
-                    else:
+                    try:
+                        response = requests.get(
+                            f"http://{self.head_node}:{self.cfg.vllm_port}/v1/models",
+                            timeout=10,
+                        )
+                        if response.status_code == 200:
+                            rprint(f"[LLMSwarm] vLLM is up on {self.head_node}")
+                            self.endpoint = f"http://{self.head_node}:{self.cfg.vllm_port}"
+                            return
+                    except requests.ConnectionError:
                         rprint(f"[LLMSwarm] vLLM not ready yet, waiting …")
             elif state in {"COMPLETED", "FAILED", "CANCELLED"}:
                 rprint(f"[LLMSwarm] job {self.jobid} finished with state: {state}")
@@ -270,7 +255,9 @@ class DomynLLMSwarm:
                     rprint(f"[LLMSwarm] job failed with state: {state}")
                 return
             else:
-                rprint(f"[LLMSwarm] job {self.jobid} finished with unknown state: {state}")
+                rprint(
+                    f"[LLMSwarm] job {self.jobid} finished with unknown state: {state}"
+                )
                 return
             time.sleep(self.cfg.poll_interval)
 

@@ -1,23 +1,39 @@
 events {
-    # resolve "worker_connections are not enough while connecting to upstream"
-    # https://stackoverflow.com/questions/28265717/worker-connections-are-not-enough
     worker_connections 100000;
 }
 
 http {
-    upstream llm {
-    {%- for host in upstreams %}
-        server {{ host }};
-    {%- endfor %}
+    upstream vllm {
+        server {{ host }}:{{ vllm_port }};
+        keepalive 32;               # Optional but nice for many short requests
+    }
+
+    upstream ray {
+        server {{ host }}:{{ ray_port }};
+        keepalive 8;
     }
 
     server {
-        listen {{port}};
+        listen {{ port }};
 
         location / {
-            proxy_pass http://llm;
-            proxy_read_timeout 300s;  # Increase this to 300 seconds (5 minutes)
-            proxy_connect_timeout 60s;  # Increase this to 60 seconds (1 minute)
+            proxy_pass              http://vllm;
+            proxy_read_timeout      300s;
+            proxy_connect_timeout   60s;
+            proxy_set_header Host   $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location ^~ /dashboard/ {
+            proxy_pass              http://ray/;     # <─ note slash here
+            proxy_read_timeout      300s;
+            proxy_connect_timeout   60s;
+            proxy_set_header Host   $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location = /dashboard {
+            return 301 /dashboard/;
         }
     }
 }
