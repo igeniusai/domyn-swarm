@@ -6,18 +6,14 @@ from domyn_swarm import DomynLLMSwarmConfig, DomynLLMSwarm
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Launch an LLM-Swarm via Slurm."
-    )
+    parser = argparse.ArgumentParser(description="Launch an LLM-Swarm via Slurm.")
     parser.add_argument(
         "driver_script",
         type=pathlib.Path,
-        help="Path to the user driver script that will be run on the swarm's master node."
+        help="Path to the user driver script that will be run on the swarm's master node.",
     )
     parser.add_argument(
-        "--config", "-c",
-        required=True,
-        help="Path to YAML config for LLMSwarmConfig"
+        "--config", "-c", required=True, help="Path to YAML config for LLMSwarmConfig"
     )
     args = parser.parse_args()
 
@@ -28,6 +24,7 @@ def main():
     cfg = DomynLLMSwarmConfig(**cfg_dict)  # defaults
     with DomynLLMSwarm(cfg):
         pass  # all work happens inside the allocation
+
 
 if __name__ == "__main__":
     main()
