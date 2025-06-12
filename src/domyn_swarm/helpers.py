@@ -93,6 +93,7 @@ def launch_nginx_singularity(
             "singularity",
             "instance",
             "start",
+            "--writable-tmpfs",
             "-B",
             "/etc/hosts:/etc/hosts",
             "-B",
@@ -131,7 +132,8 @@ def launch_reverse_proxy(
         conf_path = pathlib.Path(temp_dir) / "nginx.conf"
         with open(conf_path, "w") as f:
             f.write(nginx_conf)
-        html_path = pathlib.Path(temp_dir) / "index.html"
+        html_path = pathlib.Path(temp_dir) / "html" / "index.html"
+        html_path.parent.mkdir(parents=True, exist_ok=True)
         with open(html_path, "w") as f:
             f.write(
                 f"<h1>Reverse proxy for {node}</h1>\n<p>vLLM port: {vllm_port}</p>\n<p>Ray dashboard port: {ray_dashboard_port}</p>"
