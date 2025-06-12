@@ -1,0 +1,132 @@
+#!/bin/bash
+###############################################################################
+#  SLURM DIRECTIVES
+###############################################################################
+#SBATCH --account=iGen_train
+#SBATCH --mail-user=federico.dambrosio@igenius.ai
+
+#SBATCH --job-name={{ job_name }}
+#SBATCH --partition={{ cfg.partition }}          # e.g. boost_usr_prod
+#SBATCH --nodes={{ cfg.instances }}              # head  +  workers
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
+#SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
+#SBATCH --mem-per-cpu={{ cfg.mem_per_cpu }}
+
+#SBATCH --output={{ cfg.log_directory }}/%x.%j.out
+#SBATCH --error={{ cfg.log_directory }}/%x.%j.err
+set -eu
+
+###############################################################################
+#  USER-TUNABLE ENV
+###############################################################################
+export VLLM_IMAGE="{{ cfg.vllm_image }}"
+export DRIVER_PATH="{{ cfg.driver_script }}"
+export HF_HOME=/leonardo_work/iGen_train/shared_hf_cache/
+export HF_HUB_OFFLINE=1
+export LOG_DIR=/leonardo_work/iGen_train/fdambro1/llm-swarm/logs/${SLURM_JOB_ID}
+export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
+mkdir -p "$LOG_DIR"
+
+###############################################################################
+#  DERIVED VARIABLES
+###############################################################################
+NODES=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
+HEAD_NODE=${NODES[0]}
+INSTANCE_TAG="{{ job_name }}_${SLURM_JOB_ID}_head"
+HEAD_PORT=6379           # Ray control port
+REST_PORT=8000           # vLLM REST port
+
+echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers=${NODES[*]:1}"
+
+###############################################################################
+#  (1)  START HEAD CONTAINER ON NODE-0
+###############################################################################
+echo "[head] starting Singularity instance ..."
+singularity instance start -B $HF_HOME:$HF_HOME --writable-tmpfs --nv --env VLLM_HOST_IP="$VLLM_HOST_IP" "$VLLM_IMAGE" "$INSTANCE_TAG" \
+        --disable-usage-stats --head --block --port=$HEAD_PORT
+
+# ---- wait until Ray head is healthy ----------------------------------------
+echo "[head] waiting for Ray to come up ..."
+until singularity exec instance://"$INSTANCE_TAG" ray status &>/dev/null; do
+      sleep 2
+done
+echo "[head] Ray OK"
+
+###############################################################################
+#  (2)  LAUNCH ONE WORKER ON EVERY OTHER NODE
+###############################################################################
+if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
+    echo "[workers] launching Ray workers on $((SLURM_JOB_NUM_NODES-1)) nodes ..."
+    srun --nodes=$((SLURM_JOB_NUM_NODES-1)) \
+         --ntasks-per-node=1 \
+         --exclusive \
+         --exclude="$HEAD_NODE" \
+         --output="$LOG_DIR/worker_%t.out" \
+          bash -c '
+              VLLM_HOST_IP=$(hostname -I | awk "{print \$1}")
+              exec singularity exec -B '"$HF_HOME"':'"$HF_HOME"' --nv \
+                  --env VLLM_HOST_IP="$VLLM_HOST_IP" \
+                  '"$VLLM_IMAGE"' \
+                  ray start --disable-usage-stats \
+                              --address='"$HEAD_NODE"':'"$HEAD_PORT"' \
+                              --block
+          ' &
+    WORKER_STEP_PID=$!
+fi
+
+echo "[workers] waiting for workers to start ..."
+sleep 30 # give workers time to start
+
+# ---- start vLLM service inside the same instance ---------------------------
+echo "[head] starting vLLM REST server ..."
+singularity exec -B $HF_HOME:$HF_HOME instance://"$INSTANCE_TAG" \
+        vllm serve {{ cfg.model }} \
+        --tensor-parallel-size {{ cfg.gpus_per_node }} \
+        --pipeline-parallel-size {{ cfg.instances }} \
+        --port $REST_PORT \
+        >> "$LOG_DIR/vllm_head.log" 2>&1 &
+
+echo "[head] checking Ray status ..."
+singularity exec instance://"$INSTANCE_TAG" ray status 
+
+echo "[head] checking vLLM status ..."
+while :; do
+  # Hit the endpoint once and capture both the body and HTTP status
+  resp=$(curl -sf -w '\n%{http_code}' "http://$HEAD_NODE:$REST_PORT/v1/models" || true)
+  body=${resp%$'\n'*}
+  code=${resp##*$'\n'}
+
+  if [[ $code == 200 ]]; then
+    echo "[head] vLLM is READY (HTTP 200)"
+    break
+  fi
+
+  echo "[head] waiting for vLLM (code=$code)…"
+  sleep 5
+done
+
+# ---- wait until port 8000 is listening -------------------------------------
+echo "[head] waiting for REST port ..."
+echo "[head] REST ready  →  http://$HEAD_NODE:$REST_PORT"
+
+
+###############################################################################
+#  (3)  RUN THE USER DRIVER (blocking)
+###############################################################################
+echo "[driver] running $DRIVER_PATH ..."
+source .venv/bin/activate
+ENDPOINT="http://$HEAD_NODE:$REST_PORT" \
+python -m "$DRIVER_PATH"
+deactivate
+
+echo "✅  Driver completed, cleaning up ..."
+###############################################################################
+#  (4)  CLEAN-UP
+###############################################################################
+if [[ -n "${WORKER_STEP_PID:-}" ]]; then
+    echo "[batch] waiting for worker step to end …"
+    wait "$WORKER_STEP_PID"
+fi
+
+singularity instance stop "$INSTANCE_TAG" || true
