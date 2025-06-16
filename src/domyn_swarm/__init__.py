@@ -25,7 +25,8 @@ class DomynLLMSwarmConfig:
     revision: str | None = None
 
     # resources ---------------------------------------------------------------
-    instances: int = 4  # number of *worker* nodes (vLLM)
+    replicas: int = 1 # number of cluster replicas (vLLM servers)
+    instances: int = 4  # number of *worker* nodes on each replica (vLLM)
     gpus_per_node: int = 4
     cpus_per_task: int = 8
     mem_per_cpu: str = "40G"

@@ -8,7 +8,9 @@ from typing_extensions import Annotated
 
 from domyn_swarm.helpers import launch_reverse_proxy
 
+app = typer.Typer()
 
+@app.command("up", short_help="Launch a swarm allocation with a driver script and configuration")
 def launch_swarm(
     driver_script: Annotated[
         pathlib.Path,
@@ -30,6 +32,23 @@ def launch_swarm(
             help="Enable reverse proxy for the swarm allocation",
         ),
     ],
+    name: Annotated[
+        Optional[str],
+        typer.Option(
+            "--name",
+            "-n",
+            help="Name of the swarm allocation. If not provided, a random name will be generated.",
+        ),
+    ],
+    replicas: Annotated[
+        Optional[int],
+        typer.Option(
+            "--replicas",
+            "-r",
+            help="Number of replicas for the swarm allocation. Defaults to 1.",
+            default=1,
+        ),
+    ],
 ):
     # load and parse YAML
     cfg_dict = yaml.safe_load(config)
@@ -47,10 +66,57 @@ def launch_swarm(
                 cfg.ray_dashboard_port,
             )
 
+@app.command("status", short_help="Check the status of the swarm allocation")
+def check_status(
+    name: Annotated[
+        Optional[str],
+        typer.Option(
+            "--name",
+            "-n",
+            help="Name of the swarm allocation to check status for. If not provided, checks all allocations.",
+        ),
+    ],
+):
+    swarm = DomynLLMSwarm()
+    if name:
+        status = swarm.get_allocation_status(name)
+        typer.echo(f"Status of allocation '{name}': {status}")
+    else:
+        allocations = swarm.list_allocations()
+        typer.echo("Current allocations:")
+        for alloc in allocations:
+            typer.echo(f"- {alloc['name']}: {alloc['status']}")
 
-app = typer.Typer()
-app.command()(launch_swarm)
+@app.command("pool", short_help="Deploy a pool of swarm allocations")
+def deploy_pool(
+    config: Annotated[
+        typer.FileText,
+        typer.Argument(
+            file_okay=True,
+            help="Path to YAML config for a pool of swarm allocations",
+        ),
+    ]
+):
+    pass
 
+@app.command("down", short_help="Terminate a swarm allocation")
+def terminate_swarm(
+    name: Annotated[
+        Optional[str],
+        typer.Option(
+            "--name",
+            "-n",
+            help="Name of the swarm allocation to terminate. If not provided, terminates all allocations.",
+        ),
+    ],
+):
+    swarm = DomynLLMSwarm()
+    if name:
+        swarm.terminate_allocation(name)
+        typer.echo(f"Terminated allocation '{name}'")
+    else:
+        swarm.terminate_all_allocations()
+        typer.echo("Terminated all allocations")
 
 if __name__ == "__main__":
     app()
