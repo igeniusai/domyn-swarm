@@ -4,6 +4,7 @@
 ###############################################################################
 #SBATCH --account=iGen_train
 #SBATCH --mail-user=federico.dambrosio@igenius.ai
+#SBATCH --qos=qos_llm_min
 
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.partition }}          # e.g. boost_usr_prod
@@ -12,6 +13,7 @@
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem-per-cpu={{ cfg.mem_per_cpu }}
+#SBATCH --time=36:00:00
 
 #SBATCH --output={{ cfg.log_directory }}/%x.%j.out
 #SBATCH --error={{ cfg.log_directory }}/%x.%j.err
@@ -24,7 +26,8 @@ export VLLM_IMAGE="{{ cfg.vllm_image }}"
 export DRIVER_PATH="{{ cfg.driver_script }}"
 export HF_HOME="{{ cfg.hf_home }}"
 export HF_HUB_OFFLINE=1
-export LOG_DIR={{ cfg.log_directory }}/${SLURM_JOB_ID}
+REPL_ID=${SLURM_ARRAY_TASK_ID}
+export LOG_DIR={{ cfg.log_directory }}/${SLURM_JOB_ID}/${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -37,6 +40,7 @@ INSTANCE_TAG="{{ job_name }}_${SLURM_JOB_ID}_head"
 HEAD_PORT="{{ cfg.ray_port }}"           # Ray control port
 REST_PORT="{{ cfg.vllm_port }}"           # vLLM REST port
 
+# Publish head node IP to a file for the load balancer to find it
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers=${NODES[*]:1}"
 
 ###############################################################################
@@ -111,23 +115,15 @@ done
 echo "[head] waiting for REST port ..."
 echo "[head] REST ready  →  http://$HEAD_NODE:$REST_PORT"
 
+HEAD_FILE="{{ cfg.log_directory }}/swarms/${SLURM_JOB_ID}/${SLURM_JOB_ID}_${REPL_ID}.head"
+echo "$HEAD_NODE:$REST_PORT" > "$HEAD_FILE"
 
 ###############################################################################
-#  (3)  RUN THE USER DRIVER (blocking)
+# keep the job alive until Slurm sends SIGTERM (from scancel)
 ###############################################################################
-echo "[driver] running $DRIVER_PATH ..."
-source {{ cfg.venv_path }}/bin/activate
-ENDPOINT="http://$HEAD_NODE:$REST_PORT" \
-python "$DRIVER_PATH"
-deactivate
+trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
 
-echo "✅  Driver completed, cleaning up ..."
-###############################################################################
-#  (4)  CLEAN-UP
-###############################################################################
-if [[ -n "${WORKER_STEP_PID:-}" ]]; then
-    echo "[batch] waiting for worker step to end …"
-    wait "$WORKER_STEP_PID"
-fi
-
+while true; do
+    sleep 60
+done
 singularity instance stop "$INSTANCE_TAG" || true

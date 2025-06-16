@@ -1,6 +1,9 @@
 from dataclasses import dataclass
+import json
 import os
 import pathlib
+import random
+import string
 import subprocess
 import tempfile
 import time
@@ -10,10 +13,9 @@ from itertools import cycle
 from shutil import get_terminal_size
 from threading import Thread
 from time import sleep
-import socket
 import requests
+import typer
 from rich import print as rprint
-
 
 DataclassT = TypeVar("DataclassT")
 
@@ -25,7 +27,7 @@ class DomynLLMSwarmConfig:
     revision: str | None = None
 
     # resources ---------------------------------------------------------------
-    replicas: int = 1 # number of cluster replicas (vLLM servers)
+    replicas: int = 1  # number of cluster replicas (vLLM servers)
     instances: int = 4  # number of *worker* nodes on each replica (vLLM)
     gpus_per_node: int = 4
     cpus_per_task: int = 8
@@ -34,8 +36,14 @@ class DomynLLMSwarmConfig:
     account: str = "iGen_train"
 
     # container images --------------------------------------------------------
-    vllm_image: str | pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif")
-    nginx_image: str | pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif")
+    vllm_image: str | pathlib.Path = pathlib.Path(
+        "/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif"
+    )
+    nginx_image: str | pathlib.Path = pathlib.Path(
+        "/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif"
+    )
+    lb_wait: int = 1200  # seconds to wait for LB to be ready
+    lb_port: int = 9000
 
     # user driver -------------------------------------------------------------
     driver_script: pathlib.Path = pathlib.Path(
@@ -135,7 +143,7 @@ class Loader:
 class DomynLLMSwarm:
     """
     Context manager that:
-      1. renders and submits one Slurm job
+      1. renders and submits one Slurm job as a job array (each job is a replica of the same cluster)
       2. waits for it to COMPLETED/FAILED via sacct
       3. cleans up on error or ^C
 
@@ -144,10 +152,15 @@ class DomynLLMSwarm:
       • SLURM_NODEID 1…instances run the vLLM servers
     """
 
-    def __init__(self, cfg: DomynLLMSwarmConfig):
+    def __init__(self, name: str, cfg: DomynLLMSwarmConfig):
+        rand_string = "".join(
+            random.choices(string.ascii_uppercase + string.digits, k=6)
+        )
+        self.name: str = name or f"domyn-swarm-{rand_string}"
         self.cfg = cfg
         self.jobid: Optional[int] = None
-        self.head_node: Optional[str] = None  # the node where the LB is running
+        self.lb_jobid: Optional[int] = None  # LB job id, set after job submission
+        self.lb_node: Optional[str] = None  # the node where the LB is running
         self._cleaned = False
         self.endpoint: Optional[str] = None  # LB endpoint, set after job submission
 
@@ -165,18 +178,13 @@ class DomynLLMSwarm:
 
     def __enter__(self):
         self._submit_job()
-        self._wait_for_running_job()
+        self._wait_for_lb_health()
         return self  # nothing else to expose in Mode B
 
     def __exit__(self, exc_type, exc, tb):
         pass
 
-    def _submit_job(self):
-        ts = int(time.time())
-        job_name = f"llm-swarm-{ts}"
-        hosts_file = self.cfg.shared_dir / f"swarm_{ts}.hosts"
-
-        # render the SBATCH script
+    def _submit_replicas(self, job_name: str) -> int:
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
             autoescape=False,
@@ -184,9 +192,7 @@ class DomynLLMSwarm:
             lstrip_blocks=True,
         )
         script_txt = env.get_template(self.cfg.template_path.name).render(
-            cfg=self.cfg,
-            job_name=job_name,
-            hosts_file=str(hosts_file),
+            cfg=self.cfg, job_name=job_name
         )
 
         # write to temp file
@@ -197,16 +203,98 @@ class DomynLLMSwarm:
             script_path = fh.name
 
         # submit
+        array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
         out = subprocess.check_output(
-            ["sbatch", "--parsable", script_path], text=True
+            ["sbatch", "--parsable", "--array", array_spec, script_path], text=True
         ).strip()
+        job_id = out.split(";")[0]
         # sbatch --parsable returns "<jobid>;<array_task_id>"
-        self.jobid = int(out.split(";")[0])
-        rprint(f"[LLMSwarm] submitted Slurm job {self.jobid}")
+
+        os.makedirs(self.cfg.log_directory / "swarms" / job_id, exist_ok=True)
+        return int(job_id)
+
+    def _submit_lb(self, job_name: str) -> int:
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
+            autoescape=False,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        lb_script_txt = env.get_template("lb.sh.j2").render(
+            cfg=self.cfg, job_name=job_name, dep_jobid=self.jobid
+        )
+
+        # write to temp file
+        with tempfile.NamedTemporaryFile(
+            "w", delete=False, delete_on_close=False, suffix=".sbatch"
+        ) as fh:
+            fh.write(lb_script_txt)
+            lb_script_path = fh.name
+
+        # submit
+        out = subprocess.check_output(
+            [
+                "sbatch",
+                "--parsable",
+                "--dependency",
+                f"after:{self.jobid}",
+                "--export",
+                f"DEP_JOBID={self.jobid}",
+                lb_script_path,
+            ],
+            text=True,
+        ).strip()
+        return int(out)
+
+    def submit_script(self, script_path: pathlib.Path):
+        """
+        Submit a user script to the swarm allocation.
+        The script will be run on the head node (SLURM_NODEID 0).
+        """
+        if self.jobid is None:
+            raise RuntimeError("No job submitted yet")
+        if not script_path.is_file():
+            raise FileNotFoundError(f"Script not found: {script_path}")
+
+        rprint(f"[LLMSwarm] submitting user script {script_path} to job {self.jobid}")
+        # TODO: THis should be a separate sbatch job, not an srun
+        subprocess.run(
+            [
+                "srun",
+                "--jobid",
+                str(self.jobid),
+                f"--export=ALL,ENDPOINT={self.endpoint}",
+                "--overlap",
+                "--ntasks=1",
+                f"{self.cfg.venv_path / 'bin' / 'python'} {str(script_path)}",
+            ],
+            check=True,
+        )
+
+    def _persist(self):
+        state = {
+            "array_job_id": self.jobid,
+            "lb_job_id": self.lb_jobid,
+        }
+        state_file = pathlib.Path(self.cfg.log_directory) / f"swarm_{self.jobid}.json"
+        state_file.write_text(json.dumps(state, indent=2))
+        rprint(f"[LLMSwarm] state saved to {state_file}")
+
+    def _submit_job(self):
+        ts = int(time.time())
+        job_name = f"{self.name}-{ts}"
+
+        self.jobid = self._submit_replicas(job_name)
+        rprint(
+            f"[LLMSwarm] submitted Slurm job {self.jobid} with {self.cfg.replicas} replicas"
+        )
+        self.lb_jobid = self._submit_lb(job_name)
+        rprint(f"[LLMSwarm] submitted LB job for {self.lb_jobid}")
+        self._persist()
 
     def _get_head_node(self) -> str:
         nodespec = subprocess.check_output(
-            ["squeue", "-j", str(self.jobid), "-h", "-O", "NodeList:2048"],
+            ["squeue", "-j", str(self.lb_jobid), "-h", "-O", "NodeList:2048"],
             text=True,
         ).strip()
         head_node = subprocess.check_output(
@@ -215,56 +303,96 @@ class DomynLLMSwarm:
         ).splitlines()[0]
         return head_node
 
-    def _wait_for_running_job(self):
-        if self.jobid is None:
-            raise RuntimeError("No job submitted")
-        rprint("[LLMSwarm] waiting for job to finish …")
-        while True:
+    def _wait_for_lb_health(self):
+        """
+        Block until *both* the replica-array **and** the Nginx load-balancer
+        are up and the LB answers HTTP on /v1/models.  Sets
+            • self.lb_node    – host running the LB container
+            • self.endpoint   – LB URL (http://host:<lb_port>)
+        """
+        if self.jobid is None or self.lb_jobid is None:
+            raise RuntimeError("Jobs not submitted")
+
+        lb_port = self.cfg.lb_port
+        poll = self.cfg.poll_interval
+
+        def _sacct_state(jid: int) -> str:
             out = subprocess.check_output(
-                ["sacct", "-j", str(self.jobid), "-n", "-X", "-o", "State"], text=True
-            )
-            if not out:
-                rprint(
-                    f"[LLMSwarm] job {self.jobid} not found in sacct output, waiting …"
-                )
-                time.sleep(self.cfg.poll_interval)
-                continue
-            state = out.strip().split()[0]
-            if state in {"PENDING", "RUNNING"}:
-                rprint(f"[LLMSwarm] job {self.jobid} is still pending, waiting …")
-                if state == "RUNNING":
-                    self.head_node = self._get_head_node()
+                ["sacct", "-j", str(jid), "-n", "-X", "-o", "State"],
+                text=True,
+            ).strip()
+            return out.split()[0] if out else "UNKNOWN"
+
+        rprint(
+            f"[LLMSwarm] waiting for replicas ({self.jobid}) and LB ({self.lb_jobid}) …"
+        )
+
+        time.sleep(poll)
+        while True:
+            rep_state = _sacct_state(self.jobid)
+            lb_state = _sacct_state(self.lb_jobid)
+
+            try:
+                if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
                     rprint(
-                        f"[LLMSwarm] job {self.jobid} is running, waiting for vLLM to be up on the head node ({self.head_node})…"
+                        f"[LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
                     )
-                    try:
-                        response = requests.get(
-                            f"http://{self.head_node}:{self.cfg.vllm_port}/v1/models",
-                            timeout=10,
-                        )
-                        if response.status_code == 200:
-                            rprint(f"[LLMSwarm] vLLM is up on {self.head_node}")
-                            self.endpoint = f"http://{self.head_node}:{self.cfg.vllm_port}"
-                            return
-                    except requests.ConnectionError:
-                        rprint(f"[LLMSwarm] vLLM not ready yet, waiting …")
-            elif state in {"COMPLETED", "FAILED", "CANCELLED"}:
-                rprint(f"[LLMSwarm] job {self.jobid} finished with state: {state}")
-                if state == "COMPLETED":
-                    rprint("[LLMSwarm] job completed successfully")
-                else:
-                    rprint(f"[LLMSwarm] job failed with state: {state}")
-                return
-            else:
-                rprint(
-                    f"[LLMSwarm] job {self.jobid} finished with unknown state: {state}"
+                    time.sleep(poll)
+                    continue
+
+                # 1) replicas must at least be RUNNING or COMPLETED
+                if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
+                    raise RuntimeError(f"replica array ended in {rep_state}")
+                if rep_state == "PENDING":
+                    rprint("  • replicas still pending …")
+                    time.sleep(poll)
+                    continue
+
+                # 2) LB must reach RUNNING
+                if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
+                    raise RuntimeError(f"LB job ended in {lb_state} state")
+                if lb_state == "PENDING":
+                    rprint("  • LB job still pending …")
+                    time.sleep(poll)
+                    continue
+
+                # 3) once LB RUNNING, probe its HTTP endpoint
+                if self.lb_node is None:
+                    self.lb_node = self._get_head_node()
+                    rprint(f"  • LB job running on {self.lb_node}, probing …")
+
+                try:
+                    url = f"http://{self.lb_node}:{lb_port}/v1/models"
+                    res = requests.get(url, timeout=5)
+                    if res.status_code == 200:
+                        self.endpoint = f"http://{self.lb_node}:{lb_port}"
+                        rprint(f"[LLMSwarm] LB healthy → {self.endpoint}")
+                        return
+                    rprint(f"  • LB responded {res.status_code}, waiting …")
+                except requests.RequestException:
+                    rprint("  • LB not reachable yet …")
+
+                time.sleep(poll)
+            except KeyboardInterrupt:
+                abort = typer.confirm(
+                    "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
                 )
-                return
-            time.sleep(self.cfg.poll_interval)
+                if abort:
+                    self.cleanup()
+                    rprint("[LLMSwarm] Swarm allocation cancelled by user")
+                    raise typer.Abort()
+                else:
+                    rprint("[LLMSwarm] Continuing to wait for LB health …")
+            except RuntimeError as e:
+                rprint(f"[LLMSwarm] Error: {e}")
+                rprint("[LLMSwarm] Cancelling swarm allocation")
+                self.cleanup()
+                raise e
 
     def cleanup(self):
         if self._cleaned or self.jobid is None:
             return
         subprocess.run(["scancel", str(self.jobid)], check=False)
-        rprint(f"[LLMSwarm] scancel {self.jobid}")
+        subprocess.run(["scancel", str(self.lb_jobid)], check=False)
+        rprint(f"[LLMSwarm] scancel {self.jobid} and {self.lb_jobid} requested")
         self._cleaned = True

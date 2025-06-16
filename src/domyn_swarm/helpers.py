@@ -84,7 +84,7 @@ def launch_nginx_singularity(
     logfile = conf_path.parent / pathlib.Path("nginx_singularity.log")
     with open(logfile, "w") as log:
         subprocess.Popen(
-            ["singularity", "instance", "stop", f"nginx_instance"],
+            ["singularity", "instance", "stop", "nginx_instance"],
             stdout=log,
             stderr=log,
         )
@@ -103,7 +103,7 @@ def launch_nginx_singularity(
             "-B",
             f"{html_path}:/usr/share/nginx/html",
             str(sif_path),
-            f"nginx_instance",
+            "nginx_instance",
         ]
         rprint("Running:\n\t", " ".join(command))
         subprocess.Popen(command, stdout=log, stderr=log)
