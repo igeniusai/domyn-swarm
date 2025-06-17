@@ -11,9 +11,12 @@ from typing_extensions import Annotated
 
 from domyn_swarm.helpers import launch_reverse_proxy
 from domyn_swarm.job import SwarmJob
+
 app = typer.Typer()
-submit_app   = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
-app.add_typer(submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation.")
+submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+app.add_typer(
+    submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation."
+)
 
 
 def _load_swarm_config(
@@ -35,9 +38,8 @@ def _load_swarm_config(
 
 def _load_job(job_class: str, kwargs_json: str) -> SwarmJob:
     mod, cls = job_class.split(":", 1)
-    JobCls   = getattr(importlib.import_module(mod), cls)
+    JobCls = getattr(importlib.import_module(mod), cls)
     return JobCls(**json.loads(kwargs_json))
-
 
 
 def _start_swarm(
@@ -151,7 +153,10 @@ def launch_run(
     )
 
 
-@app.command("status", short_help="Check the status of the swarm allocation (not yet implemented)")
+@app.command(
+    "status",
+    short_help="Check the status of the swarm allocation (not yet implemented)",
+)
 def check_status(
     name: Annotated[
         Optional[str],
@@ -165,7 +170,10 @@ def check_status(
     pass
 
 
-@app.command("pool", short_help="Deploy a pool of swarm allocations from a YAML config (not yet implemented)")
+@app.command(
+    "pool",
+    short_help="Deploy a pool of swarm allocations from a YAML config (not yet implemented)",
+)
 def deploy_pool(
     config: Annotated[
         typer.FileText,
@@ -184,7 +192,9 @@ def down(
         ..., exists=True, help="The swarm_*.json file printed at launch"
     ),
 ):
-    swarm = DomynLLMSwarm.model_validate_json(state_file.read_text())  # validate the file
+    swarm = DomynLLMSwarm.model_validate_json(
+        state_file.read_text()
+    )  # validate the file
     lb = swarm.lb_jobid
     arr = swarm.jobid
 
@@ -200,11 +210,17 @@ def down(
 @submit_app.command("script")
 def submit_script(
     script_file: pathlib.Path = typer.Argument(..., exists=True, readable=True),
-    config:      Optional[pathlib.Path] = typer.Option(None, "-c", "--config", exists=True,
-                        help="YAML that defines/creates a new swarm"),
-    state:       Optional[pathlib.Path] = typer.Option(None, "--state", exists=True,
-                        help="swarm_*.json file of an existing swarm"),
-    args:        List[str] = typer.Argument(None, help="extra CLI args passed to script"),
+    config: Optional[pathlib.Path] = typer.Option(
+        None,
+        "-c",
+        "--config",
+        exists=True,
+        help="YAML that defines/creates a new swarm",
+    ),
+    state: Optional[pathlib.Path] = typer.Option(
+        None, "--state", exists=True, help="swarm_*.json file of an existing swarm"
+    ),
+    args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
@@ -221,17 +237,21 @@ def submit_script(
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
         swarm.submit_script(script_file, extra_args=args)
 
+
 @submit_app.command("job")
 def submit_job(
-    job_class:   str,
-    input:       pathlib.Path = typer.Option(..., "--input", exists=True),
-    output:      pathlib.Path = typer.Option(..., "--output"),
-    job_kwargs:  str          = typer.Option("{}", "--job-kwargs",
-                         help='JSON dict forwarded to job constructor'),
-    config:      Optional[pathlib.Path] = typer.Option(None, "-c", "--config", exists=True,
-                         help="YAML that starts a fresh swarm"),
-    state:       Optional[pathlib.Path] = typer.Option(None, "--state", exists=True,
-                         help="swarm_*.json of a running swarm"),
+    job_class: str,
+    input: pathlib.Path = typer.Option(..., "--input", exists=True),
+    output: pathlib.Path = typer.Option(..., "--output"),
+    job_kwargs: str = typer.Option(
+        "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
+    ),
+    config: Optional[pathlib.Path] = typer.Option(
+        None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
+    ),
+    state: Optional[pathlib.Path] = typer.Option(
+        None, "--state", exists=True, help="swarm_*.json of a running swarm"
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -249,7 +269,6 @@ def submit_job(
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
         swarm.submit_job(job, input_path=input, output_path=output)
-
 
 
 if __name__ == "__main__":

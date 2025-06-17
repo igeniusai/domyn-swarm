@@ -53,8 +53,10 @@ class SwarmJob(abc.ABC):
             raise RuntimeError("ENDPOINT env-var is not set")
 
         self.batch_size = batch_size
-        self.client     = AsyncOpenAI(base_url=self.endpoint, api_key="-", organization="-", project="-")
-        self.kwargs     = kwargs      # free-form tuner params (temperature …)
+        self.client = AsyncOpenAI(
+            base_url=self.endpoint, api_key="-", organization="-", project="-"
+        )
+        self.kwargs = kwargs  # free-form tuner params (temperature …)
 
     # ------------- public sync façade --------------------------------------
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -79,14 +81,14 @@ class SwarmJob(abc.ABC):
     async def _batched(
         self,
         seq: Sequence[Any],
-        coro_fn,                         # takes one item, returns awaitable
+        coro_fn,  # takes one item, returns awaitable
     ) -> list[Any]:
         out: list[Any] = []
         for i in range(0, len(seq), self.batch_size):
             chunk = seq[i : i + self.batch_size]
             out += await asyncio.gather(*(coro_fn(x) for x in chunk))
         return out
-    
+
     async def _checkpoint(self, df: pd.DataFrame, path: str) -> None:
         """
         Save the DataFrame to a Parquet file at `path`.
@@ -97,8 +99,7 @@ class SwarmJob(abc.ABC):
 
     # ------------- user must implement -------------------------------------
     @abc.abstractmethod
-    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        ...
+    async def transform(self, df: pd.DataFrame) -> pd.DataFrame: ...
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ class EmbeddingJob(SwarmJob):
         async def _one(txt: str):
             resp = await self.client.embeddings.create(
                 input=txt,
-                model=self.model,           # model name ignored by vLLM embedding route
+                model=self.model,  # model name ignored by vLLM embedding route
             )
             return resp.data[0].embedding
 

@@ -102,15 +102,15 @@ class DomynLLMSwarm(BaseModel):
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    name: str | None = f"domyn-swarm-{"".join(
-        random.choices(string.ascii_uppercase + string.digits, k=6)
-    )}"
+    name: str | None = f"domyn-swarm-{
+        ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    }"
     cfg: DomynLLMSwarmConfig
     jobid: Optional[int] = None  # Slurm job id, set after job submission
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
     lb_node: Optional[str] = None  # the node where the LB is running
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
-    model: str = ""  # model name, set from cfg.model    
+    model: str = ""  # model name, set from cfg.model
 
     @field_validator("name")
     @classmethod
@@ -336,7 +336,7 @@ class DomynLLMSwarm(BaseModel):
                     console.print("[LLMSwarm] Cancelling swarm allocation")
                     self.cleanup()
                     raise e
-    
+
     def submit_job(
         self,
         job: SwarmJob,
@@ -355,25 +355,33 @@ class DomynLLMSwarm(BaseModel):
         if not input_path.is_file():
             raise FileNotFoundError(input_path)
 
-        export_env = ",".join([
-            "ALL",
-            f"ENDPOINT={self.endpoint}",
-            f"JOB_CLASS={job.__class__.__module__}:{job.__class__.__qualname__}",
-            f"JOB_KWARGS={json.dumps(job.to_kwargs())}",
-            f"INPUT_PARQUET={input_path}",
-            f"OUTPUT_PARQUET={output_path}",
-        ])
+        export_env = ",".join(
+            [
+                "ALL",
+                f"ENDPOINT={self.endpoint}",
+                f"JOB_CLASS={job.__class__.__module__}:{job.__class__.__qualname__}",
+                f"JOB_KWARGS={json.dumps(job.to_kwargs())}",
+                f"INPUT_PARQUET={input_path}",
+                f"OUTPUT_PARQUET={output_path}",
+            ]
+        )
 
         cmd = [
-            "srun", "--jobid", str(self.lb_jobid),
-            "--nodelist", self.lb_node,
-            "--ntasks=1", "--exclusive", "--overlap",
+            "srun",
+            "--jobid",
+            str(self.lb_jobid),
+            "--nodelist",
+            self.lb_node,
+            "--ntasks=1",
+            "--exclusive",
+            "--overlap",
             f"--export={export_env}",
             str(self.cfg.venv_path / "bin" / "python"),
-            "-m", "domyn_swarm.run_job",
+            "-m",
+            "domyn_swarm.run_job",
         ]
         subprocess.run(cmd, check=True)
-    
+
     @classmethod
     def from_state(cls, state_file: pathlib.Path) -> "DomynLLMSwarm":
         """
@@ -389,7 +397,7 @@ class DomynLLMSwarm(BaseModel):
         lb_jobid = state.get("lb_job_id")
         if jobid is None or lb_jobid is None:
             raise ValueError("State file does not contain valid job IDs")
-                
+
         cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
         return cls(
             name=state.get("name", f"domyn-swarm-{int(time.time())}"),
@@ -421,7 +429,6 @@ class DomynLLMSwarm(BaseModel):
 
         rprint(f"[LLMSwarm] Loaded state from {self.jobid} and {self.lb_jobid}")
         return self
-    
 
     def cleanup(self):
         subprocess.run(["scancel", str(self.jobid)], check=False)
