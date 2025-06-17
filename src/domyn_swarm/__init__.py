@@ -86,63 +86,6 @@ def is_job_running(job_id: str):
     return job_id in my_running_jobs
 
 
-class Loader:
-    def __init__(
-        self, desc="Loading...", end="✅ Done!", failed="❌ Aborted!", timeout=0.1
-    ):
-        """
-        A loader-like context manager
-        Modified from https://stackoverflow.com/a/66558182/6611317
-
-        Args:
-            desc (str, optional): The loader's description. Defaults to "Loading...".
-            end (str, optional): Final print. Defaults to "Done!".
-            failed (str, optional): Final print on failure. Defaults to "Aborted!".
-            timeout (float, optional): Sleep time between prints. Defaults to 0.1.
-        """
-        self.desc = desc
-        self.end = end + " " + self.desc
-        self.failed = failed + " " + self.desc
-        self.timeout = timeout
-
-        self._thread = Thread(target=self._animate, daemon=True)
-        self.steps = ["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]
-        self.done = False
-
-    def start(self):
-        self._thread.start()
-        return self
-
-    def _animate(self):
-        try:
-            for c in cycle(self.steps):
-                if self.done:
-                    break
-                rprint(f"\r{c} {self.desc}", flush=True, end="")
-                sleep(self.timeout)
-        except KeyboardInterrupt:
-            self.stop()
-            rprint("KeyboardInterrupt by user")
-
-    def __enter__(self):
-        self.start()
-
-    def stop(self):
-        self.done = True
-        cols = get_terminal_size((80, 20)).columns
-        rprint("\r" + " " * cols, end="", flush=True)
-        rprint(f"\r{self.end}", flush=True)
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if exc_type is None:
-            self.stop()
-        else:
-            self.done = True
-            cols = get_terminal_size((80, 20)).columns
-            rprint("\r" + " " * cols, end="", flush=True)
-            rprint(f"\r{self.failed}", flush=True)
-
-
 class DomynLLMSwarm:
     """
     Context manager that:
