@@ -74,6 +74,10 @@ class DomynLLMSwarmConfig:
     ray_dashboard_port: int = 8265
     venv_path: pathlib.Path = pathlib.Path(os.getcwd()) / ".venv"
 
+    time_limit: str = "36:00:00"  # e.g. 36 hours
+    exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
+    node_list: str | None = None  # e.g. "node[4-6]" (optional)
+
 
 def is_job_running(job_id: str):
     """Given job id, check if the job is in eunning state (needed to retrieve hostname from logs)"""

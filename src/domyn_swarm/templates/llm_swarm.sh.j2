@@ -13,7 +13,9 @@
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem-per-cpu={{ cfg.mem_per_cpu }}
-#SBATCH --time=36:00:00
+#SBATCH --time={{ cfg.time_limit }}          # e.g. 1-00:00:00 (1 day)
+#SBATCH --exclude={{ cfg.exclude_nodes | default('') }}  # e.g. node[1-3] (optional)
+#SBATCH --nodelist={{ cfg.node_list | default('') }}  # e.g. node[4-6] (optional)
 
 #SBATCH --output={{ cfg.log_directory }}/%x.%j.out
 #SBATCH --error={{ cfg.log_directory }}/%x.%j.err
