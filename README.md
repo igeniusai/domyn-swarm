@@ -34,7 +34,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 |-------|------|---------|---------|
 | **model** | `str` | **required** | HF model ID or local path. |
 | **revision** | `str \| null` | `null` | Git tag/commit for the model (if using HF). |
-| **instances** | `int` | `4` | Number of **worker nodes** (one *vLLM* instance per node). |
+| **nodes** | `int` | `4` | Number of **worker nodes** (one *vLLM* instance per node). |
 | **gpus_per_node** | `int` | `4` | GPUs allocated on each worker. |
 | **cpus_per_task** | `int` | `8` | vCPUs reserved per SLURM task. |
 | **mem_per_cpu** | `str` | `"40G"` | Memory per CPU core (SLURM syntax). |
@@ -60,7 +60,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 ```yaml
 # llm-swarm.yaml
 model: meta-llama/Meta-Llama-3-8B-Instruct
-instances: 8        # scale to 8 nodes
+nodes: 8        # scale to 8 nodes
 gpus_per_node: 2    # override default
 vllm_args: "--gpu-memory-utilization 0.85"
 ```

@@ -1,0 +1,88 @@
+#!/bin/bash
+#SBATCH --account=iGen_train
+#SBATCH --mail-user=federico.dambrosio@igenius.ai
+#SBATCH --qos=qos_llm_min
+
+#SBATCH --job-name={{ job_name }}-lb
+#SBATCH --partition={{ cfg.partition }}
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=2
+#SBATCH --time=36:00:00
+#SBATCH --output={{ cfg.log_directory }}/lb_%j.out
+#SBATCH --error={{ cfg.log_directory }}/lb_%j.err
+
+set -eu
+REPLICAS={{ cfg.replicas }}
+HOST_DIR="{{ cfg.log_directory }}/swarms"
+WAIT_SEC={{ cfg.lb_wait | default(600) }}
+NGINX_IMG={{ cfg.nginx_image }}
+INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
+PORT=9000
+
+
+###############################################################################
+#  Everything from here uses Bash ${} that would confuse Jinja:
+#  wrap it in a raw block so Jinja leaves it alone.
+###############################################################################
+{% raw %}
+
+echo "[lb] waiting for $REPLICAS head files from job $DEP_JOBID"
+
+t0=$(date +%s)
+files=()
+while true; do
+    files=( $(ls "$HOST_DIR/${DEP_JOBID}/"*".head" 2>/dev/null || true) )
+    if (( ${#files[@]} == REPLICAS )); then
+        break
+    fi
+    if (( $(date +%s) - t0 > WAIT_SEC )); then
+        echo "[lb] timeout: only ${#files[@]}/$REPLICAS replicas became healthy" >&2
+        exit 1
+    fi
+    sleep 5
+done
+
+echo "[lb] all replicas ready → ${files[*]}"
+
+upstreams=""
+for f in "${files[@]}"; do
+    addr=$(cat "$f")
+    upstreams+="    server $addr;\n"
+done
+
+{% endraw %}
+
+{
+    echo "pid /tmp/nginx.pid;"
+    echo "events {}"
+    echo "http {"
+    echo "  upstream llm {"
+    for f in "${files[@]}"; do
+        addr=$(<"$f")                    # faster cat
+        echo "    server $addr;"
+    done
+    echo "  }"
+    cat <<CONF
+  server {
+    listen $PORT;
+    location / {
+      proxy_pass http://llm;
+    }
+  }
+}
+CONF
+} > nginx.conf
+
+CACHE_DIR="$TMPDIR/cache"
+mkdir -p "$CACHE_DIR"
+
+singularity instance start --writable-tmpfs \
+    -B "$PWD/nginx.conf":/etc/nginx/nginx.conf:ro \
+    -B "$CACHE_DIR":/var/cache/nginx \
+    "$NGINX_IMG" "$INSTANCE_NAME"
+
+trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
+
+while true; do
+    sleep 60
+done
