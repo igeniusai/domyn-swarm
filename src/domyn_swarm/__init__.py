@@ -16,6 +16,7 @@ from time import sleep
 import requests
 import typer
 from rich import print as rprint
+from rich.console import Console
 
 DataclassT = TypeVar("DataclassT")
 
@@ -269,6 +270,8 @@ class DomynLLMSwarm:
                 f"{self.cfg.venv_path / 'bin' / 'python'} {str(script_path)}",
             ],
             check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
     def _persist(self):
@@ -323,71 +326,72 @@ class DomynLLMSwarm:
             ).strip()
             return out.split()[0] if out else "UNKNOWN"
 
-        rprint(
-            f"[LLMSwarm] waiting for replicas ({self.jobid}) and LB ({self.lb_jobid}) …"
-        )
+        console = Console()
 
-        time.sleep(poll)
-        while True:
-            rep_state = _sacct_state(self.jobid)
-            lb_state = _sacct_state(self.lb_jobid)
+        with console.status(
+            "[bold green]Waiting for LB and replicas to start..."
+        ) as status:
+            while True:
+                rep_state = _sacct_state(self.jobid)
+                lb_state = _sacct_state(self.lb_jobid)
 
-            try:
-                if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
-                    rprint(
-                        f"[LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
-                    )
-                    time.sleep(poll)
-                    continue
-
-                # 1) replicas must at least be RUNNING or COMPLETED
-                if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
-                    raise RuntimeError(f"replica array ended in {rep_state}")
-                if rep_state == "PENDING":
-                    rprint("  • replicas still pending …")
-                    time.sleep(poll)
-                    continue
-
-                # 2) LB must reach RUNNING
-                if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
-                    raise RuntimeError(f"LB job ended in {lb_state} state")
-                if lb_state == "PENDING":
-                    rprint("  • LB job still pending …")
-                    time.sleep(poll)
-                    continue
-
-                # 3) once LB RUNNING, probe its HTTP endpoint
-                if self.lb_node is None:
-                    self.lb_node = self._get_head_node()
-                    rprint(f"  • LB job running on {self.lb_node}, probing …")
-
+                time.sleep(poll)  # give sacct some time to update
                 try:
-                    url = f"http://{self.lb_node}:{lb_port}/v1/models"
-                    res = requests.get(url, timeout=5)
-                    if res.status_code == 200:
-                        self.endpoint = f"http://{self.lb_node}:{lb_port}"
-                        rprint(f"[LLMSwarm] LB healthy → {self.endpoint}")
-                        return
-                    rprint(f"  • LB responded {res.status_code}, waiting …")
-                except requests.RequestException:
-                    rprint("  • LB not reachable yet …")
+                    if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
+                        status.update(
+                            f"[LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
+                        )
+                        time.sleep(poll)
+                        continue
 
-                time.sleep(poll)
-            except KeyboardInterrupt:
-                abort = typer.confirm(
-                    "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-                )
-                if abort:
+                    # 1) replicas must at least be RUNNING or COMPLETED
+                    if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
+                        raise RuntimeError(f"replica array ended in {rep_state}")
+                    if rep_state == "PENDING":
+                        status.update("Waiting for replicas to start …")
+                        time.sleep(poll)
+                        continue
+
+                    # 2) LB must reach RUNNING
+                    if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
+                        raise RuntimeError(f"LB job ended in {lb_state} state")
+                    if lb_state == "PENDING":
+                        status.update("Waiting for LB job to start …")
+                        time.sleep(poll)
+                        continue
+
+                    # 3) once LB RUNNING, probe its HTTP endpoint
+                    if self.lb_node is None:
+                        self.lb_node = self._get_head_node()
+                        status.update(f"LB job running on {self.lb_node}, probing …")
+
+                    try:
+                        url = f"http://{self.lb_node}:{lb_port}/v1/models"
+                        res = requests.get(url, timeout=5)
+                        if res.status_code == 200:
+                            self.endpoint = f"http://{self.lb_node}:{lb_port}"
+                            status.update(f"[LLMSwarm] LB healthy → {self.endpoint}")
+                            return
+                        status.update(f"LB responded {res.status_code}, waiting …")
+                    except requests.RequestException:
+                        status.update("Waiting for LB health check…")
+
+                    time.sleep(poll)
+                except KeyboardInterrupt:
+                    abort = typer.confirm(
+                        "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
+                    )
+                    if abort:
+                        self.cleanup()
+                        console.log("[LLMSwarm] Swarm allocation cancelled by user")
+                        raise typer.Abort()
+                    else:
+                        status.update("[LLMSwarm] Continuing to wait for LB health …")
+                except RuntimeError as e:
+                    console.log(f"[LLMSwarm] Error: {e}")
+                    console.log("[LLMSwarm] Cancelling swarm allocation")
                     self.cleanup()
-                    rprint("[LLMSwarm] Swarm allocation cancelled by user")
-                    raise typer.Abort()
-                else:
-                    rprint("[LLMSwarm] Continuing to wait for LB health …")
-            except RuntimeError as e:
-                rprint(f"[LLMSwarm] Error: {e}")
-                rprint("[LLMSwarm] Cancelling swarm allocation")
-                self.cleanup()
-                raise e
+                    raise e
 
     def cleanup(self):
         if self._cleaned or self.jobid is None:

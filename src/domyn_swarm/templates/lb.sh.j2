@@ -31,7 +31,7 @@ echo "[lb] waiting for $REPLICAS head files from job $DEP_JOBID"
 t0=$(date +%s)
 files=()
 while true; do
-    files=( $(ls "$HOST_DIR/${DEP_JOBID}/${DEP_JOBID}"_*".head" 2>/dev/null || true) )
+    files=( $(ls "$HOST_DIR/${DEP_JOBID}/"*".head" 2>/dev/null || true) )
     if (( ${#files[@]} == REPLICAS )); then
         break
     fi

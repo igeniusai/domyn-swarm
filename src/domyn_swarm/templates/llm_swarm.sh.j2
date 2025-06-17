@@ -27,7 +27,7 @@ export DRIVER_PATH="{{ cfg.driver_script }}"
 export HF_HOME="{{ cfg.hf_home }}"
 export HF_HUB_OFFLINE=1
 REPL_ID=${SLURM_ARRAY_TASK_ID}
-export LOG_DIR={{ cfg.log_directory }}/${SLURM_JOB_ID}/${REPL_ID}
+export LOG_DIR={{ cfg.log_directory }}/${SLURM_ARRAY_JOB_ID}/${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -36,7 +36,7 @@ mkdir -p "$LOG_DIR"
 ###############################################################################
 NODES=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 HEAD_NODE=${NODES[0]}
-INSTANCE_TAG="{{ job_name }}_${SLURM_JOB_ID}_head"
+INSTANCE_TAG="{{ job_name }}_${SLURM_ARRAY_JOB_ID}_head"
 HEAD_PORT="{{ cfg.ray_port }}"           # Ray control port
 REST_PORT="{{ cfg.vllm_port }}"           # vLLM REST port
 
@@ -115,7 +115,7 @@ done
 echo "[head] waiting for REST port ..."
 echo "[head] REST ready  →  http://$HEAD_NODE:$REST_PORT"
 
-HEAD_FILE="{{ cfg.log_directory }}/swarms/${SLURM_JOB_ID}/${SLURM_JOB_ID}_${REPL_ID}.head"
+HEAD_FILE="{{ cfg.log_directory }}/swarms/${SLURM_ARRAY_JOB_ID}/${REPL_ID}.head"
 echo "$HEAD_NODE:$REST_PORT" > "$HEAD_FILE"
 
 ###############################################################################
