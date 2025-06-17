@@ -141,7 +141,7 @@ def launch_run(
     )
 
 
-@app.command("status", short_help="Check the status of the swarm allocation")
+@app.command("status", short_help="Check the status of the swarm allocation (not yet implemented)")
 def check_status(
     name: Annotated[
         Optional[str],
@@ -155,7 +155,7 @@ def check_status(
     pass
 
 
-@app.command("pool", short_help="Deploy a pool of swarm allocations")
+@app.command("pool", short_help="Deploy a pool of swarm allocations from a YAML config (not yet implemented)")
 def deploy_pool(
     config: Annotated[
         typer.FileText,
