@@ -1,7 +1,8 @@
+import importlib
 import json
 import pathlib
 import subprocess
-from typing import Optional
+from typing import List, Optional
 
 import yaml
 from domyn_swarm import DomynLLMSwarmConfig, DomynLLMSwarm
@@ -9,14 +10,16 @@ import typer
 from typing_extensions import Annotated
 
 from domyn_swarm.helpers import launch_reverse_proxy
-
+from domyn_swarm.job import SwarmJob
 app = typer.Typer()
+submit_app   = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+app.add_typer(submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation.")
 
 
 def _load_swarm_config(
     config_file: typer.FileText,
     *,
-    replicas: int = 1,
+    replicas: int | None = None,
     driver_script: Optional[pathlib.Path] = None,
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
@@ -30,6 +33,13 @@ def _load_swarm_config(
     return cfg
 
 
+def _load_job(job_class: str, kwargs_json: str) -> SwarmJob:
+    mod, cls = job_class.split(":", 1)
+    JobCls   = getattr(importlib.import_module(mod), cls)
+    return JobCls(**json.loads(kwargs_json))
+
+
+
 def _start_swarm(
     name: Optional[str],
     cfg: DomynLLMSwarmConfig,
@@ -37,8 +47,8 @@ def _start_swarm(
     submit_driver: bool = False,
     reverse_proxy: bool = False,
 ) -> None:
-    """Common context‐manager + reverse proxy logic."""
-    with DomynLLMSwarm(name, cfg) as swarm:
+    """Common context-manager + reverse proxy logic."""
+    with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
         if submit_driver:
             swarm.submit_script(cfg.driver_script)
         if reverse_proxy:
@@ -81,7 +91,7 @@ def launch_up(
             "-r",
             help="Number of replicas for the swarm allocation. Defaults to 1.",
         ),
-    ] = 1,
+    ] = None,
 ):
     cfg = _load_swarm_config(config, replicas=replicas)
     _start_swarm(name, cfg, reverse_proxy=reverse_proxy)
@@ -174,9 +184,9 @@ def down(
         ..., exists=True, help="The swarm_*.json file printed at launch"
     ),
 ):
-    ids = json.loads(state_file.read_text())
-    lb = ids["lb_job_id"]
-    arr = ids["array_job_id"]
+    swarm = DomynLLMSwarm.model_validate_json(state_file.read_text())  # validate the file
+    lb = swarm.lb_jobid
+    arr = swarm.jobid
 
     typer.echo(f"🔴  Cancelling LB  job {lb}")
     subprocess.run(["scancel", str(lb)], check=False)
@@ -185,6 +195,61 @@ def down(
     subprocess.run(["scancel", str(arr)], check=False)
 
     typer.echo("✅  Swarm shutdown request sent.")
+
+
+@submit_app.command("script")
+def submit_script(
+    script_file: pathlib.Path = typer.Argument(..., exists=True, readable=True),
+    config:      Optional[pathlib.Path] = typer.Option(None, "-c", "--config", exists=True,
+                        help="YAML that defines/creates a new swarm"),
+    state:       Optional[pathlib.Path] = typer.Option(None, "--state", exists=True,
+                        help="swarm_*.json file of an existing swarm"),
+    args:        List[str] = typer.Argument(None, help="extra CLI args passed to script"),
+):
+    """
+    Run an *arbitrary* Python file inside the swarm head node.
+    """
+    if bool(config) == bool(state):
+        typer.echo("Either --config or --state must be provided, not both.", err=True)
+        raise typer.Exit(1)
+
+    if config:
+        cfg = _load_swarm_config(config)
+        with DomynLLMSwarm(cfg) as swarm:
+            swarm.submit_script(script_file, extra_args=args)
+    else:
+        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
+        swarm.submit_script(script_file, extra_args=args)
+
+@submit_app.command("job")
+def submit_job(
+    job_class:   str,
+    input:       pathlib.Path = typer.Option(..., "--input", exists=True),
+    output:      pathlib.Path = typer.Option(..., "--output"),
+    job_kwargs:  str          = typer.Option("{}", "--job-kwargs",
+                         help='JSON dict forwarded to job constructor'),
+    config:      Optional[pathlib.Path] = typer.Option(None, "-c", "--config", exists=True,
+                         help="YAML that starts a fresh swarm"),
+    state:       Optional[pathlib.Path] = typer.Option(None, "--state", exists=True,
+                         help="swarm_*.json of a running swarm"),
+):
+    """
+    Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
+    """
+    if bool(config) == bool(state):
+        typer.echo("Either --config or --state must be provided, not both.", err=True)
+        raise typer.Exit(1)
+
+    job = _load_job(job_class, job_kwargs)
+
+    if config:
+        cfg = _load_swarm_config(config)
+        with DomynLLMSwarm(cfg) as swarm:
+            swarm.submit_job(job, input_path=input, output_path=output)
+    else:
+        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
+        swarm.submit_job(job, input_path=input, output_path=output)
+
 
 
 if __name__ == "__main__":

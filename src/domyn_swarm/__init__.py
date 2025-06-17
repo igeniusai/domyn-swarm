@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, make_dataclass
 import json
 import os
 import pathlib
@@ -18,11 +18,11 @@ import typer
 from rich import print as rprint
 from rich.console import Console
 
-DataclassT = TypeVar("DataclassT")
+from domyn_swarm.job import SwarmJob
+from pydantic import BaseModel, ValidationInfo, field_validator
 
 
-@dataclass
-class DomynLLMSwarmConfig:
+class DomynLLMSwarmConfig(BaseModel):
     # model / revision --------------------------------------------------------
     model: str
     revision: str | None = None
@@ -65,7 +65,7 @@ class DomynLLMSwarmConfig:
     nginx_template_path: pathlib.Path = (
         pathlib.Path(__file__).with_suffix("").parent / "templates" / "nginx.conf.j2"
     )
-    hf_home = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
+    hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
     vllm_args: str = ""
     vllm_port: int = 8000
     ray_port: int = 6379
@@ -75,6 +75,10 @@ class DomynLLMSwarmConfig:
     time_limit: str = "36:00:00"  # e.g. 36 hours
     exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
     node_list: str | None = None  # e.g. "node[4-6]" (optional)
+
+    def model_post_init(self, context):
+        os.makedirs(self.log_directory, exist_ok=True)
+        return super().model_post_init(context)
 
 
 def is_job_running(job_id: str):
@@ -86,7 +90,7 @@ def is_job_running(job_id: str):
     return job_id in my_running_jobs
 
 
-class DomynLLMSwarm:
+class DomynLLMSwarm(BaseModel):
     """
     Context manager that:
       1. renders and submits one Slurm job as a job array (each job is a replica of the same cluster)
@@ -98,32 +102,25 @@ class DomynLLMSwarm:
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    def __init__(self, name: str, cfg: DomynLLMSwarmConfig):
-        rand_string = "".join(
-            random.choices(string.ascii_uppercase + string.digits, k=6)
-        )
-        self.name: str = name or f"domyn-swarm-{rand_string}"
-        self.cfg = cfg
-        self.jobid: Optional[int] = None
-        self.lb_jobid: Optional[int] = None  # LB job id, set after job submission
-        self.lb_node: Optional[str] = None  # the node where the LB is running
-        self._cleaned = False
-        self.endpoint: Optional[str] = None  # LB endpoint, set after job submission
+    name: str | None = f"domyn-swarm-{"".join(
+        random.choices(string.ascii_uppercase + string.digits, k=6)
+    )}"
+    cfg: DomynLLMSwarmConfig
+    jobid: Optional[int] = None  # Slurm job id, set after job submission
+    lb_jobid: Optional[int] = None  # LB job id, set after job submission
+    lb_node: Optional[str] = None  # the node where the LB is running
+    endpoint: Optional[str] = None  # LB endpoint, set after job submission
+    model: str = ""  # model name, set from cfg.model    
 
-        # sanity check
-        if not self.cfg.driver_script.is_file():
-            raise FileNotFoundError(
-                f"driver_script not found: {self.cfg.driver_script}"
-            )
-        if not self.cfg.template_path.is_file():
-            raise FileNotFoundError(
-                f"template_path not found: {self.cfg.template_path}"
-            )
-
-        os.makedirs(self.cfg.log_directory, exist_ok=True)
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str, info: ValidationInfo) -> str:
+        if v is None:
+            return cls.model_fields[info.field_name].get_default()
+        return v
 
     def __enter__(self):
-        self._submit_job()
+        self._submit_clusters_job()
         self._wait_for_lb_health()
         return self  # nothing else to expose in Mode B
 
@@ -208,8 +205,8 @@ class DomynLLMSwarm:
             [
                 "srun",
                 "--jobid",
-                str(self.jobid),
-                f"--export=ALL,ENDPOINT={self.endpoint}",
+                str(self.lb_jobid),
+                f"--export=ALL,ENDPOINT={self.endpoint},MODEL={self.model}",
                 "--overlap",
                 "--ntasks=1",
                 f"{self.cfg.venv_path / 'bin' / 'python'} {str(script_path)}",
@@ -220,15 +217,11 @@ class DomynLLMSwarm:
         )
 
     def _persist(self):
-        state = {
-            "array_job_id": self.jobid,
-            "lb_job_id": self.lb_jobid,
-        }
         state_file = pathlib.Path(self.cfg.log_directory) / f"swarm_{self.jobid}.json"
-        state_file.write_text(json.dumps(state, indent=2))
+        state_file.write_text(self.model_dump_json(indent=2))
         rprint(f"[LLMSwarm] state saved to {state_file}")
 
-    def _submit_job(self):
+    def _submit_clusters_job(self):
         ts = int(time.time())
         job_name = f"{self.name}-{ts}"
 
@@ -343,10 +336,94 @@ class DomynLLMSwarm:
                     console.print("[LLMSwarm] Cancelling swarm allocation")
                     self.cleanup()
                     raise e
+    
+    def submit_job(
+        self,
+        job: SwarmJob,
+        *,
+        input_path: pathlib.Path,
+        output_path: pathlib.Path,
+    ) -> None:
+        """
+        Launch `job` inside the swarm allocation.  The job is serialized by
+        its own `.to_kwargs()` and reconstructed with run_job.py on the head
+        node (SLURM_NODEID 0).
+        """
+        if self.jobid is None or self.endpoint is None:
+            raise RuntimeError("Swarm not ready")
+
+        if not input_path.is_file():
+            raise FileNotFoundError(input_path)
+
+        export_env = ",".join([
+            "ALL",
+            f"ENDPOINT={self.endpoint}",
+            f"JOB_CLASS={job.__class__.__module__}:{job.__class__.__qualname__}",
+            f"JOB_KWARGS={json.dumps(job.to_kwargs())}",
+            f"INPUT_PARQUET={input_path}",
+            f"OUTPUT_PARQUET={output_path}",
+        ])
+
+        cmd = [
+            "srun", "--jobid", str(self.lb_jobid),
+            "--nodelist", self.lb_node,
+            "--ntasks=1", "--exclusive", "--overlap",
+            f"--export={export_env}",
+            str(self.cfg.venv_path / "bin" / "python"),
+            "-m", "domyn_swarm.run_job",
+        ]
+        subprocess.run(cmd, check=True)
+    
+    @classmethod
+    def from_state(cls, state_file: pathlib.Path) -> "DomynLLMSwarm":
+        """
+        Load a swarm from a saved state file (swarm_*.json).
+        """
+        if not state_file.is_file():
+            raise FileNotFoundError(f"State file not found: {state_file}")
+
+        with state_file.open("r") as fh:
+            state: dict = json.load(fh)
+
+        jobid = state.get("jobid")
+        lb_jobid = state.get("lb_job_id")
+        if jobid is None or lb_jobid is None:
+            raise ValueError("State file does not contain valid job IDs")
+                
+        cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
+        return cls(
+            name=state.get("name", f"domyn-swarm-{int(time.time())}"),
+            cfg=cfg,
+        )._load_state(
+            jobid=jobid,
+            lb_jobid=lb_jobid,
+            lb_node=state.get("lb_node"),
+            endpoint=state.get("endpoint"),
+            model=state.get("model"),
+        )
+
+    def _load_state(
+        self,
+        jobid: int,
+        lb_jobid: int,
+        lb_node: Optional[str] = None,
+        endpoint: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> "DomynLLMSwarm":
+        """
+        Load the state of an existing swarm from a state file.
+        """
+        self.jobid = jobid
+        self.lb_jobid = lb_jobid
+        self.lb_node = lb_node
+        self.endpoint = endpoint
+        self.model = model or self.cfg.model
+
+        rprint(f"[LLMSwarm] Loaded state from {self.jobid} and {self.lb_jobid}")
+        return self
+    
 
     def cleanup(self):
-        if self._cleaned or self.jobid is None:
-            return
         subprocess.run(["scancel", str(self.jobid)], check=False)
         subprocess.run(["scancel", str(self.lb_jobid)], check=False)
         rprint(f"[LLMSwarm] scancel {self.jobid} and {self.lb_jobid} requested")
