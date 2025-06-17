@@ -29,7 +29,7 @@ class DomynLLMSwarmConfig:
 
     # resources ---------------------------------------------------------------
     replicas: int = 1  # number of cluster replicas (vLLM servers)
-    instances: int = 4  # number of *worker* nodes on each replica (vLLM)
+    nodes: int = 4  # number of *worker* nodes on each replica (vLLM)
     gpus_per_node: int = 4
     cpus_per_task: int = 8
     mem_per_cpu: str = "40G"
@@ -150,7 +150,7 @@ class DomynLLMSwarm:
 
     Inside the allocation:
       • SLURM_NODEID 0 runs the LB (nginx) + user driver
-      • SLURM_NODEID 1…instances run the vLLM servers
+      • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
     def __init__(self, name: str, cfg: DomynLLMSwarmConfig):
@@ -271,7 +271,7 @@ class DomynLLMSwarm:
             ],
             check=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
 
     def _persist(self):
@@ -339,7 +339,7 @@ class DomynLLMSwarm:
                 try:
                     if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
                         status.update(
-                            f"[LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
+                            f"[yellow][LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
                         )
                         time.sleep(poll)
                         continue
@@ -348,7 +348,7 @@ class DomynLLMSwarm:
                     if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
                         raise RuntimeError(f"replica array ended in {rep_state}")
                     if rep_state == "PENDING":
-                        status.update("Waiting for replicas to start …")
+                        status.update("[yellow]Waiting for replicas to start …")
                         time.sleep(poll)
                         continue
 
@@ -356,25 +356,25 @@ class DomynLLMSwarm:
                     if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
                         raise RuntimeError(f"LB job ended in {lb_state} state")
                     if lb_state == "PENDING":
-                        status.update("Waiting for LB job to start …")
+                        status.update("[yellow]Waiting for LB job to start …")
                         time.sleep(poll)
                         continue
 
                     # 3) once LB RUNNING, probe its HTTP endpoint
                     if self.lb_node is None:
                         self.lb_node = self._get_head_node()
-                        status.update(f"LB job running on {self.lb_node}, probing …")
+                        status.update(f"[yellow]LB job running on {self.lb_node}, probing …")
 
                     try:
                         url = f"http://{self.lb_node}:{lb_port}/v1/models"
                         res = requests.get(url, timeout=5)
                         if res.status_code == 200:
                             self.endpoint = f"http://{self.lb_node}:{lb_port}"
-                            status.update(f"[LLMSwarm] LB healthy → {self.endpoint}")
+                            console.print(f"[bold green][LLMSwarm] LB healthy → {self.endpoint}")
                             return
-                        status.update(f"LB responded {res.status_code}, waiting …")
+                        status.update(f"[bold green]LB responded {res.status_code}, waiting …")
                     except requests.RequestException:
-                        status.update("Waiting for LB health check…")
+                        status.update("[yellow]Waiting for LB health check…")
 
                     time.sleep(poll)
                 except KeyboardInterrupt:
@@ -383,13 +383,13 @@ class DomynLLMSwarm:
                     )
                     if abort:
                         self.cleanup()
-                        console.log("[LLMSwarm] Swarm allocation cancelled by user")
+                        console.print("[LLMSwarm] Swarm allocation cancelled by user")
                         raise typer.Abort()
                     else:
                         status.update("[LLMSwarm] Continuing to wait for LB health …")
                 except RuntimeError as e:
-                    console.log(f"[LLMSwarm] Error: {e}")
-                    console.log("[LLMSwarm] Cancelling swarm allocation")
+                    console.print(f"[LLMSwarm] Error: {e}")
+                    console.print("[LLMSwarm] Cancelling swarm allocation")
                     self.cleanup()
                     raise e
 

@@ -8,7 +8,7 @@
 
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.partition }}          # e.g. boost_usr_prod
-#SBATCH --nodes={{ cfg.instances }}              # head  +  workers
+#SBATCH --nodes={{ cfg.nodes }}              # head  +  workers
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
@@ -87,7 +87,7 @@ echo "[head] starting vLLM REST server ..."
 singularity exec -B $HF_HOME:$HF_HOME instance://"$INSTANCE_TAG" \
         vllm serve {{ cfg.model }} \
         --tensor-parallel-size {{ cfg.gpus_per_node }} \
-        --pipeline-parallel-size {{ cfg.instances }} \
+        --pipeline-parallel-size {{ cfg.nodes }} \
         {{ cfg.vllm_args | default('') }} \
         --port $REST_PORT \
         >> "$LOG_DIR/vllm_head.log" 2>&1 &
