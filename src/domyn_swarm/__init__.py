@@ -47,9 +47,7 @@ class DomynLLMSwarmConfig:
     lb_port: int = 9000
 
     # user driver -------------------------------------------------------------
-    driver_script: pathlib.Path = pathlib.Path(
-        "./driver.py"
-    )  # must exist on a shared FS
+    driver_script: pathlib.Path | None = None
 
     log_directory: pathlib.Path = pathlib.Path(
         os.path.join(os.getcwd(), "logs")
@@ -367,16 +365,22 @@ class DomynLLMSwarm:
                     # 3) once LB RUNNING, probe its HTTP endpoint
                     if self.lb_node is None:
                         self.lb_node = self._get_head_node()
-                        status.update(f"[yellow]LB job running on {self.lb_node}, probing …")
+                        status.update(
+                            f"[yellow]LB job running on {self.lb_node}, probing …"
+                        )
 
                     try:
                         url = f"http://{self.lb_node}:{lb_port}/v1/models"
                         res = requests.get(url, timeout=5)
                         if res.status_code == 200:
                             self.endpoint = f"http://{self.lb_node}:{lb_port}"
-                            console.print(f"[bold green][LLMSwarm] LB healthy → {self.endpoint}")
+                            console.print(
+                                f"[bold green][LLMSwarm] LB healthy → {self.endpoint}"
+                            )
                             return
-                        status.update(f"[bold green]LB responded {res.status_code}, waiting …")
+                        status.update(
+                            f"[bold green]LB responded {res.status_code}, waiting …"
+                        )
                     except requests.RequestException:
                         status.update("[yellow]Waiting for LB health check…")
 
