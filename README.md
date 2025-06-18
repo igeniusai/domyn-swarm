@@ -184,7 +184,6 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **account** | `str` | `"iGen_train"` | SLURM account / charge code. |
 | **vllm_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif` | Singularity image that runs the vLLM workers. |
 | **nginx_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif` | Image that runs the NGINX + Dask side-services. |
-| **driver_script** | `pathlib.Path` | `./driver.py` | Script invoked on the **login/driver** node. Must be on a shared filesystem. |
 | **log_directory** | `pathlib.Path` | `./logs` | Directory where SLURM output/error logs are written. |
 | **max_concurrent_requests** | `int` | `2000` | Upper bound enforced by vLLM REST gateway. |
 | **shared_dir** | `pathlib.Path` | `/leonardo_work/iGen_train/shared` | Scratch area mounted on every node. |

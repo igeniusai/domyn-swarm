@@ -5,14 +5,11 @@ import pathlib
 import random
 import string
 import subprocess
+import sys
 import tempfile
 import time
-from typing import Optional, TypeVar
+from typing import Optional
 import jinja2
-from itertools import cycle
-from shutil import get_terminal_size
-from threading import Thread
-from time import sleep
 import requests
 import typer
 from rich import print as rprint
@@ -46,12 +43,11 @@ class DomynLLMSwarmConfig(BaseModel):
     lb_wait: int = 1200  # seconds to wait for LB to be ready
     lb_port: int = 9000
 
-    # user driver -------------------------------------------------------------
-    driver_script: pathlib.Path | None = None
+    home_directory: pathlib.Path = pathlib.Path(
+        os.path.join(os.getcwd(), ".domyn_swarm")
+    )  # where to mount the home directory inside the container
 
-    log_directory: pathlib.Path = pathlib.Path(
-        os.path.join(os.getcwd(), "logs")
-    )  # where to write slurm logs
+    log_directory: pathlib.Path = home_directory / "logs"
 
     # misc --------------------------------------------------------------------
     max_concurrent_requests: int = 2_000
@@ -78,6 +74,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
     def model_post_init(self, context):
         os.makedirs(self.log_directory, exist_ok=True)
+        os.makedirs(self.home_directory, exist_ok=True)
         return super().model_post_init(context)
 
 
@@ -170,7 +167,7 @@ class DomynLLMSwarm(BaseModel):
         job_id = out.split(";")[0]
         # sbatch --parsable returns "<jobid>;<array_task_id>"
 
-        os.makedirs(self.cfg.log_directory / "swarms" / job_id, exist_ok=True)
+        os.makedirs(self.cfg.home_directory / "swarms" / job_id, exist_ok=True)
         return int(job_id)
 
     def _submit_lb(self, job_name: str) -> int:
@@ -234,7 +231,7 @@ class DomynLLMSwarm(BaseModel):
         )
 
     def _persist(self):
-        state_file = pathlib.Path(self.cfg.log_directory) / f"swarm_{self.jobid}.json"
+        state_file = pathlib.Path(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
         state_file.write_text(self.model_dump_json(indent=2))
         rprint(f"[LLMSwarm] state saved to {state_file}")
 
@@ -389,6 +386,11 @@ class DomynLLMSwarm(BaseModel):
                 f"OUTPUT_PARQUET",
         ])
 
+        if self.cfg.venv_path and self.cfg.venv_path.is_dir():
+            python_interpreter = self.cfg.venv_path / "bin" / "python"
+        else:
+            python_interpreter = sys.executable
+
         cmd = [
             "srun",
             "--jobid",
@@ -398,7 +400,7 @@ class DomynLLMSwarm(BaseModel):
             "--ntasks=1",
             "--overlap",
             f"--export={exports}",
-            str(self.cfg.venv_path / "bin" / "python"),
+            python_interpreter,
             "-m",
             "domyn_swarm.run_job",
         ]

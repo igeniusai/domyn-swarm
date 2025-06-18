@@ -7,8 +7,8 @@ Every class:
     `DomynLLMSwarm` on the head node).
 2.  Creates a single `openai.AsyncOpenAI` client pointing to that URL
     (`base_url=ENDPOINT`, `api_key="-"`).
-3.  Provides `.run(df)` – a *synchronous* wrapper around an async
-    coroutine so users don’t have to think about `asyncio` unless they
+3.  Provides `.run(df)` - a *synchronous* wrapper around an async
+    coroutine so users don't have to think about `asyncio` unless they
     want to.
 4.  Implements `.to_kwargs()` ⇒ JSON-serialisable dict so the object can
     be reconstructed by `domyn_swarm.run_job` inside the allocation.
@@ -49,8 +49,8 @@ class SwarmJob(abc.ABC):
         endpoint: str | None = None,
         model: str = "",        
         batch_size: int = 32,
-        parallel: int = 8,
-        retries: int = 2,
+        parallel: int = 32,
+        retries: int = 5,
         **extra_kwargs,
     ):
         self.endpoint   = endpoint or os.getenv("ENDPOINT")
@@ -77,7 +77,7 @@ class SwarmJob(abc.ABC):
         if os.path.exists(ckp_p):
             done_df       = pd.read_parquet(ckp_p)
             processed_idx = set(done_df.index)
-            print(f"[ckp] resuming, {len(done_df)} rows done")
+            rprint(f"[ckp] resuming, {len(done_df)} rows done")
         else:
             done_df       = pd.DataFrame()
             processed_idx = set()
@@ -89,7 +89,7 @@ class SwarmJob(abc.ABC):
             result   = await self.transform(slice_df)
             done_df  = pd.concat([done_df, result]).sort_index()
             done_df.to_parquet(ckp_p)
-            print(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
+            rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
             todo_df  = todo_df.iloc[self.batch_size:]
         
         os.remove(ckp_p)  # remove checkpoint file after processing
@@ -116,7 +116,7 @@ class SwarmJob(abc.ABC):
                     if attempt == self.retries:
                         raise
                     backoff = 2 ** (attempt + 1)
-                    print(f"[retry] {e!r}, attempt {attempt+1}/{self.retries}, sleep {backoff}s")
+                    rprint(f"[retry] {e!r}, attempt {attempt+1}/{self.retries}, sleep {backoff}s")
                     await asyncio.sleep(backoff)
 
         for start in range(0, len(seq), self.parallel):

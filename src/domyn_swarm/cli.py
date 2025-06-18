@@ -22,13 +22,10 @@ app.add_typer(
 def _load_swarm_config(
     config_file: typer.FileText,
     *,
-    replicas: int | None = None,
-    driver_script: Optional[pathlib.Path] = None,
+    replicas: int | None = None
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)
-    if driver_script is not None:
-        cfg_dict["driver_script"] = driver_script
     cfg = DomynLLMSwarmConfig(**cfg_dict)
     # override default only if user passed something truthy
     if replicas:
@@ -46,13 +43,10 @@ def _start_swarm(
     name: Optional[str],
     cfg: DomynLLMSwarmConfig,
     *,
-    submit_driver: bool = False,
     reverse_proxy: bool = False,
 ) -> None:
     """Common context-manager + reverse proxy logic."""
     with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
-        if submit_driver:
-            swarm.submit_script(cfg.driver_script)
         if reverse_proxy:
             launch_reverse_proxy(
                 cfg.nginx_template_path,
@@ -201,6 +195,24 @@ def submit_job(
     state: Optional[pathlib.Path] = typer.Option(
         None, "--state", exists=True, help="swarm_*.json of a running swarm"
     ),
+    batch_size: int = typer.Option(
+        32,
+        "--batch-size",
+        "-b",
+        help="Batch size for processing input DataFrame (default: 32)",
+    ),
+    parallel: int = typer.Option(
+        32,
+        "--parallel",
+        "-p",
+        help="Number of parallel requests to process (default: 32)",
+    ),
+    retries: int = typer.Option(
+        5,
+        "--retries",
+        "-r",
+        help="Number of retries for failed requests (default: 5)",
+    )
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -212,11 +224,11 @@ def submit_job(
     if config:
         cfg = _load_swarm_config(config)
         with DomynLLMSwarm(cfg=cfg) as swarm:
-            job = _load_job(job_class, job_kwargs, endpoint=swarm.endpoint, model=swarm.model)
+            job = _load_job(job_class, job_kwargs, endpoint=swarm.endpoint, model=swarm.model, batch_size=batch_size, parallel=parallel, retries=retries)
             swarm.submit_job(job, input_path=input, output_path=output)
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
-        job = _load_job(job_class, job_kwargs, endpoint=swarm.endpoint, model=swarm.model)
+        job = _load_job(job_class, job_kwargs, endpoint=swarm.endpoint, model=swarm.model, batch_size=batch_size, parallel=parallel, retries=retries)
         swarm.submit_job(job, input_path=input, output_path=output)
 
 
