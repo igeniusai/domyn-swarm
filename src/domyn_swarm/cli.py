@@ -100,60 +100,6 @@ def launch_up(
 
 
 @app.command(
-    "run", short_help="Launch a swarm allocation with a driver script and configuration"
-)
-def launch_run(
-    driver_script: Annotated[
-        pathlib.Path,
-        typer.Argument(
-            file_okay=True,
-            help="Path to the driver script to execute inside the swarm allocation",
-        ),
-    ],
-    config: Annotated[
-        typer.FileText,
-        typer.Option(
-            ..., "-c", "--config", help="Path to YAML config for LLMSwarmConfig"
-        ),
-    ],
-    reverse_proxy: Annotated[
-        bool,
-        typer.Option(
-            "--reverse-proxy/--no-reverse-proxy",
-            help="Enable reverse proxy for the swarm allocation",
-        ),
-    ] = False,
-    name: Annotated[
-        Optional[str],
-        typer.Option(
-            "--name",
-            "-n",
-            help="Name of the swarm allocation. If not provided, a random name will be generated.",
-        ),
-    ] = None,
-    replicas: Annotated[
-        Optional[int],
-        typer.Option(
-            "--replicas",
-            "-r",
-            help="Number of replicas for the swarm allocation. Defaults to 1.",
-        ),
-    ] = 1,
-):
-    cfg = _load_swarm_config(
-        config,
-        replicas=replicas,
-        driver_script=driver_script,
-    )
-    _start_swarm(
-        name,
-        cfg,
-        submit_driver=True,
-        reverse_proxy=reverse_proxy,
-    )
-
-
-@app.command(
     "status",
     short_help="Check the status of the swarm allocation (not yet implemented)",
 )
