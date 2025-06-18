@@ -59,3 +59,6 @@ with out_path.open("w") as fout:
         fout.write(json.dumps({"prompt": p, "completion": txt}) + "\n")
 
 print(f"\n✅  All done. Results in {out_path}")
+
+# rm -rf /leonardo_work/iGen_train/shared_hf_cache/hub/.locks/
+# HF_HOME=/leonardo_work/iGen_train/shared_hf_cache/ uv run huggingface-cli download Qwen/Qwen3-235B-A22B --repo-type model --max-workers 4
