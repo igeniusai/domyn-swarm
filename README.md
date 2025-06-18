@@ -1,7 +1,10 @@
 
-# Domyn-Swarm
+# domyn-swarm
 
-Simple CLI tool to launch vLLM clusters on Slurm.
+A simple CLI for launching and managing Slurm-backed LLM clusters (“swarms”) with optional replicas, load-balancing, and two high-level submission modes:
+
+* **script** – run any arbitrary Python file on the head node
+* **job** – run a strongly-typed `SwarmJob` (DataFrame → DataFrame) with built-in batching, retries and checkpointing
 
 ## Installation
 
@@ -11,19 +14,158 @@ or, if using `uv`:
 
 `uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git`
 
-## How to use
+---
 
-1. Write your driver script which is interacting with an hosted LLM, you can see an example in examples/scripts/simple_driver.py
-2. Write your configuration file according to the config spec
-3. Launch `domyn-swarm`, e.g.
+## Quickstart
+
+1. **Prepare a YAML config**
+   Define your Slurm settings and model:
+
+   ```yaml
+   # config.yaml
+   model: "mistralai/Mistral-7B-Instruct"
+   instances: 4
+   gpus_per_node: 8
+   cpus_per_task: 12
+   mem_per_cpu: "11G"
+   replicas: 2
+   log_directory: "logs/"
+   venv_path: ".venv"
+   ```
+
+   You can find more examples in the `examples/` folder
+
+2. **Launch a fresh swarm**
 
 ```bash
-domyn-swarm examples/scripts/simple_driver.py --config examples/configs/simple_config.yaml
+   domyn-swarm up -c config.yaml --reverse-proxy
 ```
 
-> **_NOTE:_** Your driver will have the ENDPOINT environment variable which you can use to fetch the endpoint to use to use the vLLM APIs
+   This will:
 
-And then wait for the job to be submitted and vLLM cluster to be up.
+   * submit an **array job** with 2 replicas of your cluster
+   * submit a **load-balancer** job that waits on all replicas
+   * print a `swarm_<jobid>.json` file containing the state related to configuration of the swarm
+
+3. **Run a typed job on the cluster**
+   The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at `src/domyn_swarm/jobs.py`
+
+```bash
+   domyn-swarm submit job \
+    --state swarm_16803892.json \
+    --job-kwargs '{"temperature":0.3,"batch_size":16,"parallel":8,"retries":2}' \
+    --input examples/data/chat_completion.parquet \
+    --output results.parquet
+```
+
+   Under the hood this:
+
+   * reads `ENDPOINT=http://<lb-node>:9000`
+   * in a single `srun` on the Load Balancer node, invokes `domyn_swarm.run_job`
+   * streams prompts→answers in batches, retrying failures, checkpointing progress
+
+4. **Run a free-form Python script**
+
+```bash
+   domyn-swarm submit script \
+     --state swarm_16803892.json \
+     examples/my_custom_driver.py -- --verbose --foo bar
+```
+
+   This runs:
+
+```bash
+   srun … python my_custom_driver.py --verbose --foo bar
+```
+
+   on the head node.
+
+5. **Shut down your swarm**
+
+```bash
+   domyn-swarm down swarm_16803892.json
+```
+
+   Cancels both the LB job and the array job via `scancel`.
+
+---
+
+## Commands
+
+```
+Usage: domyn-swarm [OPTIONS] COMMAND [ARGS]…
+
+Options:
+  --install-completion    Install shell completion
+  --show-completion       Show existing completion
+  --help                  Show this help and exit
+
+Commands:
+  up        Launch a new swarm allocation
+  status    Check existing swarm status (TBD)
+  pool      Deploy multiple swarms from one config (TBD)
+  down      Tear down a swarm (by state file)
+  submit    Submit work (script | job) to a live swarm
+```
+
+### `domyn-swarm up`
+
+Start a new allocation:
+
+```bash
+domyn-swarm up -c config.yaml \
+  --replicas 3 \
+  --reverse-proxy
+```
+
+* `-c/--config` — path to your YAML
+* `-r/--replicas` — override number of replicas
+* `--reverse-proxy` — launch an external Nginx reverse proxy
+
+Produces `swarm_<jobid>.json` in your log directory.
+
+### `domyn-swarm down`
+
+```bash
+domyn-swarm down logs/swarm_16803892.json
+```
+
+Stops the LB and all replica jobs via `scancel`.
+
+### `domyn-swarm submit script`
+
+Free-form script on the head node:
+
+```bash
+domyn-swarm submit script \
+  --state logs/swarm_16803892.json \
+  path/to/script.py -- --foo 1 --bar 2
+```
+
+* **script\_file**: your `.py` file (must exist)
+* **--config** or **--state** (one only)
+* **args…** after `--` are forwarded to your script
+
+### `domyn-swarm submit job`
+
+Typed DataFrame → DataFrame jobs:
+
+```bash
+domyn-swarm submit job \
+  my_module:CustomCompletionJob \
+  --state swarm_16803892.json \
+  --job-kwargs '{"temperature":0.2,"batch_size":16}' \
+  --input prompts.parquet \
+  --output answers.parquet
+```
+
+* `<module>:<ClassName>` implementing `SwarmJob`
+* **--job-kwargs** — JSON for the job’s constructor
+* **--input** / **--output** — Parquet files on shared filesystem
+
+Internally uses checkpointing, batching, and retry logic.
+
+---
 
 ### Configuration: `DomynLLMSwarmConfig`
 
@@ -55,12 +197,17 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 ---
 
-#### Minimal example
+## Troubleshooting
 
-```yaml
-# llm-swarm.yaml
-model: meta-llama/Meta-Llama-3-8B-Instruct
-nodes: 8        # scale to 8 nodes
-gpus_per_node: 2    # override default
-vllm_args: "--gpu-memory-utilization 0.85"
-```
+* **`JSONDecodeError` in `--job-kwargs`**
+  Quote your JSON properly in the shell (e.g. `'{"foo":1,"bar":2}'`).
+
+* **Nginx “permission denied”**
+  We bind-mount a writable `cache/` dir into `/var/cache/nginx`. Ensure your log directory is writable.
+
+* **Checkpoint files**
+  Look under `.checkpoints/` in your working directory. Delete or rename to reset progress.
+
+---
+
+Happy swarming!

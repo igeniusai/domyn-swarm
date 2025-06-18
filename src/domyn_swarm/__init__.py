@@ -18,8 +18,8 @@ import typer
 from rich import print as rprint
 from rich.console import Console
 
-from domyn_swarm.job import SwarmJob
-from pydantic import BaseModel, ValidationInfo, field_validator
+from domyn_swarm.jobs import SwarmJob
+from pydantic import BaseModel, ValidationInfo, computed_field, field_validator
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -110,7 +110,6 @@ class DomynLLMSwarm(BaseModel):
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
     lb_node: Optional[str] = None  # the node where the LB is running
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
-    model: str = ""  # model name, set from cfg.model
 
     @field_validator("name")
     @classmethod
@@ -118,10 +117,28 @@ class DomynLLMSwarm(BaseModel):
         if v is None:
             return cls.model_fields[info.field_name].get_default()
         return v
+    
+    @computed_field
+    @property
+    def model(self) -> str:
+        """
+        The model name, either from the config or the job submission.
+        If not set, defaults to the config's model.
+        """
+        return self.cfg.model
+    
+    @model.setter
+    def model(self, value: str):
+        """
+        Setter for the model name. This allows setting the model after
+        the swarm has been created, e.g., when loading from a state file.
+        """
+        self.cfg.model = value
 
     def __enter__(self):
         self._submit_clusters_job()
         self._wait_for_lb_health()
+        self._persist()
         return self  # nothing else to expose in Mode B
 
     def __exit__(self, exc_type, exc, tb):
@@ -354,17 +371,23 @@ class DomynLLMSwarm(BaseModel):
 
         if not input_path.is_file():
             raise FileNotFoundError(input_path)
+        
+        os.environ["ENDPOINT"] = self.endpoint
+        os.environ["MODEL"] = self.model
+        os.environ["JOB_CLASS"] = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
+        os.environ["JOB_KWARGS"] = json.dumps(job.to_kwargs())
+        os.environ["INPUT_PARQUET"] = str(input_path)
+        os.environ["OUTPUT_PARQUET"] = str(output_path)
 
-        export_env = ",".join(
-            [
+        exports = ",".join([
                 "ALL",
-                f"ENDPOINT={self.endpoint}",
-                f"JOB_CLASS={job.__class__.__module__}:{job.__class__.__qualname__}",
-                f"JOB_KWARGS={json.dumps(job.to_kwargs())}",
-                f"INPUT_PARQUET={input_path}",
-                f"OUTPUT_PARQUET={output_path}",
-            ]
-        )
+                f"ENDPOINT",
+                f"MODEL",
+                f"JOB_CLASS",
+                f"JOB_KWARGS",
+                f"INPUT_PARQUET",
+                f"OUTPUT_PARQUET",
+        ])
 
         cmd = [
             "srun",
@@ -373,13 +396,15 @@ class DomynLLMSwarm(BaseModel):
             "--nodelist",
             self.lb_node,
             "--ntasks=1",
-            "--exclusive",
             "--overlap",
-            f"--export={export_env}",
+            f"--export={exports}",
             str(self.cfg.venv_path / "bin" / "python"),
             "-m",
             "domyn_swarm.run_job",
         ]
+
+        rprint(f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:")
+        rprint(f"  {" ".join(cmd)}")
         subprocess.run(cmd, check=True)
 
     @classmethod
@@ -394,7 +419,7 @@ class DomynLLMSwarm(BaseModel):
             state: dict = json.load(fh)
 
         jobid = state.get("jobid")
-        lb_jobid = state.get("lb_job_id")
+        lb_jobid = state.get("lb_jobid")
         if jobid is None or lb_jobid is None:
             raise ValueError("State file does not contain valid job IDs")
 
