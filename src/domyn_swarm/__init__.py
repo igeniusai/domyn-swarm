@@ -66,7 +66,7 @@ class DomynLLMSwarmConfig(BaseModel):
     vllm_port: int = 8000
     ray_port: int = 6379
     ray_dashboard_port: int = 8265
-    venv_path: pathlib.Path = pathlib.Path(os.getcwd()) / ".venv"
+    venv_path: pathlib.Path | None = None
 
     time_limit: str = "36:00:00"  # e.g. 36 hours
     exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
