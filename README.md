@@ -12,7 +12,14 @@ A simple CLI for launching and managing Slurm-backed LLM clusters (“swarms”)
 
 or, if using `uv`:
 
+if you just want to install the package:
+
+`uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git`
+
+if you want to add it as a dependency:
+
 `uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git`
+
 
 ---
 
@@ -24,12 +31,12 @@ or, if using `uv`:
    ```yaml
    # config.yaml
    model: "mistralai/Mistral-7B-Instruct"
-   instances: 4
+   nodes: 4
    gpus_per_node: 8
    cpus_per_task: 12
    mem_per_cpu: "11G"
    replicas: 2
-   log_directory: "logs/"
+   home_directory: ".domyn_swarm/"
    venv_path: ".venv"
    ```
 
@@ -38,7 +45,7 @@ or, if using `uv`:
 2. **Launch a fresh swarm**
 
 ```bash
-   domyn-swarm up -c config.yaml --reverse-proxy
+   domyn-swarm up -c config.yaml
 ```
 
    This will:
@@ -120,7 +127,7 @@ domyn-swarm up -c config.yaml \
 
 * `-c/--config` — path to your YAML
 * `-r/--replicas` — override number of replicas
-* `--reverse-proxy` — launch an external Nginx reverse proxy
+* `--reverse-proxy` — (TBD) launch an Nginx running on the login node you're logged, so that you can access Ray dashboard via SSH tunneling
 
 Produces `swarm_<jobid>.json` in your log directory.
 
@@ -174,7 +181,8 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
-| **model** | `str` | **required** | HF model ID or local path. |
+| **model** | `str` | **required** | HF model ID or local path. Please note that this value will passed verbatim to `vllm serve`, thus it must be a valid path of HF model. If using an HF model, make sure it is available offline in the configured HF_HOME (hf_home in this configuration)|
+| **hf_home** | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | HF cache dir mounted on workers. |
 | **revision** | `str \| null` | `null` | Git tag/commit for the model (if using HF). |
 | **nodes** | `int` | `4` | Number of **worker nodes** (one *vLLM* instance per node). |
 | **gpus_per_node** | `int` | `4` | GPUs allocated on each worker. |
@@ -189,7 +197,6 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **shared_dir** | `pathlib.Path` | `/leonardo_work/iGen_train/shared` | Scratch area mounted on every node. |
 | **poll_interval** | `int` | `10` | Seconds between `sacct` polling cycles while waiting for jobs. |
 | **template_path** | `pathlib.Path` | *(auto-filled)* | Internal path of the Jinja2 SLURM script template; no need to touch. |
-| **hf_home** | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | HF cache dir mounted on workers. |
 | **vllm_args** | `str` | `""` | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`. |
 | **vllm_port** | `int` | `8000` | Port where each worker’s OpenAI-compatible API listens. |
 | **venv_path** | `pathlib.Path` | `./.venv` | Virtual-env used by the *driver* process (not the containers). |
@@ -206,6 +213,10 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 * **Checkpoint files**
   Look under `.checkpoints/` in your working directory. Delete or rename to reset progress.
+
+* **Model not found**
+ If you get an error like this `("Error code: 404 - {'object': 'error', 'message': 'The model ``deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`` does not exist.', 'type': 'NotFoundError', 'param': None, 'code': 404}")`
+ make sure you've downloaded the model locally so that vLLM can serve it. If the model is on HuggingFace, you can download it using `HF_HOME=$FAST/hf_shared_cache huggingface-cli download ORG/MODEL_NAME --repo-type model`, and you configure the hf_home value in the configuration file appropriately.
 
 ---
 
