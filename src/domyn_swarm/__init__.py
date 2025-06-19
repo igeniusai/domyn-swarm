@@ -1,4 +1,3 @@
-from dataclasses import asdict, dataclass, make_dataclass
 import json
 import os
 import pathlib
@@ -114,7 +113,7 @@ class DomynLLMSwarm(BaseModel):
         if v is None:
             return cls.model_fields[info.field_name].get_default()
         return v
-    
+
     @computed_field
     @property
     def model(self) -> str:
@@ -123,7 +122,7 @@ class DomynLLMSwarm(BaseModel):
         If not set, defaults to the config's model.
         """
         return self.cfg.model
-    
+
     @model.setter
     def model(self, value: str):
         """
@@ -368,23 +367,27 @@ class DomynLLMSwarm(BaseModel):
 
         if not input_path.is_file():
             raise FileNotFoundError(input_path)
-        
+
         os.environ["ENDPOINT"] = self.endpoint
         os.environ["MODEL"] = self.model
-        os.environ["JOB_CLASS"] = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
+        os.environ["JOB_CLASS"] = (
+            f"{job.__class__.__module__}:{job.__class__.__qualname__}"
+        )
         os.environ["JOB_KWARGS"] = json.dumps(job.to_kwargs())
         os.environ["INPUT_PARQUET"] = str(input_path)
         os.environ["OUTPUT_PARQUET"] = str(output_path)
 
-        exports = ",".join([
+        exports = ",".join(
+            [
                 "ALL",
-                f"ENDPOINT",
-                f"MODEL",
-                f"JOB_CLASS",
-                f"JOB_KWARGS",
-                f"INPUT_PARQUET",
-                f"OUTPUT_PARQUET",
-        ])
+                "ENDPOINT",
+                "MODEL",
+                "JOB_CLASS",
+                "JOB_KWARGS",
+                "INPUT_PARQUET",
+                "OUTPUT_PARQUET",
+            ]
+        )
 
         if self.cfg.venv_path and self.cfg.venv_path.is_dir():
             python_interpreter = self.cfg.venv_path / "bin" / "python"
@@ -405,8 +408,10 @@ class DomynLLMSwarm(BaseModel):
             "domyn_swarm.run_job",
         ]
 
-        rprint(f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:")
-        rprint(f"  {" ".join(cmd)}")
+        rprint(
+            f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
+        )
+        rprint(f"  {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
 
     @classmethod

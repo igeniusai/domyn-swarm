@@ -19,7 +19,7 @@ def _install(package: str):
     """
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         sys.exit(
             f"[ERROR] Could not install '{package}'. "
             "Install PyArrow or FastParquet manually and re-run."

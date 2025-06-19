@@ -19,6 +19,7 @@ Sub-classes included:
 * `ChatCompletionJob`   → list-of-messages → one assistant reply
 * `EmbeddingJob`        → one text → embedding vector
 """
+
 import os
 import asyncio
 import hashlib
@@ -30,8 +31,8 @@ import pandas as pd
 from openai import AsyncOpenAI, OpenAIError
 from openai.types.chat import ChatCompletion
 from openai.types.completion import Completion
-from openai.types.create_embedding_response import CreateEmbeddingResponse
 from rich import print as rprint
+
 
 class SwarmJob(abc.ABC):
     """
@@ -47,23 +48,27 @@ class SwarmJob(abc.ABC):
         self,
         *,
         endpoint: str | None = None,
-        model: str = "",        
+        model: str = "",
         batch_size: int = 32,
         parallel: int = 32,
         retries: int = 5,
         **extra_kwargs,
     ):
-        self.endpoint   = endpoint or os.getenv("ENDPOINT")
+        self.endpoint = endpoint or os.getenv("ENDPOINT")
         if not self.endpoint:
             raise RuntimeError("ENDPOINT env-var not set")
         self.model = model
         self.batch_size = batch_size
-        self.parallel   = parallel
-        self.retries    = retries
-        self.client     = AsyncOpenAI(base_url=f"{self.endpoint}/v1", api_key="-", organization="-", project="-")
-        self.kwargs     = {**extra_kwargs.get("kwargs", {})}
+        self.parallel = parallel
+        self.retries = retries
+        self.client = AsyncOpenAI(
+            base_url=f"{self.endpoint}/v1", api_key="-", organization="-", project="-"
+        )
+        self.kwargs = {**extra_kwargs.get("kwargs", {})}
 
-    def run(self, df: pd.DataFrame, checkpoint_dir: str = ".checkpoints") -> pd.DataFrame:
+    def run(
+        self, df: pd.DataFrame, checkpoint_dir: str = ".checkpoints"
+    ) -> pd.DataFrame:
         """Synchronous entry-point: runs the async pipeline end-to-end."""
         return asyncio.run(self._run_async(df, checkpoint_dir))
 
@@ -71,27 +76,29 @@ class SwarmJob(abc.ABC):
         """Slice-based checkpointing + transform calls."""
         os.makedirs(ckp_dir, exist_ok=True)
         # create stable tag from DataFrame contents
-        tag   = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()[:8]
+        tag = hashlib.md5(
+            pd.util.hash_pandas_object(df, index=True).values
+        ).hexdigest()[:8]
         ckp_p = os.path.join(ckp_dir, f"{self.__class__.__name__}_{tag}.parquet")
 
         if os.path.exists(ckp_p):
-            done_df       = pd.read_parquet(ckp_p)
+            done_df = pd.read_parquet(ckp_p)
             processed_idx = set(done_df.index)
             rprint(f"[ckp] resuming, {len(done_df)} rows done")
         else:
-            done_df       = pd.DataFrame()
+            done_df = pd.DataFrame()
             processed_idx = set()
 
         todo_df = df.loc[~df.index.isin(processed_idx)]
 
         while not todo_df.empty:
-            slice_df = todo_df.iloc[:self.batch_size]
-            result   = await self.transform(slice_df)
-            done_df  = pd.concat([done_df, result]).sort_index()
+            slice_df = todo_df.iloc[: self.batch_size]
+            result = await self.transform(slice_df)
+            done_df = pd.concat([done_df, result]).sort_index()
             done_df.to_parquet(ckp_p)
             rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
-            todo_df  = todo_df.iloc[self.batch_size:]
-        
+            todo_df = todo_df.iloc[self.batch_size :]
+
         os.remove(ckp_p)  # remove checkpoint file after processing
 
         return done_df
@@ -116,7 +123,9 @@ class SwarmJob(abc.ABC):
                     if attempt == self.retries:
                         raise
                     backoff = 2 ** (attempt + 1)
-                    rprint(f"[retry] {e!r}, attempt {attempt+1}/{self.retries}, sleep {backoff}s")
+                    rprint(
+                        f"[retry] {e!r}, attempt {attempt + 1}/{self.retries}, sleep {backoff}s"
+                    )
                     await asyncio.sleep(backoff)
 
         for start in range(0, len(seq), self.parallel):
@@ -141,7 +150,8 @@ class SwarmJob(abc.ABC):
         return {
             k: v
             for k, v in self.__dict__.items()
-            if isinstance(v, (str, int, float, bool, list, dict, type(None))) and k not in {"endpoint", "model"}
+            if isinstance(v, (str, int, float, bool, list, dict, type(None)))
+            and k not in {"endpoint", "model"}
         }
 
 
@@ -178,6 +188,7 @@ class ChatCompletionJob(SwarmJob):
             )
             return resp.choices[0].message.content
 
-        df["answer"] = await self._batched([[message] for message in df["messages"].tolist()], _call)
+        df["answer"] = await self._batched(
+            [[message] for message in df["messages"].tolist()], _call
+        )
         return df
-

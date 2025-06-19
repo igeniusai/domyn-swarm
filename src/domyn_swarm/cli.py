@@ -20,9 +20,7 @@ app.add_typer(
 
 
 def _load_swarm_config(
-    config_file: typer.FileText,
-    *,
-    replicas: int | None = None
+    config_file: typer.FileText, *, replicas: int | None = None
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)
@@ -132,9 +130,7 @@ def down(
         ..., exists=True, help="The swarm_*.json file printed at launch"
     ),
 ):
-    swarm = DomynLLMSwarm.model_validate_json(
-        state_file.read()
-    )  # validate the file
+    swarm = DomynLLMSwarm.model_validate_json(state_file.read())  # validate the file
     lb = swarm.lb_jobid
     arr = swarm.jobid
 
@@ -212,7 +208,7 @@ def submit_job(
         "--retries",
         "-r",
         help="Number of retries for failed requests (default: 5)",
-    )
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -224,11 +220,27 @@ def submit_job(
     if config:
         cfg = _load_swarm_config(config)
         with DomynLLMSwarm(cfg=cfg) as swarm:
-            job = _load_job(job_class, job_kwargs, endpoint=swarm.endpoint, model=swarm.model, batch_size=batch_size, parallel=parallel, retries=retries)
+            job = _load_job(
+                job_class,
+                job_kwargs,
+                endpoint=swarm.endpoint,
+                model=swarm.model,
+                batch_size=batch_size,
+                parallel=parallel,
+                retries=retries,
+            )
             swarm.submit_job(job, input_path=input, output_path=output)
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
-        job = _load_job(job_class, job_kwargs, endpoint=swarm.endpoint, model=swarm.model, batch_size=batch_size, parallel=parallel, retries=retries)
+        job = _load_job(
+            job_class,
+            job_kwargs,
+            endpoint=swarm.endpoint,
+            model=swarm.model,
+            batch_size=batch_size,
+            parallel=parallel,
+            retries=retries,
+        )
         swarm.submit_job(job, input_path=input, output_path=output)
 
 
