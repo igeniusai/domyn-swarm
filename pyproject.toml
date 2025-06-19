@@ -36,3 +36,8 @@ version_scheme = "semver"
 version_provider = "uv"
 update_changelog_on_bump = true
 major_version_zero = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
