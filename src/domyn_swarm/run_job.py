@@ -4,8 +4,9 @@ import json
 import importlib
 import pandas as pd
 import asyncio
+from domyn_swarm.helpers import parquet_hash
 from domyn_swarm.jobs import SwarmJob  # base class
-
+import pathlib
 
 def _load_cls(path: str) -> type[SwarmJob]:
     mod, cls = path.split(":")
@@ -23,8 +24,9 @@ async def _amain() -> None:
     JobCls = _load_cls(cls_path)
     job = JobCls(endpoint=endpoint, model=model, **kwargs)
 
+    tag = parquet_hash(pathlib.Path(in_path))
     df_in = pd.read_parquet(in_path)
-    df_out = await job.transform(df_in)  # async core
+    df_out: pd.DataFrame = await job.run(df_in, tag)
     df_out.to_parquet(out_path)
 
 

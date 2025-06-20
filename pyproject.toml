@@ -5,6 +5,7 @@ description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "blake3>=1.0.5",
     "huggingface-hub>=0.32.6",
     "jinja2>=3.1.6",
     "openai>=1.88.0",

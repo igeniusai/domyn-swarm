@@ -5,12 +5,11 @@ import subprocess
 from typing import List, Optional
 
 import yaml
-from domyn_swarm import DomynLLMSwarmConfig, DomynLLMSwarm
 import typer
 from typing_extensions import Annotated
 
-from domyn_swarm.helpers import launch_reverse_proxy
 from domyn_swarm.jobs import SwarmJob
+from domyn_swarm import DomynLLMSwarmConfig, DomynLLMSwarm
 
 app = typer.Typer()
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
@@ -39,13 +38,15 @@ def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
 
 def _start_swarm(
     name: Optional[str],
-    cfg: DomynLLMSwarmConfig,
+    cfg: "DomynLLMSwarmConfig",
     *,
     reverse_proxy: bool = False,
 ) -> None:
     """Common context-manager + reverse proxy logic."""
     with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
         if reverse_proxy:
+            from domyn_swarm.helpers import launch_reverse_proxy
+
             launch_reverse_proxy(
                 cfg.nginx_template_path,
                 cfg.nginx_image,
@@ -192,13 +193,13 @@ def submit_job(
         None, "--state", exists=True, help="swarm_*.json of a running swarm"
     ),
     batch_size: int = typer.Option(
-        32,
+        8,
         "--batch-size",
         "-b",
         help="Batch size for processing input DataFrame (default: 32)",
     ),
     parallel: int = typer.Option(
-        32,
+        4,
         "--parallel",
         "-p",
         help="Number of parallel requests to process (default: 32)",

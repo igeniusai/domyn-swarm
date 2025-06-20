@@ -194,7 +194,6 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **nginx_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif` | Image that runs the NGINX + Dask side-services. |
 | **log_directory** | `pathlib.Path` | `./logs` | Directory where SLURM output/error logs are written. |
 | **max_concurrent_requests** | `int` | `2000` | Upper bound enforced by vLLM REST gateway. |
-| **shared_dir** | `pathlib.Path` | `/leonardo_work/iGen_train/shared` | Scratch area mounted on every node. |
 | **poll_interval** | `int` | `10` | Seconds between `sacct` polling cycles while waiting for jobs. |
 | **template_path** | `pathlib.Path` | *(auto-filled)* | Internal path of the Jinja2 SLURM script template; no need to touch. |
 | **vllm_args** | `str` | `""` | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`. |

@@ -12,7 +12,6 @@ import jinja2
 import requests
 import typer
 from rich import print as rprint
-from rich.console import Console
 
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator
@@ -50,7 +49,6 @@ class DomynLLMSwarmConfig(BaseModel):
 
     # misc --------------------------------------------------------------------
     max_concurrent_requests: int = 2_000
-    shared_dir: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared")
     poll_interval: int = 10  # sacct polling cadence (s)
 
     # template path (auto-filled after clone)
@@ -98,7 +96,7 @@ class DomynLLMSwarm(BaseModel):
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    name: str | None = f"domyn-swarm-{
+    name: str | None = f"domyn-swarm-{int(time.time())}-{
         ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     }"
     cfg: DomynLLMSwarmConfig
@@ -159,6 +157,7 @@ class DomynLLMSwarm(BaseModel):
             script_path = fh.name
 
         # submit
+        os.makedirs(self.cfg.log_directory / job_name, exist_ok=True)
         array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
         out = subprocess.check_output(
             ["sbatch", "--parsable", "--array", array_spec, script_path], text=True
@@ -235,8 +234,7 @@ class DomynLLMSwarm(BaseModel):
         rprint(f"[LLMSwarm] state saved to {state_file}")
 
     def _submit_clusters_job(self):
-        ts = int(time.time())
-        job_name = f"{self.name}-{ts}"
+        job_name = self.name
 
         self.jobid = self._submit_replicas(job_name)
         rprint(
@@ -277,17 +275,19 @@ class DomynLLMSwarm(BaseModel):
             ).strip()
             return out.split()[0] if out else "UNKNOWN"
 
+        from rich.console import Console
+
         console = Console()
 
-        with console.status(
-            "[bold green]Waiting for LB and replicas to start..."
-        ) as status:
-            while True:
-                rep_state = _sacct_state(self.jobid)
-                lb_state = _sacct_state(self.lb_jobid)
+        try:
+            with console.status(
+                "[bold green]Waiting for LB and replicas to start..."
+            ) as status:
+                while True:
+                    rep_state = _sacct_state(self.jobid)
+                    lb_state = _sacct_state(self.lb_jobid)
 
-                time.sleep(poll)  # give sacct some time to update
-                try:
+                    time.sleep(poll)  # give sacct some time to update
                     if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
                         status.update(
                             f"[yellow][LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
@@ -334,21 +334,21 @@ class DomynLLMSwarm(BaseModel):
                         status.update("[yellow]Waiting for LB health check…")
 
                     time.sleep(poll)
-                except KeyboardInterrupt:
-                    abort = typer.confirm(
-                        "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-                    )
-                    if abort:
-                        self.cleanup()
-                        console.print("[LLMSwarm] Swarm allocation cancelled by user")
-                        raise typer.Abort()
-                    else:
-                        status.update("[LLMSwarm] Continuing to wait for LB health …")
-                except RuntimeError as e:
-                    console.print(f"[LLMSwarm] Error: {e}")
-                    console.print("[LLMSwarm] Cancelling swarm allocation")
-                    self.cleanup()
-                    raise e
+        except KeyboardInterrupt:
+            abort = typer.confirm(
+                "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
+            )
+            if abort:
+                self.cleanup()
+                console.print("[LLMSwarm] Swarm allocation cancelled by user")
+                raise typer.Abort()
+            else:
+                status.update("[LLMSwarm] Continuing to wait for LB health …")
+        except RuntimeError as e:
+            console.print(f"[red1][LLMSwarm] Error: {e}")
+            console.print("[red1][LLMSwarm] Cancelling swarm allocation")
+            self.cleanup()
+            raise e
 
     def submit_job(
         self,

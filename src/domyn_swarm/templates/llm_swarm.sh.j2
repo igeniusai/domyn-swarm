@@ -22,25 +22,28 @@
 #SBATCH --nodelist={{ cfg.node_list | default('') }}  # e.g. node[4-6] (optional)
 {% endif %}
 
-#SBATCH --output={{ cfg.log_directory }}/%x.%j.out
-#SBATCH --error={{ cfg.log_directory }}/%x.%j.err
+#SBATCH --output={{ cfg.log_directory }}/{{ job_name }}/%x.%j.out
+#SBATCH --error={{ cfg.log_directory }}/{{ job_name }}/%x.%j.err
 set -eu
+
+module load cuda/12.1
+module load nccl/2.19.3-1--gcc--12.2.0-cuda-12.1
 
 ###############################################################################
 #  USER-TUNABLE ENV
 ###############################################################################
 export VLLM_IMAGE="{{ cfg.vllm_image }}"
-export DRIVER_PATH="{{ cfg.driver_script }}"
 export HF_HOME="{{ cfg.hf_home }}"
 export HF_HUB_OFFLINE=1
 
+export PYTHONNOUSERSITE=1  # don't use system site-packages
+
 # NCCL related settings
-export NCCL_IB_HCA=mlx5
 export NCCL_DEBUG=INFO
-export NCCL_SOCKET_IFNAME=ib0
-export NCCL_IB_GID_INDEX=3                 # RoCEv2 if you use it
-export NCCL_NET_GDR_LEVEL=2
-export NCCL_ALGO=Ring                      # good for 4-GPU nodes
+export NCCL_SOCKET_IFNAME=ib
+
+# Ray related settings
+export RAY_CGRAPH_get_timeout=1200
 
 
 REPL_ID=${SLURM_ARRAY_TASK_ID}
@@ -64,7 +67,7 @@ echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers
 #  (1)  START HEAD CONTAINER ON NODE-0
 ###############################################################################
 echo "[head] starting Singularity instance ..."
-singularity instance start -B $HF_HOME:$HF_HOME --writable-tmpfs --nv --env VLLM_HOST_IP="$VLLM_HOST_IP" "$VLLM_IMAGE" "$INSTANCE_TAG" \
+singularity instance start --bind $HF_HOME:$HF_HOME,/dev/infiniband:/dev/infiniband --writable-tmpfs --nv --env VLLM_HOST_IP="$VLLM_HOST_IP" "$VLLM_IMAGE" "$INSTANCE_TAG" \
         --disable-usage-stats --head --block --port=$HEAD_PORT --dashboard-host=0.0.0.0
 
 # ---- wait until Ray head is healthy ----------------------------------------
@@ -86,7 +89,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
          --output="$LOG_DIR/worker_%t.out" \
           bash -c '
               VLLM_HOST_IP=$(hostname -I | awk "{print \$1}")
-              exec singularity exec -B '"$HF_HOME"':'"$HF_HOME"' --nv \
+              exec singularity exec --bind '"$HF_HOME"':'"$HF_HOME"',/dev/infiniband:/dev/infiniband --nv \
                   --env VLLM_HOST_IP="$VLLM_HOST_IP" \
                   '"$VLLM_IMAGE"' \
                   ray start --disable-usage-stats \
@@ -104,7 +107,9 @@ echo "[head] starting vLLM REST server ..."
 singularity exec -B $HF_HOME:$HF_HOME instance://"$INSTANCE_TAG" \
         vllm serve {{ cfg.model }} \
         --tensor-parallel-size {{ cfg.gpus_per_node }} \
-        --pipeline-parallel-size {{ cfg.nodes }} \
+        {% if cfg.nodes > 1 %}
+        --distributed-executor-backend ray \
+        {% endif %}
         {{ cfg.vllm_args | default('') }} \
         --port $REST_PORT \
         >> "$LOG_DIR/vllm_head.log" 2>&1 &
