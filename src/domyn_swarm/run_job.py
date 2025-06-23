@@ -8,6 +8,7 @@ from domyn_swarm.helpers import parquet_hash
 from domyn_swarm.jobs import SwarmJob  # base class
 import pathlib
 
+
 def _load_cls(path: str) -> type[SwarmJob]:
     mod, cls = path.split(":")
     return getattr(importlib.import_module(mod), cls)

@@ -1,8 +1,8 @@
 model: deepseek-ai/DeepSeek-R1-0528
 revision: main
-nodes: 12
+nodes: 10
 gpus_per_node: 4
 replicas: 1
-vllm_args: "--pipeline-parallel-size 12 --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 32768 --reasoning-parser deepseek_r1 --max-num-batched-tokens 512 --max-num-seqs 32"
+vllm_args: "--pipeline-parallel-size 6 --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 32768 --reasoning-parser deepseek_r1 --max-num-batched-tokens 512 --max-num-seqs 32"
 lb_wait: 3600
 hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/

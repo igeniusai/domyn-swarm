@@ -166,9 +166,14 @@ domyn-swarm submit job \
   --output answers.parquet
 ```
 
-* `<module>:<ClassName>` implementing `SwarmJob`
-* **--job-kwargs** — JSON for the job’s constructor
+* `<module>:<ClassName>` implementing `SwarmJob`, defaults to `domyn_swarm.jobs:ChatCompletionJob`
 * **--input** / **--output** — Parquet files on shared filesystem
+* **--job-kwargs** — JSON for the job’s constructor
+* **--config** or **--state** (one only)  -  the definition or state of the cluster where the job will be submitted
+* **--batch-size** - batch size of the requests to be sent to be processed. Once a batch has finished processing, the checkpoint will be updated
+* **--parallel** - Number of concurrent requests to process
+* **--retries** - Number of retries for failed requests
+
 
 Internally uses checkpointing, batching, and retry logic.
 
@@ -181,7 +186,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
-| **model** | `str` | **required** | HF model ID or local path. Please note that this value will passed verbatim to `vllm serve`, thus it must be a valid path of HF model. If using an HF model, make sure it is available offline in the configured HF_HOME (hf_home in this configuration)|
+| **model** | `str` | **required** | HF model ID or local path. Please note that this value will be passed verbatim to `vllm serve`, thus it must be a valid path for a model or the id of an HuggingFace model saved locally. If using an HF model, make sure it is available offline in the configured HF_HOME (hf_home in this configuration)|
 | **hf_home** | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | HF cache dir mounted on workers. |
 | **revision** | `str \| null` | `null` | Git tag/commit for the model (if using HF). |
 | **nodes** | `int` | `4` | Number of **worker nodes** (one *vLLM* instance per node). |

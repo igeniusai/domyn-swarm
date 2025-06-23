@@ -193,16 +193,16 @@ def submit_job(
         None, "--state", exists=True, help="swarm_*.json of a running swarm"
     ),
     batch_size: int = typer.Option(
-        8,
+        32,
         "--batch-size",
         "-b",
         help="Batch size for processing input DataFrame (default: 32)",
     ),
     parallel: int = typer.Option(
-        4,
+        32,
         "--parallel",
         "-p",
-        help="Number of parallel requests to process (default: 32)",
+        help="Number of concurrent requests to process (default: 32)",
     ),
     retries: int = typer.Option(
         5,

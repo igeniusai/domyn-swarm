@@ -25,7 +25,14 @@ import asyncio
 import hashlib
 import dataclasses
 import abc
-from typing import Sequence, Any
+from typing import Callable, Sequence, Any
+import openai
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 import pandas as pd
 from rich import print as rprint
@@ -66,12 +73,14 @@ class SwarmJob(abc.ABC):
         self.kwargs = {**extra_kwargs.get("kwargs", {})}
 
     async def run(
-        self, df: pd.DataFrame, tag:str, checkpoint_dir: str = ".checkpoints"
+        self, df: pd.DataFrame, tag: str, checkpoint_dir: str = ".checkpoints"
     ) -> pd.DataFrame:
         """Synchronous entry-point: runs the async pipeline end-to-end."""
         return await self._run_async(df, tag, checkpoint_dir)
 
-    async def _run_async(self, df: pd.DataFrame, tag: str, ckp_dir: str) -> pd.DataFrame:
+    async def _run_async(
+        self, df: pd.DataFrame, tag: str, ckp_dir: str
+    ) -> pd.DataFrame:
         """Slice-based checkpointing + transform calls."""
         os.makedirs(ckp_dir, exist_ok=True)
         # create stable tag from DataFrame contents
@@ -99,9 +108,15 @@ class SwarmJob(abc.ABC):
 
         return done_df
 
-    async def _batched(self, seq, fn):
-        out   = [None] * len(seq)
-        sem   = asyncio.Semaphore(self.parallel)          # keeps *at most* N tasks alive
+    async def _batched(self, seq: Sequence, fn: Callable):
+        fn = retry(
+            fn,
+            retry=retry_if_exception_type(openai.APITimeoutError),
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            stop=stop_after_attempt(self.retries),
+        )
+        out = [None] * len(seq)
+        sem = asyncio.Semaphore(self.parallel)  # keeps *at most* N tasks alive
         queue = asyncio.Queue()
 
         for idx, item in enumerate(seq):
@@ -116,7 +131,7 @@ class SwarmJob(abc.ABC):
         workers = [asyncio.create_task(worker()) for _ in range(self.parallel)]
         await asyncio.gather(*workers)
         return out
-    
+
     @abc.abstractmethod
     async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Process a slice of the DataFrame and return same-shaped DataFrame."""
