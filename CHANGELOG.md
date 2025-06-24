@@ -1,3 +1,14 @@
+## v0.3.0 (2025-06-24)
+
+### Feat
+
+- add custom input and output columns, add deepseek r1 distill config, use vllm-only for serving models on a single node
+
+### Fix
+
+- add retry mechanism and update deepseek r1 config
+- fix issues with checkpoints not happening, tune deepseek_r1 deployment, update example datasets
+
 ## v0.2.1 (2025-06-19)
 
 ### Fix
