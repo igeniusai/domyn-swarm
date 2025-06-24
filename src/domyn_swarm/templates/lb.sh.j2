@@ -55,7 +55,7 @@ done
 
 {
     echo "pid /tmp/nginx.pid;"
-    echo "events {}"
+    echo "events { worker_connections 100000; }"
     echo "http {"
     echo "  upstream llm {"
     for f in "${files[@]}"; do

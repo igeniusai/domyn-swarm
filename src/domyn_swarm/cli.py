@@ -51,7 +51,7 @@ def _start_swarm(
                 cfg.nginx_template_path,
                 cfg.nginx_image,
                 swarm.lb_node,
-                cfg.vllm_port,
+                int(swarm.endpoint.split(":")[2]),
                 cfg.ray_dashboard_port,
             )
 
@@ -183,6 +183,12 @@ def submit_job(
     ),
     input: pathlib.Path = typer.Option(..., "--input", exists=True),
     output: pathlib.Path = typer.Option(..., "--output"),
+    input_column: str = typer.Option(
+        "messages", "--input-column"
+    ),
+    output_column: str = typer.Option(
+        "results", "--output-column"
+    ),
     job_kwargs: str = typer.Option(
         "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
     ),
@@ -229,6 +235,8 @@ def submit_job(
                 batch_size=batch_size,
                 parallel=parallel,
                 retries=retries,
+                input_column_name=input_column,
+                output_column_name=output_column,
             )
             swarm.submit_job(job, input_path=input, output_path=output)
     else:
@@ -241,6 +249,8 @@ def submit_job(
             batch_size=batch_size,
             parallel=parallel,
             retries=retries,
+            input_column_name=input_column,
+            output_column_name=output_column,
         )
         swarm.submit_job(job, input_path=input, output_path=output)
 

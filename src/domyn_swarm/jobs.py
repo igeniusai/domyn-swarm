@@ -25,7 +25,7 @@ import asyncio
 import hashlib
 import dataclasses
 import abc
-from typing import Callable, Sequence, Any
+from typing import Callable, List, Sequence, Any
 import openai
 from tenacity import (
     retry,
@@ -53,6 +53,8 @@ class SwarmJob(abc.ABC):
         *,
         endpoint: str | None = None,
         model: str = "",
+        input_column_name: str = "messages",
+        output_column_name: str = "result",
         batch_size: int = 16,
         parallel: int = 2,
         retries: int = 5,
@@ -67,6 +69,8 @@ class SwarmJob(abc.ABC):
         self.batch_size = batch_size
         self.parallel = parallel
         self.retries = retries
+        self.input_column_name = input_column_name
+        self.output_column_name = output_column_name
         self.client = AsyncOpenAI(
             base_url=f"{self.endpoint}/v1", api_key="-", organization="-", project="-"
         )
@@ -79,57 +83,129 @@ class SwarmJob(abc.ABC):
         return await self._run_async(df, tag, checkpoint_dir)
 
     async def _run_async(
-        self, df: pd.DataFrame, tag: str, ckp_dir: str
+        self,
+        df: pd.DataFrame,
+        tag: str,
+        ckp_dir: str,
     ) -> pd.DataFrame:
-        """Slice-based checkpointing + transform calls."""
-        os.makedirs(ckp_dir, exist_ok=True)
-        # create stable tag from DataFrame contents
-        ckp_p = os.path.join(ckp_dir, f"{self.__class__.__name__}_{tag}.parquet")
+        """
+        High-level orchestration.
 
-        if os.path.exists(ckp_p):
-            done_df = pd.read_parquet(ckp_p)
-            processed_idx = set(done_df.index)
-            rprint(f"[ckp] resuming, {len(done_df)} rows done")
+        Loads an existing checkpoint (if any), builds a hidden flush callback
+        `self._ckp_flush`, runs `transform()` once, and finally returns the
+        combined DataFrame.
+        """
+        os.makedirs(ckp_dir, exist_ok=True)
+        ckp_path = os.path.join(
+            ckp_dir, f"{self.__class__.__name__}_{tag}.parquet"
+        )
+
+        # ───────────── restore previous progress (if any)
+        if os.path.exists(ckp_path):
+            done_df = pd.read_parquet(ckp_path)
+            done_idx = set(done_df.index)
+            rprint(f"[ckp] resuming – {len(done_df)} rows done already")
         else:
             done_df = pd.DataFrame()
-            processed_idx = set()
+            done_idx = set()
 
-        todo_df = df.loc[~df.index.isin(processed_idx)]
+        todo_df = df.loc[~df.index.isin(done_idx)]
+        idx_map: List[Any] = todo_df.index.tolist()  # position → global index
 
-        while not todo_df.empty:
-            slice_df = todo_df.iloc[: self.batch_size]
-            result = await self.transform(slice_df)
-            done_df = pd.concat([done_df, result]).sort_index()
-            done_df.to_parquet(ckp_p)
+        # ───────────── checkpoint flush callback (captured by _batched)
+        async def _flush(out_list: list, new_ids: list[int]) -> None:
+            """Persist just-completed rows to the checkpoint parquet file."""
+            nonlocal done_df
+
+            global_rows = [idx_map[i] for i in new_ids]
+            tmp = todo_df.loc[global_rows].copy()
+            tmp[self.output_column_name] = [out_list[i] for i in new_ids]
+
+            done_df = pd.concat([done_df, tmp]).sort_index()
+            done_df.to_parquet(ckp_path)
             rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
-            todo_df = todo_df.iloc[self.batch_size :]
 
-        os.remove(ckp_p)  # remove checkpoint file after processing
+        # expose the callback so _batched() can discover it transparently
+        self._ckp_flush = _flush  # type: ignore[attr-defined]
 
-        return done_df
+        try:
+            _ = await self.transform(todo_df)  # returns df, but we rely on flushes
+        finally:
+            # always remove the attribute, even if transform() raises
+            if hasattr(self, "_ckp_flush"):
+                delattr(self, "_ckp_flush")
 
-    async def _batched(self, seq: Sequence, fn: Callable):
+        # All slices flushed – combine w/ any remainder produced by transform()
+        final_df = done_df.combine_first(todo_df).sort_index()
+
+        # Success → drop checkpoint file
+        try:
+            os.remove(ckp_path)
+        except FileNotFoundError:
+            pass
+
+        return final_df
+
+    # ................................................ concurrent executor .....
+    async def _batched(
+        self,
+        seq: Sequence,
+        fn: Callable,
+        *,
+        on_batch_done: Callable[[list, list[int]], None] | None = None,
+    ) -> list:
+        """
+        Run *fn* concurrently over *seq* with retries.
+
+        • Respects `self.parallel` for concurrency.
+        • Retries `openai.APITimeoutError` up to `self.retries` times.
+        • Calls *on_batch_done* (or the hidden self._ckp_flush) every
+          `self.batch_size` completions and once at the end.
+        """
+        # allow explicit override or fall back to checkpoint flush
+        on_batch_done = on_batch_done or getattr(self, "_ckp_flush", None)
+
         fn = retry(
             fn,
             retry=retry_if_exception_type(openai.APITimeoutError),
             wait=wait_exponential(multiplier=1, min=4, max=10),
             stop=stop_after_attempt(self.retries),
         )
-        out = [None] * len(seq)
-        sem = asyncio.Semaphore(self.parallel)  # keeps *at most* N tasks alive
-        queue = asyncio.Queue()
+
+        out: list[Any | None] = [None] * len(seq)
+        sem = asyncio.Semaphore(self.parallel)
+        queue: asyncio.Queue[tuple[int, Any]] = asyncio.Queue()
 
         for idx, item in enumerate(seq):
-            await queue.put((idx, item))
+            queue.put_nowait((idx, item))
 
-        async def worker():
+        lock = asyncio.Lock()
+        completed = 0
+        pending_ids: list[int] = []
+
+        async def worker() -> None:
+            nonlocal completed, pending_ids
             while not queue.empty():
                 idx, item = await queue.get()
                 async with sem:
                     out[idx] = await fn(item)
 
-        workers = [asyncio.create_task(worker()) for _ in range(self.parallel)]
-        await asyncio.gather(*workers)
+                async with lock:
+                    completed += 1
+                    pending_ids.append(idx)
+
+                    flush_now = (
+                        completed % self.batch_size == 0
+                        or completed == len(seq)
+                    )
+                    if flush_now and on_batch_done:
+                        ids_now = pending_ids
+                        pending_ids = []
+                        await on_batch_done(out, ids_now)
+
+        await asyncio.gather(
+            *(asyncio.create_task(worker()) for _ in range(self.parallel))
+        )
         return out
 
     @abc.abstractmethod
@@ -186,7 +262,7 @@ class ChatCompletionJob(SwarmJob):
             )
             return resp.choices[0].message.content
 
-        df["answer"] = await self._batched(
-            [[message] for message in df["messages"].tolist()], _call
+        df[self.output_column_name] = await self._batched(
+            [[message] for message in df[self.input_column_name].tolist()], _call
         )
         return df

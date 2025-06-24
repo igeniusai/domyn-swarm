@@ -33,7 +33,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
     # container images --------------------------------------------------------
     vllm_image: str | pathlib.Path = pathlib.Path(
-        "/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif"
+        "/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif"
     )
     nginx_image: str | pathlib.Path = pathlib.Path(
         "/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif"
