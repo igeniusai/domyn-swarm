@@ -1,3 +1,9 @@
+## v0.3.1 (2025-06-25)
+
+### Fix
+
+- improve docs, fix an issue with job kwargs incorrectly handled
+
 ## v0.3.0 (2025-06-24)
 
 ### Feat
