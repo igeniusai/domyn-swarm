@@ -22,11 +22,9 @@ Sub-classes included:
 
 import os
 import asyncio
-import hashlib
 import dataclasses
 import abc
 from typing import Callable, List, Sequence, Any
-import openai
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -54,7 +52,7 @@ class SwarmJob(abc.ABC):
         endpoint: str | None = None,
         model: str = "",
         input_column_name: str = "messages",
-        output_column_name: str = "result",
+        output_column_name: str | list = "result",
         batch_size: int = 16,
         parallel: int = 2,
         retries: int = 5,
@@ -74,7 +72,12 @@ class SwarmJob(abc.ABC):
         self.client = AsyncOpenAI(
             base_url=f"{self.endpoint}/v1", api_key="-", organization="-", project="-"
         )
-        self.kwargs = {**extra_kwargs.get("kwargs", {})}
+        if "kwargs" in extra_kwargs.keys():
+            self.kwargs = {**extra_kwargs.get("kwargs", {})}
+        else:
+            self.kwargs = {**extra_kwargs}
+        
+        print("in constructor:", self.kwargs)
 
     async def run(
         self, df: pd.DataFrame, tag: str, checkpoint_dir: str = ".checkpoints"
@@ -96,9 +99,7 @@ class SwarmJob(abc.ABC):
         combined DataFrame.
         """
         os.makedirs(ckp_dir, exist_ok=True)
-        ckp_path = os.path.join(
-            ckp_dir, f"{self.__class__.__name__}_{tag}.parquet"
-        )
+        ckp_path = os.path.join(ckp_dir, f"{self.__class__.__name__}_{tag}.parquet")
 
         # ───────────── restore previous progress (if any)
         if os.path.exists(ckp_path):
@@ -114,12 +115,15 @@ class SwarmJob(abc.ABC):
 
         # ───────────── checkpoint flush callback (captured by _batched)
         async def _flush(out_list: list, new_ids: list[int]) -> None:
-            """Persist just-completed rows to the checkpoint parquet file."""
             nonlocal done_df
-
             global_rows = [idx_map[i] for i in new_ids]
             tmp = todo_df.loc[global_rows].copy()
-            tmp[self.output_column_name] = [out_list[i] for i in new_ids]
+
+            if isinstance(self.output_column_name, str):
+                tmp[self.output_column_name] = [out_list[i] for i in new_ids]
+            else:
+                for col_idx, col_name in enumerate(self.output_column_name):
+                    tmp[col_name] = [out_list[i][col_idx] for i in new_ids]
 
             done_df = pd.concat([done_df, tmp]).sort_index()
             done_df.to_parquet(ckp_path)
@@ -146,8 +150,7 @@ class SwarmJob(abc.ABC):
 
         return final_df
 
-    # ................................................ concurrent executor .....
-    async def _batched(
+    async def batched(
         self,
         seq: Sequence,
         fn: Callable,
@@ -162,12 +165,13 @@ class SwarmJob(abc.ABC):
         • Calls *on_batch_done* (or the hidden self._ckp_flush) every
           `self.batch_size` completions and once at the end.
         """
+        from openai import APITimeoutError
         # allow explicit override or fall back to checkpoint flush
         on_batch_done = on_batch_done or getattr(self, "_ckp_flush", None)
 
         fn = retry(
             fn,
-            retry=retry_if_exception_type(openai.APITimeoutError),
+            retry=retry_if_exception_type(APITimeoutError),
             wait=wait_exponential(multiplier=1, min=4, max=10),
             stop=stop_after_attempt(self.retries),
         )
@@ -194,9 +198,8 @@ class SwarmJob(abc.ABC):
                     completed += 1
                     pending_ids.append(idx)
 
-                    flush_now = (
-                        completed % self.batch_size == 0
-                        or completed == len(seq)
+                    flush_now = completed % self.batch_size == 0 or completed == len(
+                        seq
                     )
                     if flush_now and on_batch_done:
                         ids_now = pending_ids
@@ -241,7 +244,7 @@ class CompletionJob(SwarmJob):
             )
             return resp.choices[0].text
 
-        df["completion"] = await self._batched(df["prompt"].tolist(), _call)
+        df["completion"] = await self.batched(df["prompt"].tolist(), _call)
         return df
 
 
@@ -262,7 +265,53 @@ class ChatCompletionJob(SwarmJob):
             )
             return resp.choices[0].message.content
 
-        df[self.output_column_name] = await self._batched(
+        df[self.output_column_name] = await self.batched(
             [[message] for message in df[self.input_column_name].tolist()], _call
         )
+        return df
+
+
+class MultiChatCompletionJob(SwarmJob):
+    """
+    Produce *n* independent chat completions for every row.
+
+    Input  column : `messages`
+    Output columns: `generated_1`, `generated_2`, …, `generated_n`
+    """
+
+    def __init__(self, n: int = 3, **kwargs):
+        super().__init__(**kwargs)
+        self.n = n
+        base_output_column_name = kwargs.pop("output_column_name")
+        self.output_column_name = (
+            [f"{base_output_column_name}_{i + 1}" for i in range(n)]
+            if isinstance(base_output_column_name, str)
+            else base_output_column_name
+        )
+
+    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        from openai.types.chat import ChatCompletion
+
+        df = df.copy()
+
+        async def _call(messages) -> list[str]:
+            """Return *n* completions for one prompt."""
+            resp: ChatCompletion = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                n=self.n,  # ask the API for n choices at once
+                **self.kwargs,
+            )
+            return [choice.message.content for choice in resp.choices]
+
+        # _batched now returns List[List[str]] (len == n for each inner list)
+        multi_outputs = await self.batched(
+            [[m] for m in df[self.input_column_name].tolist()],
+            _call,
+        )
+
+        # Unpack the list-of-lists into separate DataFrame columns
+        for i, col in enumerate(self.output_column_name):
+            df[col] = [row[i] for row in multi_outputs]
+
         return df

@@ -24,6 +24,10 @@ dev = [
     "commitizen>=4.8.3",
     "ruff>=0.11.13",
 ]
+bench = [
+    "datasets>=3.6.0",
+    "vllm>=0.9.1",
+]
 
 [project.scripts]
 domyn-swarm = "domyn_swarm.cli:app"

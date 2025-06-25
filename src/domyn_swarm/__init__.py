@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import pathlib
@@ -12,6 +13,7 @@ import jinja2
 import requests
 import typer
 from rich import print as rprint
+import yaml
 
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator
@@ -73,6 +75,21 @@ class DomynLLMSwarmConfig(BaseModel):
         os.makedirs(self.log_directory, exist_ok=True)
         os.makedirs(self.home_directory, exist_ok=True)
         return super().model_post_init(context)
+    
+    @classmethod
+    def read(cls, path: pathlib.Path) -> "DomynLLMSwarmConfig":
+        return _load_swarm_config(path.open())
+
+def _load_swarm_config(
+    config_file: typer.FileText, *, replicas: int | None = None
+) -> DomynLLMSwarmConfig:
+    """Load YAML, inject driver_script if given, apply replicas override."""
+    cfg_dict = yaml.safe_load(config_file)
+    cfg = DomynLLMSwarmConfig(**cfg_dict)
+    # override default only if user passed something truthy
+    if replicas:
+        cfg.replicas = replicas
+    return cfg
 
 
 def is_job_running(job_id: str):
@@ -104,6 +121,7 @@ class DomynLLMSwarm(BaseModel):
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
     lb_node: Optional[str] = None  # the node where the LB is running
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
+    delete_on_exit: Optional[bool] = False  # Delete the resources for this cluster at the end of the job
 
     @field_validator("name")
     @classmethod
@@ -136,7 +154,8 @@ class DomynLLMSwarm(BaseModel):
         return self  # nothing else to expose in Mode B
 
     def __exit__(self, exc_type, exc, tb):
-        pass
+        if self.delete_on_exit:
+            self.cleanup()
 
     def _submit_replicas(self, job_name: str) -> int:
         env = jinja2.Environment(
@@ -431,10 +450,9 @@ class DomynLLMSwarm(BaseModel):
             raise ValueError("State file does not contain valid job IDs")
 
         cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
-        return cls(
+        return DomynLLMSwarm(
             name=state.get("name", f"domyn-swarm-{int(time.time())}"),
             cfg=cfg,
-        )._load_state(
             jobid=jobid,
             lb_jobid=lb_jobid,
             lb_node=state.get("lb_node"),
@@ -467,3 +485,29 @@ class DomynLLMSwarm(BaseModel):
         subprocess.run(["scancel", str(self.lb_jobid)], check=False)
         rprint(f"[LLMSwarm] scancel {self.jobid} and {self.lb_jobid} requested")
         self._cleaned = True
+
+
+def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
+    mod, cls = job_class.split(":", 1)
+    JobCls = getattr(importlib.import_module(mod), cls)
+    return JobCls(**kwargs, **json.loads(kwargs_json))
+
+
+def _start_swarm(
+    name: Optional[str],
+    cfg: "DomynLLMSwarmConfig",
+    *,
+    reverse_proxy: bool = False,
+) -> None:
+    """Common context-manager + reverse proxy logic."""
+    with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
+        if reverse_proxy:
+            from domyn_swarm.helpers import launch_reverse_proxy
+
+            launch_reverse_proxy(
+                cfg.nginx_template_path,
+                cfg.nginx_image,
+                swarm.lb_node,
+                int(swarm.endpoint.split(":")[2]),
+                cfg.ray_dashboard_port,
+            )

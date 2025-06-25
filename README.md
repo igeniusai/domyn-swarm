@@ -207,6 +207,101 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 ---
 
+## Python API (Programmatic usage)
+
+In the `examples` folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: `examples/scripts/custom_main.py`.
+
+### Define a custom job
+
+```python
+# custom_job.py
+# You can do whatever you want inside this function, as long as it returns a pd.DataFrame
+from domyn_swarm.jobs import SwarmJob
+import pandas as pd
+import random
+
+class MyCustomSwarmJob(SwarmJob):
+
+    async def transform(self, df: pd.DataFrame):
+
+        async def _call(prompt: str) -> str:
+            from openai.types.completion import Completion
+
+            # Default client is pointing to the endpoint deployed by domyn-swarm and defined in the 
+            # domyn-swarm config
+            resp: Completion = await self.client.completions.create(
+                model=self.model, prompt=prompt, **self.kwargs
+            )
+            return resp.choices[0].text
+        
+        temperature = self.kwargs["temperature"] 
+
+        df["score"] = pd.Series(data=[random.random() for _ in range(len(df))])
+        df["current_model"] = self.model + f"_{temperature}"
+
+        # Call the endpoint batching the calls asynchronously in the background
+        df["completion"] = await self.batched(df["messages"].tolist(), _call)
+
+        return df
+```
+
+### Run a custom job via CLI
+
+```shell
+domyn-swarm submit job examples.scripts.custom_job:MyCustomJob \
+   --config examples/configs/deepseek_r1_distill.yaml \
+   --input examples/data/completion.parquet \
+   --output results/output.parquet \
+   --job-kwargs '{"temperature": 0.2}'
+```
+
+### Use a custom job in a script (create a cluster and submit the job manually)
+
+```python
+from pathlib import Path
+from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
+from examples.scripts.custom_job import MyCustomSwarmJob
+from rich import print as rprint
+
+config_path = Path("examples/configs/deepseek_r1_distill.yaml")
+input_path = Path("examples/data/completion.parquet")
+output_path = Path("results/output.parquet")
+config = DomynLLMSwarmConfig.read(config_path)
+
+# This will allocate the resources and then submit the job
+with DomynLLMSwarm(cfg=config) as swarm:
+    job = MyCustomSwarmJob(
+            endpoint=swarm.endpoint,
+            model=swarm.model,
+            # 16 concurrent requests to the LLM
+            parallel=16,            
+            # You can add custom keyword arguments, which you 
+            # can reference in you transform implementation by calling
+            # self.kwargs
+            temperature=0.2
+    )
+    rprint(job.to_kwargs())
+
+    swarm.submit_job(job, input_path=input_path, output_path=output_path)
+```
+
+### Run a custom script
+
+```shell
+# Make sure the class you've implemented is on the path
+
+# If you're using uv
+PYTHONPATH=. uv run examples/scripts/custom_main.py
+
+# or
+
+PYTHONPATH=. python examples/scripts/custom_main.py
+```
+
+
+
+---
+
 ## Troubleshooting
 
 * **`JSONDecodeError` in `--job-kwargs`**

@@ -59,10 +59,7 @@ REST_PORT="{{ cfg.vllm_port }}"           # vLLM REST port
 # Publish head node IP to a file for the load balancer to find it
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers=${NODES[*]:1}"
 
-###############################################################################
-#  (1)  START HEAD CONTAINER ON NODE-0
-###############################################################################
-
+export VLLM_USE_V1=0
 ###############################################################################
 #  (2)  LAUNCH ONE WORKER ON EVERY OTHER NODE
 ###############################################################################
@@ -114,7 +111,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     sleep 30 # give workers time to start
 
     echo "[head] starting vLLM REST server ..."
-    singularity exec instance://"$INSTANCE_TAG" \
+    singularity exec --bind /sys,/dev/infiniband,/etc/libibverbs.d --contain --nv instance://"$INSTANCE_TAG" \
             vllm serve {{ cfg.model }} \
             --tensor-parallel-size {{ cfg.gpus_per_node }} \
             --distributed-executor-backend ray \
@@ -126,7 +123,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     singularity exec instance://"$INSTANCE_TAG" ray status 
 else 
     export CUDA_LAUNCH_BLOCKING=1
-    singularity exec --bind $HF_HOME:$HF_HOME --writable-tmpfs --nv "$VLLM_IMAGE" \
+    singularity exec --bind $HF_HOME:$HF_HOME --writable-tmpfs --nv --contain "$VLLM_IMAGE" \
             vllm serve {{ cfg.model }} \
             --tensor-parallel-size {{ cfg.gpus_per_node }} \
             {{ cfg.vllm_args | default('') }} \

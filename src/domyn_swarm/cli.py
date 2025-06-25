@@ -1,59 +1,17 @@
-import importlib
-import json
 import pathlib
 import subprocess
 from typing import List, Optional
 
-import yaml
 import typer
 from typing_extensions import Annotated
 
-from domyn_swarm.jobs import SwarmJob
-from domyn_swarm import DomynLLMSwarmConfig, DomynLLMSwarm
+from domyn_swarm import DomynLLMSwarm, _start_swarm, _load_job, _load_swarm_config
 
 app = typer.Typer()
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 app.add_typer(
     submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation."
 )
-
-
-def _load_swarm_config(
-    config_file: typer.FileText, *, replicas: int | None = None
-) -> DomynLLMSwarmConfig:
-    """Load YAML, inject driver_script if given, apply replicas override."""
-    cfg_dict = yaml.safe_load(config_file)
-    cfg = DomynLLMSwarmConfig(**cfg_dict)
-    # override default only if user passed something truthy
-    if replicas:
-        cfg.replicas = replicas
-    return cfg
-
-
-def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
-    mod, cls = job_class.split(":", 1)
-    JobCls = getattr(importlib.import_module(mod), cls)
-    return JobCls(**kwargs, **json.loads(kwargs_json))
-
-
-def _start_swarm(
-    name: Optional[str],
-    cfg: "DomynLLMSwarmConfig",
-    *,
-    reverse_proxy: bool = False,
-) -> None:
-    """Common context-manager + reverse proxy logic."""
-    with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
-        if reverse_proxy:
-            from domyn_swarm.helpers import launch_reverse_proxy
-
-            launch_reverse_proxy(
-                cfg.nginx_template_path,
-                cfg.nginx_image,
-                swarm.lb_node,
-                int(swarm.endpoint.split(":")[2]),
-                cfg.ray_dashboard_port,
-            )
 
 
 @app.command("up", short_help="Launch a swarm allocation with a configuration")
@@ -183,12 +141,8 @@ def submit_job(
     ),
     input: pathlib.Path = typer.Option(..., "--input", exists=True),
     output: pathlib.Path = typer.Option(..., "--output"),
-    input_column: str = typer.Option(
-        "messages", "--input-column"
-    ),
-    output_column: str = typer.Option(
-        "results", "--output-column"
-    ),
+    input_column: str = typer.Option("messages", "--input-column"),
+    output_column: str = typer.Option("results", "--output-column"),
     job_kwargs: str = typer.Option(
         "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
     ),
