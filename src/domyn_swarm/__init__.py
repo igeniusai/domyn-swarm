@@ -173,7 +173,7 @@ class DomynLLMSwarm(BaseModel):
 
         # write to temp file
         with tempfile.NamedTemporaryFile(
-            "w", delete=False, delete_on_close=False, suffix=".sbatch"
+            "w", delete=False, suffix=".sbatch"
         ) as fh:
             fh.write(script_txt)
             script_path = fh.name
@@ -203,24 +203,22 @@ class DomynLLMSwarm(BaseModel):
 
         # write to temp file
         with tempfile.NamedTemporaryFile(
-            "w", delete=False, delete_on_close=False, suffix=".sbatch"
+            "w", delete=False, suffix=".sbatch"
         ) as fh:
             fh.write(lb_script_txt)
-            lb_script_path = fh.name
-
-        # submit
-        out = subprocess.check_output(
-            [
-                "sbatch",
-                "--parsable",
-                "--dependency",
-                f"after:{self.jobid}",
-                "--export",
-                f"DEP_JOBID={self.jobid}",
-                lb_script_path,
-            ],
-            text=True,
-        ).strip()
+            # submit
+            out = subprocess.check_output(
+                [
+                    "sbatch",
+                    "--parsable",
+                    "--dependency",
+                    f"after:{self.jobid}",
+                    "--export",
+                    f"DEP_JOBID={self.jobid}",
+                    fh.name,
+                ],
+                text=True,
+            ).strip()
         return int(out)
 
     def submit_script(self, script_path: pathlib.Path):

@@ -17,7 +17,6 @@ Sub-classes included:
 
 * `CompletionJob`       → one prompt → one text completion
 * `ChatCompletionJob`   → list-of-messages → one assistant reply
-* `EmbeddingJob`        → one text → embedding vector
 """
 
 import os
