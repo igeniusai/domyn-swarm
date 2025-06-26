@@ -18,7 +18,7 @@ HOST_DIR="${HOME_DIR}/swarms"
 WAIT_SEC={{ cfg.lb_wait | default(600) }}
 NGINX_IMG={{ cfg.nginx_image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
-PORT=9000
+PORT={{ cfg.lb_port }}
 
 
 ###############################################################################

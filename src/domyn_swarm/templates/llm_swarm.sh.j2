@@ -26,8 +26,6 @@
 #SBATCH --error={{ cfg.log_directory }}/{{ job_name }}/%x.%j.err
 set -eu
 
-module load cuda/12.1
-module load nccl/2.19.3-1--gcc--12.2.0-cuda-12.1
 
 ###############################################################################
 #  USER-TUNABLE ENV
@@ -71,16 +69,22 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     # export NCCL_OOB_NET_IFNAME="mlx5"
     export NCCL_SOCKET_IFNAME=ib
     export NCCL_IB_HCA="mlx5"
+    export NCCL_ASYNC_ERROR_HANDLING=1
+    export TORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.6,max_split_size_mb:512
     export NCCL_IB_SL=1
     export NCCL_IB_CUDA_SUPPORT=1
     export NCCL_IB_GDR_LEVEL=SYS
     export NCCL_P2P_LEVEL=NVL
     export NCCL_CUMEM_ENABLE=1
 
+    # These variables will disable infiniband
+    # export NCCL_IB_DISABLE=1
+    # export NCCL_P2P_DISABLE=1
+
     echo "[head] starting Singularity instance ..."
     echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.log_directory }}/{{ job_name }}/.env
     singularity instance start --bind $HF_HOME:$HF_HOME,/sys,/dev/infiniband,/etc/libibverbs.d --writable-tmpfs --env-file {{ cfg.log_directory }}/{{ job_name }}/.env --nv --contain "$VLLM_IMAGE" "$INSTANCE_TAG" \
-            --disable-usage-stats --head --block --port=$HEAD_PORT --dashboard-host=0.0.0.0
+            --disable-usage-stats --head --block --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port=8265
 
     # ---- wait until Ray head is healthy ----------------------------------------
     echo "[head] waiting for Ray to come up ..."
@@ -114,6 +118,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     singularity exec --bind /sys,/dev/infiniband,/etc/libibverbs.d --contain --nv instance://"$INSTANCE_TAG" \
             vllm serve {{ cfg.model }} \
             --tensor-parallel-size {{ cfg.gpus_per_node }} \
+            --disable-log-stats \
             --distributed-executor-backend ray \
             {{ cfg.vllm_args | default('') }} \
             --port $REST_PORT \

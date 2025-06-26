@@ -85,6 +85,8 @@ def launch_nginx_singularity(
 ):
     rprint(f"[INFO] Starting nginx from Singularity container: {sif_path}")
     logfile = conf_path.parent / pathlib.Path("nginx_singularity.log")
+    cache_dir = pathlib.Path(os.getenv("TMPDIR", "/tmp")) / "cache"
+    os.makedirs(str(cache_dir), exist_ok=True)
     with open(logfile, "w") as log:
         subprocess.Popen(
             ["singularity", "instance", "stop", "nginx_instance"],
@@ -105,6 +107,8 @@ def launch_nginx_singularity(
             f"{conf_path}:/etc/nginx/nginx.conf",
             "-B",
             f"{html_path}:/usr/share/nginx/html",
+            "-B",
+            f"{cache_dir}:/var/cache/nginx",
             str(sif_path),
             "nginx_instance",
         ]
@@ -117,7 +121,8 @@ def launch_nginx_singularity(
 def launch_reverse_proxy(
     nginx_template: pathlib.Path,
     image_path: pathlib.Path,
-    node: str,
+    lb_node: str,
+    head_node: str,
     vllm_port: int,
     ray_dashboard_port: int,
 ):
@@ -125,8 +130,8 @@ def launch_reverse_proxy(
     rprint(f"[INFO] Launching reverse proxy on port {port}...")
     nginx_conf = generate_nginx_config(
         nginx_template,
-        host=node,
-        public_port=port,
+        host=head_node,
+        public_port=0,
         vllm_port=vllm_port,
         ray_port=ray_dashboard_port,
     )
@@ -139,7 +144,7 @@ def launch_reverse_proxy(
         html_path.parent.mkdir(parents=True, exist_ok=True)
         with open(html_path, "w") as f:
             f.write(
-                f"<h1>Reverse proxy for {node}</h1>\n<p>vLLM port: {vllm_port}</p>\n<p>Ray dashboard port: {ray_dashboard_port}</p>"
+                f"<h1>Reverse proxy for {lb_node}</h1>\n<p>vLLM port: {vllm_port}</p>\n<p>Ray dashboard port: {ray_dashboard_port}</p>"
             )
         launch_nginx_singularity(
             sif_path=image_path,
@@ -209,3 +214,9 @@ def parquet_hash(
                 offset += length
 
     return h.hexdigest()[:8]
+
+def compute_perplexity(logprobs: list[int]) -> float:
+    import math
+
+    avg_new_logprob = - sum(logprobs) / len(logprobs)
+    return math.exp(avg_new_logprob)

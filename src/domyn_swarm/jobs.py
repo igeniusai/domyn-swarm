@@ -76,9 +76,7 @@ class SwarmJob(abc.ABC):
             self.kwargs = {**extra_kwargs.get("kwargs", {})}
         else:
             self.kwargs = {**extra_kwargs}
-        
-        print("in constructor:", self.kwargs)
-
+    
     async def run(
         self, df: pd.DataFrame, tag: str, checkpoint_dir: str = ".checkpoints"
     ) -> pd.DataFrame:

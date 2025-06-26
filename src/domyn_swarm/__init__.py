@@ -263,9 +263,20 @@ class DomynLLMSwarm(BaseModel):
         rprint(f"[LLMSwarm] submitted LB job for {self.lb_jobid}")
         self._persist()
 
-    def _get_head_node(self) -> str:
+    def _get_lb_node(self) -> str:
         nodespec = subprocess.check_output(
             ["squeue", "-j", str(self.lb_jobid), "-h", "-O", "NodeList:2048"],
+            text=True,
+        ).strip()
+        head_node = subprocess.check_output(
+            ["scontrol", "show", "hostnames", nodespec],
+            text=True,
+        ).splitlines()[0]
+        return head_node
+    
+    def _get_head_node(self) -> str:
+        nodespec = subprocess.check_output(
+            ["squeue", "-j", str(self.jobid), "-h", "-O", "NodeList:2048"],
             text=True,
         ).strip()
         head_node = subprocess.check_output(
@@ -332,7 +343,7 @@ class DomynLLMSwarm(BaseModel):
 
                     # 3) once LB RUNNING, probe its HTTP endpoint
                     if self.lb_node is None:
-                        self.lb_node = self._get_head_node()
+                        self.lb_node = self._get_lb_node()
                         status.update(
                             f"[yellow]LB job running on {self.lb_node}, probing …"
                         )
@@ -508,6 +519,7 @@ def _start_swarm(
                 cfg.nginx_template_path,
                 cfg.nginx_image,
                 swarm.lb_node,
+                swarm._get_head_node(),
                 int(swarm.endpoint.split(":")[2]),
                 cfg.ray_dashboard_port,
             )
