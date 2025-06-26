@@ -35,6 +35,8 @@ from tenacity import (
 import pandas as pd
 from rich import print as rprint
 
+from domyn_swarm.helpers import compute_perplexity
+
 
 class SwarmJob(abc.ABC):
     """
@@ -76,7 +78,7 @@ class SwarmJob(abc.ABC):
             self.kwargs = {**extra_kwargs.get("kwargs", {})}
         else:
             self.kwargs = {**extra_kwargs}
-    
+
     async def run(
         self, df: pd.DataFrame, tag: str, checkpoint_dir: str = ".checkpoints"
     ) -> pd.DataFrame:
@@ -164,6 +166,7 @@ class SwarmJob(abc.ABC):
           `self.batch_size` completions and once at the end.
         """
         from openai import APITimeoutError
+
         # allow explicit override or fall back to checkpoint flush
         on_batch_done = on_batch_done or getattr(self, "_ckp_flush", None)
 
@@ -231,6 +234,29 @@ class CompletionJob(SwarmJob):
     Input DF must have column `prompt`; output DF gets `completion`.
     """
 
+    def __init__(
+        self,
+        *,
+        endpoint=None,
+        model="",
+        input_column_name="prompt",
+        output_column_name="completion",
+        batch_size=16,
+        parallel=2,
+        retries=5,
+        **extra_kwargs,
+    ):
+        super().__init__(
+            endpoint=endpoint,
+            model=model,
+            input_column_name=input_column_name,
+            output_column_name=output_column_name,
+            batch_size=batch_size,
+            parallel=parallel,
+            retries=retries,
+            **extra_kwargs,
+        )
+
     async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
 
@@ -242,7 +268,7 @@ class CompletionJob(SwarmJob):
             )
             return resp.choices[0].text
 
-        df["completion"] = await self.batched(df["prompt"].tolist(), _call)
+        df[self.output_column_name] = await self.batched(df[self.input_column_name].tolist(), _call)
         return df
 
 
@@ -311,5 +337,49 @@ class MultiChatCompletionJob(SwarmJob):
         # Unpack the list-of-lists into separate DataFrame columns
         for i, col in enumerate(self.output_column_name):
             df[col] = [row[i] for row in multi_outputs]
+
+        return df
+
+
+class ChatCompletionPerplexityJob(SwarmJob):
+    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        from openai.types.chat.chat_completion import ChatCompletion, Choice
+
+        df = df.copy()
+
+        async def _call(messages) -> dict:
+            resp: ChatCompletion = await self.client.chat.completions.create(
+                model=self.model, messages=messages, logprobs=True, **self.kwargs
+            )
+
+            choice: Choice = resp.choices[0]
+            text = choice.message.content
+
+            # Handle logprobs from modern schema
+            token_logprobs = []
+            if choice.logprobs and choice.logprobs.content:
+                token_logprobs: list[float] = [
+                    token_logprob.logprob
+                    for token_logprob in choice.logprobs.content
+                    if token_logprob.logprob is not None
+                ]
+
+            bottom_50 = sorted(token_logprobs)[:50]
+            perplexity = compute_perplexity(token_logprobs)
+            bottom_50_perplexity = compute_perplexity(bottom_50)
+
+            return {
+                "text": text,
+                "perplexity": perplexity,
+                "bottom50_perplexity": bottom_50_perplexity,
+            }
+
+        results = await self.batched(
+            [[message] for message in df[self.input_column_name].tolist()], _call
+        )
+
+        df[self.output_column_name] = [r["text"] for r in results]
+        df["perplexity"] = [r["perplexity"] for r in results]
+        df["bottom50_perplexity"] = [r["bottom50_perplexity"] for r in results]
 
         return df

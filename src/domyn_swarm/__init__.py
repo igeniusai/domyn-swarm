@@ -75,10 +75,11 @@ class DomynLLMSwarmConfig(BaseModel):
         os.makedirs(self.log_directory, exist_ok=True)
         os.makedirs(self.home_directory, exist_ok=True)
         return super().model_post_init(context)
-    
+
     @classmethod
     def read(cls, path: pathlib.Path) -> "DomynLLMSwarmConfig":
         return _load_swarm_config(path.open())
+
 
 def _load_swarm_config(
     config_file: typer.FileText, *, replicas: int | None = None
@@ -121,7 +122,9 @@ class DomynLLMSwarm(BaseModel):
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
     lb_node: Optional[str] = None  # the node where the LB is running
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
-    delete_on_exit: Optional[bool] = False  # Delete the resources for this cluster at the end of the job
+    delete_on_exit: Optional[bool] = (
+        False  # Delete the resources for this cluster at the end of the job
+    )
 
     @field_validator("name")
     @classmethod
@@ -273,7 +276,7 @@ class DomynLLMSwarm(BaseModel):
             text=True,
         ).splitlines()[0]
         return head_node
-    
+
     def _get_head_node(self) -> str:
         nodespec = subprocess.check_output(
             ["squeue", "-j", str(self.jobid), "-h", "-O", "NodeList:2048"],

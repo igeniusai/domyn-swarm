@@ -9,6 +9,7 @@ import jinja2
 import hashlib
 import mmap
 import os
+import math
 
 
 def get_unused_port(start=50000, end=65535):
@@ -215,8 +216,13 @@ def parquet_hash(
 
     return h.hexdigest()[:8]
 
-def compute_perplexity(logprobs: list[int]) -> float:
-    import math
 
-    avg_new_logprob = - sum(logprobs) / len(logprobs)
-    return math.exp(avg_new_logprob)
+def compute_perplexity(logprobs: list[float]) -> float:
+    """
+    Given the list of logprobs from the output of the model
+    compute the perplexity score
+    """
+    if not logprobs:
+        return float("inf")  # Avoid div by zero
+    avg_neg_logprob = -sum(logprobs) / len(logprobs)
+    return math.exp(avg_neg_logprob)
