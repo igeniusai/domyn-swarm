@@ -192,7 +192,10 @@ class SwarmJob(abc.ABC):
             while not queue.empty():
                 idx, item = await queue.get()
                 async with sem:
-                    out[idx] = await fn(item)
+                    if isinstance(item, tuple):
+                        out[idx] = await fn(*item)
+                    else:
+                        out[idx] = await fn(item)
 
                 async with lock:
                     completed += 1
@@ -396,7 +399,7 @@ class ChatCompletionPerplexityJob(SwarmJob):
             return text, perplexity, bottom_50_perplexity
 
         _ = await self.batched(
-            [[message] for message in df[self.input_column_name].tolist()], _call
+            [[message] for message in df[["prompt", "rewa"]].tolist()], _call
         )
 
         return df
