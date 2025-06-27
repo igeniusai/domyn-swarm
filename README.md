@@ -195,7 +195,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **mem_per_cpu** | `str` | `"40G"` | Memory per CPU core (SLURM syntax). |
 | **partition** | `str` | `"boost_usr_prod"` | SLURM partition to submit to. |
 | **account** | `str` | `"iGen_train"` | SLURM account / charge code. |
-| **vllm_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.0.1.sif` | Singularity image that runs the vLLM workers. |
+| **vllm_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif` | Singularity image that runs the vLLM workers. |
 | **nginx_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif` | Image that runs the NGINX + Dask side-services. |
 | **log_directory** | `pathlib.Path` | `./logs` | Directory where SLURM output/error logs are written. |
 | **max_concurrent_requests** | `int` | `2000` | Upper bound enforced by vLLM REST gateway. |
@@ -210,7 +210,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 ## Python API (Programmatic usage)
 
 > [!NOTE]
-> This API is in constant evolution and expect breaking changes up to the final stable release
+> This API is in constant evolution and you can expect breaking changes up to the final stable release
 
 In the `examples` folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: `examples/scripts/custom_main.py`.
 

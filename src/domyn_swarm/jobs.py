@@ -23,7 +23,7 @@ import os
 import asyncio
 import dataclasses
 import abc
-from typing import Callable, List, Sequence, Any
+from typing import Callable, List, Sequence, Any, Tuple
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -33,8 +33,8 @@ from tenacity import (
 
 import pandas as pd
 from rich import print as rprint
-
-from domyn_swarm.helpers import compute_perplexity
+from openai.types.chat.chat_completion import Choice
+from domyn_swarm.helpers import compute_perplexity_metrics, extract_token_logprobs
 
 
 class SwarmJob(abc.ABC):
@@ -64,12 +64,12 @@ class SwarmJob(abc.ABC):
         self.endpoint = endpoint or os.getenv("ENDPOINT")
         if not self.endpoint:
             raise RuntimeError("ENDPOINT env-var not set")
-        self.model = model
-        self.batch_size = batch_size
-        self.parallel = parallel
-        self.retries = retries
-        self.input_column_name = input_column_name
-        self.output_column_name = output_column_name
+        self.model: str = model
+        self.batch_size: int = batch_size
+        self.parallel: int = parallel
+        self.retries: int = retries
+        self.input_column_name: str = input_column_name
+        self.output_column_name: str = output_column_name
         self.client = AsyncOpenAI(
             base_url=f"{self.endpoint}/v1", api_key="-", organization="-", project="-"
         )
@@ -345,7 +345,14 @@ class MultiChatCompletionJob(SwarmJob):
         return df
 
 
-class ChatCompletionPerplexityJob(SwarmJob):
+class PerplexityMixin:
+    def compute_from_choice(self, choice: Choice) -> Tuple[float, float]:
+        token_logprobs = extract_token_logprobs(choice)
+        perp, bottom50 = compute_perplexity_metrics(token_logprobs)
+        return perp, bottom50
+
+
+class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
     def __init__(
         self,
         *,
@@ -383,20 +390,7 @@ class ChatCompletionPerplexityJob(SwarmJob):
             choice: Choice = resp.choices[0]
             text = choice.message.content
 
-            # Handle logprobs from modern schema
-            token_logprobs = []
-            if choice.logprobs and choice.logprobs.content:
-                token_logprobs: list[float] = [
-                    token_logprob.logprob
-                    for token_logprob in choice.logprobs.content
-                    if token_logprob.logprob is not None
-                ]
-
-            bottom_50 = sorted(token_logprobs)[:50]
-            perplexity = compute_perplexity(token_logprobs)
-            bottom_50_perplexity = compute_perplexity(bottom_50)
-
-            return text, perplexity, bottom_50_perplexity
+            return text, *self.compute_from_choice(choice)
 
         _ = await self.batched(
             [[message] for message in df[self.input_column_name].tolist()], _call

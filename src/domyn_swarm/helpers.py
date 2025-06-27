@@ -4,12 +4,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import List, Tuple
 from rich import print as rprint
 import jinja2
 import hashlib
 import mmap
 import os
 import math
+from openai.types.chat.chat_completion import Choice
 
 
 def get_unused_port(start=50000, end=65535):
@@ -226,3 +228,23 @@ def compute_perplexity(logprobs: list[float]) -> float:
         return float("inf")  # Avoid div by zero
     avg_neg_logprob = -sum(logprobs) / len(logprobs)
     return math.exp(avg_neg_logprob)
+
+
+def extract_token_logprobs(choice: Choice) -> List[float]:
+    """
+    Given a Choice with logprobs.content, pull out all the non-None logprobs.
+    """
+    if not (choice.logprobs and choice.logprobs.content):
+        return []
+    return [tl.logprob for tl in choice.logprobs.content if tl.logprob is not None]
+
+
+def compute_perplexity_metrics(
+    token_logprobs: List[float], bottom_k: int = 50
+) -> Tuple[float, float]:
+    """
+    Returns (perplexity, bottom_k_perplexity).
+    """
+    perp = compute_perplexity(token_logprobs)
+    bottom_perp = compute_perplexity(sorted(token_logprobs)[:bottom_k])
+    return perp, bottom_perp
