@@ -399,7 +399,7 @@ class ChatCompletionPerplexityJob(SwarmJob):
             return text, perplexity, bottom_50_perplexity
 
         _ = await self.batched(
-            [[message] for message in df[["prompt", "rewa"]].tolist()], _call
+            [[message] for message in df[self.input_column_name].tolist()], _call
         )
 
         return df
