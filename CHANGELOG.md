@@ -1,3 +1,18 @@
+## v0.4.0 (2025-06-27)
+
+### Feat
+
+- add perplexitymixin to enable computation of perplexity by users
+- :sparkles: enable tuple unpacking when when fn is called in SwarmJob.batched
+
+### Fix
+
+- typo introduced in previous commit
+- :bug: fix a bug in jobs having multiple output columns
+- :bug: remove delete_on_close=False incompatible with python 3.10
+- start fixing reverse proxy, update example configs
+- improve docs, fix an issue with job kwargs incorrectly handled
+
 ## v0.3.0 (2025-06-24)
 
 ### Feat
