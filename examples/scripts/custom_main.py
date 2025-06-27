@@ -13,14 +13,14 @@ config = DomynLLMSwarmConfig.read(config_path)
 # by setting delete_on_exit=True
 with DomynLLMSwarm(cfg=config, delete_on_exit=True) as swarm:
     job = MyCustomSwarmJob(
-            endpoint=swarm.endpoint,
-            model=swarm.model,
-            # 16 concurrent requests to the LLM
-            parallel=16,            
-            # You can add custom keyword arguments, which you 
-            # can reference in you transform implementation by calling
-            # self.kwargs
-            temperature=0.2
+        endpoint=swarm.endpoint,
+        model=swarm.model,
+        # 16 concurrent requests to the LLM
+        parallel=16,
+        # You can add custom keyword arguments, which you
+        # can reference in you transform implementation by calling
+        # self.kwargs
+        temperature=0.2,
     )
     rprint(job.to_kwargs())
 

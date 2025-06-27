@@ -209,6 +209,9 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 ## Python API (Programmatic usage)
 
+> [!NOTE]
+> This API is in constant evolution and expect breaking changes up to the final stable release
+
 In the `examples` folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: `examples/scripts/custom_main.py`.
 
 ### Define a custom job
@@ -222,7 +225,14 @@ import random
 
 class MyCustomSwarmJob(SwarmJob):
 
+    def __init__(self, *, endpoint = None, model = "", input_column_name = "messages", output_column_name = "result", batch_size = 16, parallel = 2, retries = 5, **extra_kwargs):
+        super().__init__(endpoint=endpoint, model=model, input_column_name=input_column_name, output_column_name=output_column_name, batch_size=batch_size, parallel=parallel, retries=retries, **extra_kwargs)
+        self.output_column_name = ["completion", "score", "current_model"]
+
     async def transform(self, df: pd.DataFrame):
+        """
+        You can do whatever you want inside this function, as long as it returns a pd.DataFrame
+        """
 
         async def _call(prompt: str) -> str:
             from openai.types.completion import Completion
@@ -232,13 +242,10 @@ class MyCustomSwarmJob(SwarmJob):
             resp: Completion = await self.client.completions.create(
                 model=self.model, prompt=prompt, **self.kwargs
             )
-            return resp.choices[0].text
+            temperature = self.kwargs["temperature"] 
+
+            return resp.choices[0].text, random.random(), self.model + f"_{temperature}"
         
-        temperature = self.kwargs["temperature"] 
-
-        df["score"] = pd.Series(data=[random.random() for _ in range(len(df))])
-        df["current_model"] = self.model + f"_{temperature}"
-
         # Call the endpoint batching the calls asynchronously in the background
         df["completion"] = await self.batched(df["messages"].tolist(), _call)
 
@@ -248,7 +255,7 @@ class MyCustomSwarmJob(SwarmJob):
 ### Run a custom job via CLI
 
 ```shell
-domyn-swarm submit job examples.scripts.custom_job:MyCustomJob \
+PYTHONPATH=. domyn-swarm submit job examples.scripts.custom_job:MyCustomJob \
    --config examples/configs/deepseek_r1_distill.yaml \
    --input examples/data/completion.parquet \
    --output results/output.parquet \

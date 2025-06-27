@@ -267,7 +267,9 @@ class CompletionJob(SwarmJob):
             )
             return resp.choices[0].text
 
-        df[self.output_column_name] = await self.batched(df[self.input_column_name].tolist(), _call)
+        df[self.output_column_name] = await self.batched(
+            df[self.input_column_name].tolist(), _call
+        )
         return df
 
 
@@ -341,6 +343,30 @@ class MultiChatCompletionJob(SwarmJob):
 
 
 class ChatCompletionPerplexityJob(SwarmJob):
+    def __init__(
+        self,
+        *,
+        endpoint=None,
+        model="",
+        input_column_name="messages",
+        output_column_name="result",
+        batch_size=16,
+        parallel=2,
+        retries=5,
+        **extra_kwargs,
+    ):
+        super().__init__(
+            endpoint=endpoint,
+            model=model,
+            input_column_name=input_column_name,
+            output_column_name=output_column_name,
+            batch_size=batch_size,
+            parallel=parallel,
+            retries=retries,
+            **extra_kwargs,
+        )
+        self.output_column_name = ["text", "perplexity", " bottom50_perplexity"]
+
     async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         from openai.types.chat.chat_completion import ChatCompletion, Choice
 
@@ -367,18 +393,10 @@ class ChatCompletionPerplexityJob(SwarmJob):
             perplexity = compute_perplexity(token_logprobs)
             bottom_50_perplexity = compute_perplexity(bottom_50)
 
-            return {
-                "text": text,
-                "perplexity": perplexity,
-                "bottom50_perplexity": bottom_50_perplexity,
-            }
+            return text, perplexity, bottom_50_perplexity
 
-        results = await self.batched(
+        _ = await self.batched(
             [[message] for message in df[self.input_column_name].tolist()], _call
         )
-
-        df[self.output_column_name] = [r["text"] for r in results]
-        df["perplexity"] = [r["perplexity"] for r in results]
-        df["bottom50_perplexity"] = [r["bottom50_perplexity"] for r in results]
 
         return df

@@ -16,6 +16,7 @@ If your image lacks `requests`, just `pip install --user requests` once
 in your user environment—Python packages are visible inside the container
 because `$HOME` is **not** mounted.
 """
+
 import os
 import json
 import time
@@ -23,7 +24,7 @@ import pathlib
 import sys
 import requests
 
-endpoint = os.environ.get("ENDPOINT")        # injected by llm_swarm.lb
+endpoint = os.environ.get("ENDPOINT")  # injected by llm_swarm.lb
 if endpoint is None:
     sys.exit("❌  ENDPOINT env-var not set")
 

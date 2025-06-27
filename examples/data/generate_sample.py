@@ -9,6 +9,7 @@ import sys
 import subprocess
 import pandas as pd
 
+
 # ------------------------------------------------------------------
 # 0) Ensure we have a Parquet engine available
 # ------------------------------------------------------------------
@@ -25,17 +26,23 @@ def _install(package: str):
             "Install PyArrow or FastParquet manually and re-run."
         )
 
+
 try:
     import pyarrow  # noqa: F401
+
     parquet_engine = "pyarrow"
 except ImportError:
     try:
         import fastparquet  # noqa: F401
+
         parquet_engine = "fastparquet"
     except ImportError:
-        print("[INFO] Neither PyArrow nor FastParquet found. Attempting to install PyArrow…")
+        print(
+            "[INFO] Neither PyArrow nor FastParquet found. Attempting to install PyArrow…"
+        )
         _install("pyarrow")
         import pyarrow  # noqa: F401
+
         parquet_engine = "pyarrow"
 
 # ------------------------------------------------------------------
@@ -79,7 +86,7 @@ messages = [
     "What is the process of photosynthesis?",
     "What is the capital of Germany?",
     "What is the currency of Japan?",
-    "Convert this JSON string to a Python dictionary: '{\"name\": \"Alice\", \"age\": 30}'",
+    'Convert this JSON string to a Python dictionary: \'{"name": "Alice", "age": 30}\'',
     "Write a tweet about climate change using less than 280 characters.",
     "Explain the difference between supervised and unsupervised learning.",
     "Describe how a refrigerator works in simple terms.",
@@ -108,7 +115,7 @@ messages = [
     "List three use cases for edge computing.",
     "Create a YAML configuration for a Docker Compose setup with a web and db service.",
     "Generate a fictional name and backstory for a fantasy RPG character.",
-    "What’s the chemical symbol for gold?"
+    "What’s the chemical symbol for gold?",
 ]
 
 # ------------------------------------------------------------------
@@ -118,15 +125,21 @@ completion_df = pd.DataFrame({"messages": messages})
 completion_out = "completion.parquet"
 completion_df.to_parquet(completion_out, index=False, engine=parquet_engine)
 
-chat_completion_df = pd.DataFrame({"messages": [{"role": "user", "content": message} for message in messages]})
+chat_completion_df = pd.DataFrame(
+    {"messages": [{"role": "user", "content": message} for message in messages]}
+)
 chat_completion_out = "chat_completion.parquet"
 chat_completion_df.to_parquet(chat_completion_out, index=False, engine=parquet_engine)
 
 # ------------------------------------------------------------------
 # 3) Quick sanity check
 # ------------------------------------------------------------------
-print(f"[OK] Wrote {len(completion_df)} rows to '{completion_out}' using engine: {parquet_engine}")
+print(
+    f"[OK] Wrote {len(completion_df)} rows to '{completion_out}' using engine: {parquet_engine}"
+)
 print(completion_df.head(5), "\n")
 
-print(f"[OK] Wrote {len(chat_completion_df)} rows to '{chat_completion_out}' using engine: {parquet_engine}")
+print(
+    f"[OK] Wrote {len(chat_completion_df)} rows to '{chat_completion_out}' using engine: {parquet_engine}"
+)
 print(chat_completion_df.head(5), "\n")
