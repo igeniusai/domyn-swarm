@@ -439,7 +439,9 @@ class DomynLLMSwarm(BaseModel):
             f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
         rprint(f"  {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
+        subprocess.run(
+            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
 
     @classmethod
     def from_state(cls, state_file: pathlib.Path) -> "DomynLLMSwarm":
