@@ -252,7 +252,7 @@ class DomynLLMSwarm(BaseModel):
             ],
             check=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
         )
 
     def _persist(self):
@@ -451,7 +451,7 @@ class DomynLLMSwarm(BaseModel):
         )
         rprint(f"  {' '.join(cmd)}")
         subprocess.run(
-            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
     @classmethod
