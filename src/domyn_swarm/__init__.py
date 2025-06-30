@@ -406,26 +406,8 @@ class DomynLLMSwarm(BaseModel):
         if not input_path.is_file():
             raise FileNotFoundError(input_path)
 
-        os.environ["ENDPOINT"] = self.endpoint
-        os.environ["MODEL"] = self.model
-        os.environ["JOB_CLASS"] = (
-            f"{job.__class__.__module__}:{job.__class__.__qualname__}"
-        )
-        os.environ["JOB_KWARGS"] = json.dumps(job.to_kwargs())
-        os.environ["INPUT_PARQUET"] = str(input_path)
-        os.environ["OUTPUT_PARQUET"] = str(output_path)
-
-        exports = ",".join(
-            [
-                "ALL",
-                "ENDPOINT",
-                "MODEL",
-                "JOB_CLASS",
-                "JOB_KWARGS",
-                "INPUT_PARQUET",
-                "OUTPUT_PARQUET",
-            ]
-        )
+        job_class = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
+        job_kwargs = json.dumps(job.to_kwargs())
 
         if self.cfg.venv_path and self.cfg.venv_path.is_dir():
             python_interpreter = self.cfg.venv_path / "bin" / "python"
@@ -440,16 +422,21 @@ class DomynLLMSwarm(BaseModel):
             self.lb_node,
             "--ntasks=1",
             "--overlap",
-            f"--export={exports}",
+            "--export=ALL",  # Keep this to preserve the default env
             python_interpreter,
             "-m",
             "domyn_swarm.run_job",
+            "--job-class", job_class,
+            "--model", self.model,
+            "--input-parquet", str(input_path),
+            "--output-parquet", str(output_path),
+            "--endpoint", self.endpoint,
+            "--job-kwargs", job_kwargs,
         ]
 
-        rprint(
-            f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
-        )
-        rprint(f"  {' '.join(cmd)}")
+        rprint(f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:")
+        rprint(f"  {' '.join(map(str, cmd))}")
+
         subprocess.run(
             cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
