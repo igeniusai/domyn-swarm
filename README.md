@@ -246,10 +246,7 @@ class MyCustomSwarmJob(SwarmJob):
 
             return resp.choices[0].text, random.random(), self.model + f"_{temperature}"
         
-        # Call the endpoint batching the calls asynchronously in the background
-        df["completion"] = await self.batched(df["messages"].tolist(), _call)
-
-        return df
+        await self.batched(df["messages"].tolist(), _call)
 ```
 
 ### Run a custom job via CLI
