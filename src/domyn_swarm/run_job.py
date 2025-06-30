@@ -14,18 +14,26 @@ def _load_cls(path: str) -> type[SwarmJob]:
     mod, cls = path.split(":")
     return getattr(importlib.import_module(mod), cls)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run a SwarmJob on a Parquet input.")
 
-    parser.add_argument("--job-class", type=str, help="Job class path in format 'pkg.module:Class'")
+    parser.add_argument(
+        "--job-class", type=str, help="Job class path in format 'pkg.module:Class'"
+    )
     parser.add_argument("--model", type=str, help="Model name")
-    parser.add_argument("--input-parquet", type=pathlib.Path, help="Path to input Parquet file")
-    parser.add_argument("--output-parquet", type=pathlib.Path, help="Path to output Parquet file")
+    parser.add_argument(
+        "--input-parquet", type=pathlib.Path, help="Path to input Parquet file"
+    )
+    parser.add_argument(
+        "--output-parquet", type=pathlib.Path, help="Path to output Parquet file"
+    )
     parser.add_argument("--endpoint", type=str, help="Endpoint URL")
-    parser.add_argument("--job-kwargs", type=str, default="{}", help="Extra JSON string kwargs")
+    parser.add_argument(
+        "--job-kwargs", type=str, default="{}", help="Extra JSON string kwargs"
+    )
 
     return parser.parse_args()
-
 
 
 async def _amain():
@@ -48,7 +56,6 @@ async def _amain():
     df_out: pd.DataFrame = await job.run(df_in, tag)
     os.makedirs(out_path.parent, exist_ok=True)
     df_out.to_parquet(out_path)
-
 
 
 def main():

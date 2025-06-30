@@ -270,9 +270,7 @@ class CompletionJob(SwarmJob):
             )
             return resp.choices[0].text
 
-        await self.batched(
-            df[self.input_column_name].tolist(), _call
-        )
+        await self.batched(df[self.input_column_name].tolist(), _call)
 
 
 class ChatCompletionJob(SwarmJob):

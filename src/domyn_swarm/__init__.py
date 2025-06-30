@@ -17,7 +17,7 @@ import yaml
 
 from domyn_swarm.helpers import is_folder, path_exists
 from domyn_swarm.jobs import SwarmJob
-from pydantic import BaseModel, ValidationInfo, computed_field, field_validator
+from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -44,22 +44,28 @@ class DomynLLMSwarmConfig(BaseModel):
     lb_wait: int = 1200  # seconds to wait for LB to be ready
     lb_port: int = 9000
 
-    home_directory: pathlib.Path = pathlib.Path(
-        os.path.join(os.getcwd(), ".domyn_swarm")
-    )  # where to mount the home directory inside the container
+    home_directory: pathlib.Path = Field(
+        default_factory=lambda: pathlib.Path(os.path.join(os.getcwd(), ".domyn_swarm"))
+    )
 
-    log_directory: Optional[pathlib.Path] = None
+    log_directory: Optional[pathlib.Path] = Field(
+        default_factory=lambda data: data["home_dictory"] / "logs"
+    )
 
     # misc --------------------------------------------------------------------
     max_concurrent_requests: int = 2_000
     poll_interval: int = 10  # sacct polling cadence (s)
 
     # template path (auto-filled after clone)
-    template_path: pathlib.Path = (
-        pathlib.Path(__file__).with_suffix("").parent / "templates" / "llm_swarm.sh.j2"
+    template_path: pathlib.Path = Field(
+        default_factory=lambda: pathlib.Path(__file__).with_suffix("").parent
+        / "templates"
+        / "llm_swarm.sh.j2"
     )
-    nginx_template_path: pathlib.Path = (
-        pathlib.Path(__file__).with_suffix("").parent / "templates" / "nginx.conf.j2"
+    nginx_template_path: pathlib.Path = Field(
+        default_factory=lambda: pathlib.Path(__file__).with_suffix("").parent
+        / "templates"
+        / "nginx.conf.j2"
     )
     hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
     vllm_args: str = ""
@@ -73,8 +79,6 @@ class DomynLLMSwarmConfig(BaseModel):
     node_list: str | None = None  # e.g. "node[4-6]" (optional)
 
     def model_post_init(self, context):
-        if not self.log_directory:
-            self.log_directory = self.home_directory / "logs"
         os.makedirs(self.log_directory, exist_ok=True)
         os.makedirs(self.home_directory, exist_ok=True)
         return super().model_post_init(context)
@@ -82,16 +86,17 @@ class DomynLLMSwarmConfig(BaseModel):
     @classmethod
     def read(cls, path: pathlib.Path) -> "DomynLLMSwarmConfig":
         return _load_swarm_config(path.open())
-    
+
     @field_validator("model")
     @classmethod
     def validate_model(cls, v: str, info: ValidationInfo):
         if path_exists(v) and is_folder(v):
             rprint(f"Model saved to local folder {v} will be used")
         else:
-            rprint(f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in HF_HOME/hub")
+            rprint(
+                f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in HF_HOME/hub"
+            )
         return v
-
 
 
 def _load_swarm_config(
@@ -181,7 +186,10 @@ class DomynLLMSwarm(BaseModel):
             lstrip_blocks=True,
         )
         script_txt = env.get_template(self.cfg.template_path.name).render(
-            cfg=self.cfg, job_name=job_name, path_exists=path_exists, is_folder=is_folder
+            cfg=self.cfg,
+            job_name=job_name,
+            path_exists=path_exists,
+            is_folder=is_folder,
         )
 
         # write to temp file
@@ -253,8 +261,8 @@ class DomynLLMSwarm(BaseModel):
                 f"{self.cfg.venv_path / 'bin' / 'python'} {str(script_path)}",
             ],
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
         )
 
     def _persist(self):
@@ -428,20 +436,26 @@ class DomynLLMSwarm(BaseModel):
             python_interpreter,
             "-m",
             "domyn_swarm.run_job",
-            "--job-class", job_class,
-            "--model", self.model,
-            "--input-parquet", str(input_path),
-            "--output-parquet", str(output_path),
-            "--endpoint", self.endpoint,
-            "--job-kwargs", job_kwargs,
+            "--job-class",
+            job_class,
+            "--model",
+            self.model,
+            "--input-parquet",
+            str(input_path),
+            "--output-parquet",
+            str(output_path),
+            "--endpoint",
+            self.endpoint,
+            "--job-kwargs",
+            job_kwargs,
         ]
 
-        rprint(f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:")
+        rprint(
+            f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
+        )
         rprint(f"  {' '.join(map(str, cmd))}")
 
-        subprocess.run(
-            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+        subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
     @classmethod
     def from_state(cls, state_file: pathlib.Path) -> "DomynLLMSwarm":
