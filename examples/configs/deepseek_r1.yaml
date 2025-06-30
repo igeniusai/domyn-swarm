@@ -3,8 +3,8 @@ revision: main
 nodes: 12
 gpus_per_node: 4
 replicas: 1
-vllm_args: "--block-size 32 --enable-expert-parallel  --enable-reasoning --reasoning-parser deepseek_r1 --pipeline-parallel-size 12  --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 34000 --max-num-seqs 128"
+vllm_args: "--block-size 32 --enable-expert-parallel  --enable-reasoning --reasoning-parser deepseek_r1 --pipeline-parallel-size 6  --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 34000 --max-num-seqs 128"
 lb_wait: 3600
 hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
-vllm_image: /leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1-cuda-12.1.1.sif
+vllm_image: /leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif
 lb_port: 9001
