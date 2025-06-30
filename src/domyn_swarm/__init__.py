@@ -48,7 +48,7 @@ class DomynLLMSwarmConfig(BaseModel):
         os.path.join(os.getcwd(), ".domyn_swarm")
     )  # where to mount the home directory inside the container
 
-    log_directory: pathlib.Path = home_directory / "logs"
+    log_directory: Optional[pathlib.Path] = None
 
     # misc --------------------------------------------------------------------
     max_concurrent_requests: int = 2_000
@@ -73,6 +73,8 @@ class DomynLLMSwarmConfig(BaseModel):
     node_list: str | None = None  # e.g. "node[4-6]" (optional)
 
     def model_post_init(self, context):
+        if not self.log_directory:
+            self.log_directory = self.home_directory / "logs"
         os.makedirs(self.log_directory, exist_ok=True)
         os.makedirs(self.home_directory, exist_ok=True)
         return super().model_post_init(context)
