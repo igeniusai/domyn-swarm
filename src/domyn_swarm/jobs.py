@@ -215,7 +215,7 @@ class SwarmJob(abc.ABC):
         return out
 
     @abc.abstractmethod
-    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def transform(self, df: pd.DataFrame):
         """Process a slice of the DataFrame and return same-shaped DataFrame."""
         ...
 
@@ -259,7 +259,7 @@ class CompletionJob(SwarmJob):
             **extra_kwargs,
         )
 
-    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def transform(self, df: pd.DataFrame):
         df = df.copy()
 
         async def _call(prompt: str) -> str:
@@ -270,10 +270,9 @@ class CompletionJob(SwarmJob):
             )
             return resp.choices[0].text
 
-        df[self.output_column_name] = await self.batched(
+        await self.batched(
             df[self.input_column_name].tolist(), _call
         )
-        return df
 
 
 class ChatCompletionJob(SwarmJob):
@@ -282,7 +281,7 @@ class ChatCompletionJob(SwarmJob):
     Output DF gets `answer`.
     """
 
-    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def transform(self, df: pd.DataFrame):
         from openai.types.chat import ChatCompletion
 
         df = df.copy()
@@ -293,10 +292,9 @@ class ChatCompletionJob(SwarmJob):
             )
             return resp.choices[0].message.content
 
-        df[self.output_column_name] = await self.batched(
+        await self.batched(
             [[message] for message in df[self.input_column_name].tolist()], _call
         )
-        return df
 
 
 class MultiChatCompletionJob(SwarmJob):
@@ -317,7 +315,7 @@ class MultiChatCompletionJob(SwarmJob):
             else base_output_column_name
         )
 
-    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def transform(self, df: pd.DataFrame):
         from openai.types.chat import ChatCompletion
 
         df = df.copy()
@@ -333,16 +331,10 @@ class MultiChatCompletionJob(SwarmJob):
             return [choice.message.content for choice in resp.choices]
 
         # _batched now returns List[List[str]] (len == n for each inner list)
-        multi_outputs = await self.batched(
+        await self.batched(
             [[m] for m in df[self.input_column_name].tolist()],
             _call,
         )
-
-        # Unpack the list-of-lists into separate DataFrame columns
-        for i, col in enumerate(self.output_column_name):
-            df[col] = [row[i] for row in multi_outputs]
-
-        return df
 
 
 class PerplexityMixin:
@@ -377,7 +369,7 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
         )
         self.output_column_name = ["text", "perplexity", " bottom50_perplexity"]
 
-    async def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def transform(self, df: pd.DataFrame):
         from openai.types.chat.chat_completion import ChatCompletion, Choice
 
         df = df.copy()
@@ -395,5 +387,3 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
         _ = await self.batched(
             [[message] for message in df[self.input_column_name].tolist()], _call
         )
-
-        return df

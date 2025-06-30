@@ -4,7 +4,7 @@ implement your own custom job, which is totally free in terms of implementation.
 
 Your custom job must implement an async transform method, with the signature
 
-async def transform(df: pd.DataFrame) -> pd.DataFrame
+async def transform(df: pd.DataFrame):
     pass
 
 you can either run this job using the CLI
@@ -72,6 +72,4 @@ class MyCustomSwarmJob(SwarmJob):
             return resp.choices[0].text, random.random(), self.model + f"_{temperature}"
 
         # Call the endpoint batching the calls asynchronously in the background
-        df["completion"] = await self.batched(df["messages"].tolist(), _call)
-
-        return df
+        await self.batched(df["messages"].tolist(), _call)
