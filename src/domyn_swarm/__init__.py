@@ -49,7 +49,7 @@ class DomynLLMSwarmConfig(BaseModel):
     )
 
     log_directory: Optional[pathlib.Path] = Field(
-        default_factory=lambda data: data["home_dictory"] / "logs"
+        default_factory=lambda data: data["home_directory"] / "logs"
     )
 
     # misc --------------------------------------------------------------------
