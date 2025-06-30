@@ -21,6 +21,9 @@ from pydantic import BaseModel, ValidationInfo, computed_field, field_validator,
 
 
 class DomynLLMSwarmConfig(BaseModel):
+
+    hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
+
     # model / revision --------------------------------------------------------
     model: str
     revision: str | None = None
@@ -67,7 +70,6 @@ class DomynLLMSwarmConfig(BaseModel):
         / "templates"
         / "nginx.conf.j2"
     )
-    hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
     vllm_args: str = ""
     vllm_port: int = 8000
     ray_port: int = 6379
@@ -87,14 +89,15 @@ class DomynLLMSwarmConfig(BaseModel):
     def read(cls, path: pathlib.Path) -> "DomynLLMSwarmConfig":
         return _load_swarm_config(path.open())
 
-    @field_validator("model")
+    @field_validator("model", mode="after")
     @classmethod
     def validate_model(cls, v: str, info: ValidationInfo):
         if path_exists(v) and is_folder(v):
             rprint(f"Model saved to local folder {v} will be used")
         else:
+            hf_home = info.data["hf_home"]
             rprint(
-                f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in HF_HOME/hub"
+                f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in {hf_home}/hub"
             )
         return v
 
@@ -453,7 +456,7 @@ class DomynLLMSwarm(BaseModel):
         rprint(
             f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
-        rprint(f"  {' '.join(map(str, cmd))}")
+        rprint(f"  {' '.join(map(str, cmd[:-1]))}" + f"'{job_kwargs}'")
 
         subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 

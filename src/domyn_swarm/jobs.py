@@ -30,6 +30,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+from tqdm.asyncio import tqdm
 
 import pandas as pd
 from rich import print as rprint
@@ -112,6 +113,8 @@ class SwarmJob(abc.ABC):
         todo_df = df.loc[~df.index.isin(done_idx)]
         idx_map: List[Any] = todo_df.index.tolist()  # position → global index
 
+        pbar = tqdm(total=len(df), initial=len(done_df), desc="Total samples processed", dynamic_ncols=True)
+
         # ───────────── checkpoint flush callback (captured by _batched)
         async def _flush(out_list: list, new_ids: list[int]) -> None:
             nonlocal done_df
@@ -126,6 +129,7 @@ class SwarmJob(abc.ABC):
 
             done_df = pd.concat([done_df, tmp]).sort_index()
             done_df.to_parquet(ckp_path)
+            pbar.update(len(new_ids))
             rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
 
         # expose the callback so _batched() can discover it transparently
@@ -187,6 +191,8 @@ class SwarmJob(abc.ABC):
         completed = 0
         pending_ids: list[int] = []
 
+        pbar = tqdm(total=len(seq), desc="Batch request execution", dynamic_ncols=True)
+
         async def worker() -> None:
             nonlocal completed, pending_ids
             while not queue.empty():
@@ -199,6 +205,7 @@ class SwarmJob(abc.ABC):
 
                 async with lock:
                     completed += 1
+                    pbar.update(1)
                     pending_ids.append(idx)
 
                     flush_now = completed % self.batch_size == 0 or completed == len(
@@ -209,9 +216,14 @@ class SwarmJob(abc.ABC):
                         pending_ids = []
                         await on_batch_done(out, ids_now)
 
-        await asyncio.gather(
-            *(asyncio.create_task(worker()) for _ in range(self.parallel))
-        )
+        try:
+            await tqdm.gather(
+                *(asyncio.create_task(worker()) for _ in range(self.parallel)),
+                desc="Worker task completion"
+            )
+        finally:
+            pbar.close()
+        
         return out
 
     @abc.abstractmethod
