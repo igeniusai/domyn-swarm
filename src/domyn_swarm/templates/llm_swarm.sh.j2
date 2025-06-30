@@ -59,6 +59,8 @@ REST_PORT="{{ cfg.vllm_port }}"           # vLLM REST port
 # Publish head node IP to a file for the load balancer to find it
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes  →  head=$HEAD_NODE  workers=${NODES[*]:1}"
 
+export MOUNTS="/leonardo_scratch/fast/iGen_train/"
+
 export VLLM_USE_V1=0
 ###############################################################################
 #  (2)  LAUNCH ONE WORKER ON EVERY OTHER NODE
@@ -78,7 +80,6 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     export NCCL_IB_GDR_LEVEL=SYS
     export NCCL_P2P_LEVEL=NVL
     export NCCL_CUMEM_ENABLE=1
-    export MOUNTS="/leonardo_scratch/fast/iGen_train/"
 
     # These variables will disable infiniband
     # export NCCL_IB_DISABLE=1
