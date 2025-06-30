@@ -111,15 +111,17 @@ class SwarmJob(abc.ABC):
             done_idx = set()
 
         todo_df = df.loc[~df.index.isin(done_idx)]
-        idx_map: List[Any] = todo_df.index.tolist()  # position → global index
+        todo_df["_row_id"] = todo_df.index
+        todo_df.reset_index(drop=True, inplace=True)
+
 
         pbar = tqdm(total=len(df), initial=len(done_df), desc="Total samples processed", dynamic_ncols=True)
 
         # ───────────── checkpoint flush callback (captured by _batched)
         async def _flush(out_list: list, new_ids: list[int]) -> None:
             nonlocal done_df
-            global_rows = [idx_map[i] for i in new_ids]
-            tmp = todo_df.loc[global_rows].copy()
+            global_indices = todo_df.loc[new_ids, "_row_id"]
+            tmp = df.loc[global_indices].copy()
 
             if isinstance(self.output_column_name, str):
                 tmp[self.output_column_name] = [out_list[i] for i in new_ids]
@@ -144,6 +146,7 @@ class SwarmJob(abc.ABC):
 
         # All slices flushed – combine w/ any remainder produced by transform()
         final_df = done_df.combine_first(todo_df).sort_index()
+        final_df = final_df.drop(columns=["_row_id"], errors="ignore")
 
         # Success → drop checkpoint file
         try:

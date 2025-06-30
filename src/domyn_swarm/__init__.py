@@ -456,7 +456,7 @@ class DomynLLMSwarm(BaseModel):
         rprint(
             f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
-        rprint(f"  {' '.join(map(str, cmd[:-1]))}" + f"'{job_kwargs}'")
+        rprint(f"  {' '.join(map(str, cmd[:-1]))}" + f" '{job_kwargs}'")
 
         subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
