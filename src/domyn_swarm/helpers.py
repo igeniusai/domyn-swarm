@@ -248,3 +248,9 @@ def compute_perplexity_metrics(
     perp = compute_perplexity(token_logprobs)
     bottom_perp = compute_perplexity(sorted(token_logprobs)[:bottom_k])
     return perp, bottom_perp
+
+def path_exists(path: str):
+    return os.path.exists(path)
+
+def is_folder(path: str):
+    return pathlib.Path(path).is_dir()

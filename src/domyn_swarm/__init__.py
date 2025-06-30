@@ -15,6 +15,7 @@ import typer
 from rich import print as rprint
 import yaml
 
+from domyn_swarm.helpers import is_folder, path_exists
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator
 
@@ -79,6 +80,16 @@ class DomynLLMSwarmConfig(BaseModel):
     @classmethod
     def read(cls, path: pathlib.Path) -> "DomynLLMSwarmConfig":
         return _load_swarm_config(path.open())
+    
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v: str, info: ValidationInfo):
+        if path_exists(v) and is_folder(v):
+            rprint(f"Model saved to local folder {v} will be used")
+        else:
+            rprint(f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in HF_HOME/hub")
+        return v
+
 
 
 def _load_swarm_config(
@@ -168,7 +179,7 @@ class DomynLLMSwarm(BaseModel):
             lstrip_blocks=True,
         )
         script_txt = env.get_template(self.cfg.template_path.name).render(
-            cfg=self.cfg, job_name=job_name
+            cfg=self.cfg, job_name=job_name, path_exists=path_exists, is_folder=is_folder
         )
 
         # write to temp file
