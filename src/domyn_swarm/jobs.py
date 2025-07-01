@@ -23,6 +23,7 @@ import os
 import asyncio
 import dataclasses
 import abc
+import threading
 from typing import Callable, Coroutine, List, Sequence, Any, Tuple
 from tenacity import (
     retry,
@@ -117,7 +118,7 @@ class SwarmJob(abc.ABC):
         pbar = tqdm(
             total=len(df),
             initial=len(done_df),
-            desc="Total samples processed",
+            desc=f"[{threading.get_ident()}] Total samples processed",
             dynamic_ncols=True,
         )
 
@@ -201,7 +202,7 @@ class SwarmJob(abc.ABC):
         completed = 0
         pending_ids: list[int] = []
 
-        pbar = tqdm(total=len(seq), desc="Batch request execution", dynamic_ncols=True)
+        pbar = tqdm(total=len(seq), desc=f"[{threading.get_ident()}] Batch request execution", dynamic_ncols=True)
 
         async def worker() -> None:
             nonlocal completed, pending_ids
@@ -229,7 +230,7 @@ class SwarmJob(abc.ABC):
         try:
             await tqdm.gather(
                 *(asyncio.create_task(worker()) for _ in range(self.parallel)),
-                desc="Worker task completion",
+                desc=f"[{threading.get_ident()}] Worker task completion",
             )
         finally:
             pbar.close()

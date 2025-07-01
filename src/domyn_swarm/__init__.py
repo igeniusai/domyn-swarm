@@ -22,7 +22,7 @@ from pydantic import BaseModel, ValidationInfo, computed_field, field_validator,
 class DriverConfig(BaseModel):
     cpus_per_task: int = 2
     mem: str = "1GB"
-    threads_per_core: int = 2
+    threads_per_core: int = 1
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -457,7 +457,7 @@ class DomynLLMSwarm(BaseModel):
             "--endpoint",
             self.endpoint,
             "--nthreads",
-            num_threads,
+            str(num_threads),
             "--job-kwargs",
             job_kwargs,
         ]

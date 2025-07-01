@@ -46,7 +46,7 @@ def run_swarm_in_threads(
         A single combined DataFrame with all outputs.
     """
 
-    MAX_PARALLELISM = os.cpu_count() * 2
+    MAX_PARALLELISM = os.cpu_count()
     num_threads = num_threads or min(MAX_PARALLELISM, max(1, os.cpu_count() or 1))
 
     checkpoint_dir = Path(checkpoint_dir)
