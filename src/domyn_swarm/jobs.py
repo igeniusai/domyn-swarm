@@ -24,7 +24,7 @@ import asyncio
 import dataclasses
 import abc
 import threading
-from typing import Callable, Coroutine, List, Sequence, Any, Tuple
+from typing import Callable, Coroutine, Sequence, Any, Tuple
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -202,7 +202,11 @@ class SwarmJob(abc.ABC):
         completed = 0
         pending_ids: list[int] = []
 
-        pbar = tqdm(total=len(seq), desc=f"[{threading.get_ident()}] Batch request execution", dynamic_ncols=True)
+        pbar = tqdm(
+            total=len(seq),
+            desc=f"[{threading.get_ident()}] Batch request execution",
+            dynamic_ncols=True,
+        )
 
         async def worker() -> None:
             nonlocal completed, pending_ids

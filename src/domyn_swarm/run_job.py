@@ -74,7 +74,7 @@ def run_swarm_in_threads(
     for t in threads:
         t.join()
 
-    rprint(f"[bold green]✅ All shards finished. Merging...[/bold green]")
+    rprint("[bold green]✅ All shards finished. Merging...[/bold green]")
 
     final_df = pd.concat(results).sort_index()
     return final_df
@@ -128,9 +128,9 @@ async def _amain():
         df_out: pd.DataFrame = run_swarm_in_threads(
             df_in,
             JobCls,
-            job_kwargs={"endpoint": endpoint, "model": model,**job_params, **kwargs},
+            job_kwargs={"endpoint": endpoint, "model": model, **job_params, **kwargs},
             tag=tag,
-            num_threads=args.nthreads
+            num_threads=args.nthreads,
         )
 
     os.makedirs(out_path.parent, exist_ok=True)

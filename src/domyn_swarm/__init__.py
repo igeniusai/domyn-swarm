@@ -19,6 +19,7 @@ from domyn_swarm.helpers import is_folder, path_exists
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 
+
 class DriverConfig(BaseModel):
     cpus_per_task: int = 2
     mem: str = "1GB"
@@ -413,7 +414,7 @@ class DomynLLMSwarm(BaseModel):
         *,
         input_path: pathlib.Path,
         output_path: pathlib.Path,
-        num_threads: int = 1
+        num_threads: int = 1,
     ) -> None:
         """
         Launch `job` inside the swarm allocation.  The job is serialized by
