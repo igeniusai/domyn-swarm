@@ -1,3 +1,27 @@
+## v0.5.0 (2025-07-01)
+
+### Feat
+
+- add resource configuration for the driver/lb task
+- add support for running threads in multithreaded mode
+
+### Fix
+
+- fix usage of new cli argument for nthreads
+- fix issue when users filter df inside transform
+- fix typo
+- actually fix streaming of stdout to terminal
+- fix how log_directory config is after home_directory
+- add cli parameters to domyn_swarm.run_job so that it's more usable
+- use subprocess.PIPE for stderr for running srun commands
+- fix properly the usage of a moddel saved in a local folder. If the cfg.model is a folder, then it will be mounted by the vllm containers
+- quick fix to make sure that models saved in folders are actually readable by the vllm container
+- update deepseek_r1.yaml
+
+### Perf
+
+- :zap: improve deepseek R1 performances
+
 ## v0.4.0 (2025-06-27)
 
 ### Feat

@@ -7,3 +7,6 @@ vllm_args: "--dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 8192 
 lb_wait: 3600
 hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
 lb_port: 9001
+driver:
+  cpus_per_task: 4
+  mem: 4GB

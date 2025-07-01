@@ -1,6 +1,6 @@
 [project]
 name = "domyn-swarm"
-version = "0.4.0"
+version = "0.5.0"
 description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes using simple configuration files"
 readme = "README.md"
 requires-python = ">=3.10"
