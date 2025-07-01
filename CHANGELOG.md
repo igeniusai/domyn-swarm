@@ -1,3 +1,10 @@
+## v0.5.2 (2025-07-01)
+
+### Fix
+
+- add --exclusive=user to job allocation in sbatch scripts
+- fix exceptions silenced when retried, add --exclusive when submitting sbatch jobs
+
 ## v0.5.1 (2025-07-01)
 
 ### Fix

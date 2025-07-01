@@ -1,7 +1,8 @@
+from importlib import metadata
 import pathlib
 import subprocess
 from typing import List, Optional
-
+from rich import print as rprint
 import typer
 from typing_extensions import Annotated
 
@@ -12,6 +13,19 @@ submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 app.add_typer(
     submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation."
 )
+
+def version_callback(value: bool):
+    if value:
+        version = metadata.version('domyn-swarm')
+        rprint(f"Domyn-Swarm CLI Version: {version}")
+        raise typer.Exit()
+
+
+@app.command
+def main(version: Annotated[
+        Optional[bool], typer.Option("--version", callback=version_callback)
+    ] = None):
+    pass
 
 
 @app.command("up", short_help="Launch a swarm allocation with a configuration")
