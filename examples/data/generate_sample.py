@@ -126,7 +126,7 @@ completion_out = "completion.parquet"
 completion_df.to_parquet(completion_out, index=False, engine=parquet_engine)
 
 chat_completion_df = pd.DataFrame(
-    {"messages": [{"role": "user", "content": message} for message in messages]}
+    {"messages": [[{"role": "user", "content": message}] for message in messages]}
 )
 chat_completion_out = "chat_completion.parquet"
 chat_completion_df.to_parquet(chat_completion_out, index=False, engine=parquet_engine)

@@ -1,3 +1,9 @@
+## v0.5.1 (2025-07-01)
+
+### Fix
+
+- fix ChatCompletionJob to properly handle array of messages
+
 ## v0.5.0 (2025-07-01)
 
 ### Feat
