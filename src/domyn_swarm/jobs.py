@@ -311,14 +311,14 @@ class ChatCompletionJob(SwarmJob):
 
         df = df.copy()
 
-        async def _call(messages) -> str:
+        async def _call(messages: list[dict]) -> str:
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model, messages=messages, **self.kwargs
             )
             return resp.choices[0].message.content
 
         await self.batched(
-            [[message] for message in df[self.input_column_name].tolist()], _call
+            [messages for messages in df[self.input_column_name].tolist()], _call
         )
 
 
