@@ -19,6 +19,11 @@ from domyn_swarm.helpers import is_folder, path_exists
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 
+class DriverConfig(BaseModel):
+    cpus_per_task: int = 2
+    mem: str = "1GB"
+    threads_per_core: int = 2
+
 
 class DomynLLMSwarmConfig(BaseModel):
     hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
@@ -78,6 +83,8 @@ class DomynLLMSwarmConfig(BaseModel):
     time_limit: str = "36:00:00"  # e.g. 36 hours
     exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
     node_list: str | None = None  # e.g. "node[4-6]" (optional)
+
+    driver: DriverConfig | None = DriverConfig()
 
     def model_post_init(self, context):
         os.makedirs(self.log_directory, exist_ok=True)

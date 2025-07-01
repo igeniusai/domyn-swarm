@@ -6,7 +6,9 @@
 #SBATCH --job-name={{ job_name }}-lb
 #SBATCH --partition={{ cfg.partition }}
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task={{ cfg.driver.cpus_per_task }}
+#SBATCH --mem={{ cfg.driver.mem }}
+#SBATCH --threads-per-core={{ cfg.driver.threads_per_core }}
 #SBATCH --time=36:00:00
 #SBATCH --output={{ cfg.log_directory }}/lb_%j.out
 #SBATCH --error={{ cfg.log_directory }}/lb_%j.err
