@@ -6,7 +6,7 @@
 #SBATCH --mail-user=federico.dambrosio@igenius.ai
 #SBATCH --qos=qos_llm_min
 
-#SBATCH --exclusive
+#SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.partition }}          # e.g. boost_usr_prod
 #SBATCH --nodes={{ cfg.nodes }}              # head  +  workers
