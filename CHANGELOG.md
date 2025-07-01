@@ -3,7 +3,7 @@
 ### Feat
 
 - add resource configuration for the driver/lb task
-- add support for running threads in multithreaded mode
+- add support for running jobs in multithreaded mode
 
 ### Fix
 
