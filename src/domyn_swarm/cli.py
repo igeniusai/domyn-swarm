@@ -170,6 +170,12 @@ def submit_job(
         "-r",
         help="Number of retries for failed requests (default: 5)",
     ),
+    num_threads: int = typer.Option(
+        1,
+        "--num-threads",
+        "-t",
+        help="How many threads should be used by the driver to run the job"
+    )
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -192,7 +198,7 @@ def submit_job(
                 input_column_name=input_column,
                 output_column_name=output_column,
             )
-            swarm.submit_job(job, input_path=input, output_path=output)
+            swarm.submit_job(job, input_path=input, output_path=output, num_threads=num_threads)
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
         job = _load_job(
@@ -206,7 +212,7 @@ def submit_job(
             input_column_name=input_column,
             output_column_name=output_column,
         )
-        swarm.submit_job(job, input_path=input, output_path=output)
+        swarm.submit_job(job, input_path=input, output_path=output, num_threads=num_threads)
 
 
 if __name__ == "__main__":

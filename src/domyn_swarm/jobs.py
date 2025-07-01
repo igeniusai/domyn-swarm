@@ -23,7 +23,7 @@ import os
 import asyncio
 import dataclasses
 import abc
-from typing import Callable, List, Sequence, Any, Tuple
+from typing import Callable, Coroutine, List, Sequence, Any, Tuple
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -114,8 +114,12 @@ class SwarmJob(abc.ABC):
         todo_df["_row_id"] = todo_df.index
         todo_df.reset_index(drop=True, inplace=True)
 
-
-        pbar = tqdm(total=len(df), initial=len(done_df), desc="Total samples processed", dynamic_ncols=True)
+        pbar = tqdm(
+            total=len(df),
+            initial=len(done_df),
+            desc="Total samples processed",
+            dynamic_ncols=True,
+        )
 
         # ───────────── checkpoint flush callback (captured by _batched)
         async def _flush(out_list: list, new_ids: list[int]) -> None:
@@ -130,7 +134,10 @@ class SwarmJob(abc.ABC):
                     tmp[col_name] = [out_list[i][col_idx] for i in new_ids]
 
             done_df = pd.concat([done_df, tmp]).sort_index()
-            done_df.to_parquet(ckp_path)
+
+            # 🧵 Offload blocking I/O
+            await asyncio.to_thread(done_df.to_parquet, ckp_path)
+
             pbar.update(len(new_ids))
             rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
 
@@ -159,7 +166,7 @@ class SwarmJob(abc.ABC):
     async def batched(
         self,
         seq: Sequence,
-        fn: Callable,
+        fn: Coroutine,
         *,
         on_batch_done: Callable[[list, list[int]], None] | None = None,
     ) -> list:
@@ -222,11 +229,11 @@ class SwarmJob(abc.ABC):
         try:
             await tqdm.gather(
                 *(asyncio.create_task(worker()) for _ in range(self.parallel)),
-                desc="Worker task completion"
+                desc="Worker task completion",
             )
         finally:
             pbar.close()
-        
+
         return out
 
     @abc.abstractmethod

@@ -21,7 +21,6 @@ from pydantic import BaseModel, ValidationInfo, computed_field, field_validator,
 
 
 class DomynLLMSwarmConfig(BaseModel):
-
     hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
 
     # model / revision --------------------------------------------------------
@@ -407,6 +406,7 @@ class DomynLLMSwarm(BaseModel):
         *,
         input_path: pathlib.Path,
         output_path: pathlib.Path,
+        num_threads: int = 1
     ) -> None:
         """
         Launch `job` inside the swarm allocation.  The job is serialized by
@@ -449,6 +449,8 @@ class DomynLLMSwarm(BaseModel):
             str(output_path),
             "--endpoint",
             self.endpoint,
+            "--nthreads",
+            num_threads,
             "--job-kwargs",
             job_kwargs,
         ]
