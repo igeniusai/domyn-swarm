@@ -19,6 +19,7 @@ Sub-classes included:
 * `ChatCompletionJob`   → list-of-messages → one assistant reply
 """
 
+import logging
 import os
 import asyncio
 import dataclasses
@@ -26,6 +27,7 @@ import abc
 import threading
 from typing import Callable, Coroutine, Sequence, Any, Tuple
 from tenacity import (
+    before_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -36,8 +38,9 @@ from tqdm.asyncio import tqdm
 import pandas as pd
 from rich import print as rprint
 from openai.types.chat.chat_completion import Choice
-from domyn_swarm.helpers import compute_perplexity_metrics, extract_token_logprobs
+from domyn_swarm.helpers import compute_perplexity_metrics, extract_token_logprobs, setup_logger
 
+logger = setup_logger(__name__)
 
 class SwarmJob(abc.ABC):
     """
@@ -179,16 +182,15 @@ class SwarmJob(abc.ABC):
         • Calls *on_batch_done* (or the hidden self._ckp_flush) every
           `self.batch_size` completions and once at the end.
         """
-        from openai import APITimeoutError
-
         # allow explicit override or fall back to checkpoint flush
         on_batch_done = on_batch_done or getattr(self, "_ckp_flush", None)
 
         fn = retry(
             fn,
-            retry=retry_if_exception_type(APITimeoutError),
             wait=wait_exponential(multiplier=1, min=4, max=10),
             stop=stop_after_attempt(self.retries),
+            reraise=True,
+            before=before_log(logger=logger, log_level=logging.WARN),
         )
 
         out: list[Any | None] = [None] * len(seq)
@@ -236,6 +238,8 @@ class SwarmJob(abc.ABC):
                 *(asyncio.create_task(worker()) for _ in range(self.parallel)),
                 desc=f"[{threading.get_ident()}] Worker task completion",
             )
+        except Exception as e:
+            rprint(f"An exception occurred while the worker was running: {e}")
         finally:
             pbar.close()
 
@@ -357,7 +361,7 @@ class MultiChatCompletionJob(SwarmJob):
 
         # _batched now returns List[List[str]] (len == n for each inner list)
         await self.batched(
-            [[m] for m in df[self.input_column_name].tolist()],
+            [messages for messages in df[self.input_column_name].tolist()],
             _call,
         )
 
@@ -410,5 +414,5 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
             return text, *self.compute_from_choice(choice)
 
         _ = await self.batched(
-            [[message] for message in df[self.input_column_name].tolist()], _call
+            [messages for messages in df[self.input_column_name].tolist()], _call
         )

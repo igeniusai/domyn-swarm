@@ -12,7 +12,36 @@ import mmap
 import os
 import math
 from openai.types.chat.chat_completion import Choice
+import logging
+import sys
 
+def setup_logger(name: str = "app", level=logging.INFO) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.propagate = False  # Avoid duplicate logs
+
+    if logger.handlers:
+        return logger
+
+    # Info and below → stdout
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
+    stdout_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    ))
+
+    # Warnings and above → stderr
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    ))
+
+    logger.addHandler(stdout_handler)
+    logger.addHandler(stderr_handler)
+
+    return logger
 
 def get_unused_port(start=50000, end=65535):
     """
@@ -256,3 +285,31 @@ def path_exists(path: str):
 
 def is_folder(path: str):
     return pathlib.Path(path).is_dir()
+
+def setup_logger(name: str = "app", level=logging.INFO) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.propagate = False  # Avoid duplicate logs
+
+    if logger.handlers:
+        return logger
+
+    # Info and below → stdout
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
+    stdout_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    ))
+
+    # Warnings and above → stderr
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    ))
+
+    logger.addHandler(stdout_handler)
+    logger.addHandler(stderr_handler)
+
+    return logger
