@@ -105,7 +105,7 @@ class SwarmJob(abc.ABC):
         os.makedirs(ckp_dir, exist_ok=True)
         ckp_path = os.path.join(ckp_dir, f"{self.__class__.__name__}_{tag}.parquet")
 
-        # ───────────── restore previous progress (if any)
+        # ───── restore checkpoint ───────────────────────────────────────────────
         if os.path.exists(ckp_path):
             done_df = pd.read_parquet(ckp_path)
             done_idx = set(done_df.index)
@@ -114,9 +114,8 @@ class SwarmJob(abc.ABC):
             done_df = pd.DataFrame()
             done_idx = set()
 
-        todo_df = df.loc[~df.index.isin(done_idx)]
-        todo_df["_row_id"] = todo_df.index
-        todo_df.reset_index(drop=True, inplace=True)
+        todo_df = df.loc[~df.index.isin(done_idx)].copy()
+        idx_map = todo_df.index.to_numpy()          # position → original index
 
         pbar = tqdm(
             total=len(df),
@@ -125,10 +124,10 @@ class SwarmJob(abc.ABC):
             dynamic_ncols=True,
         )
 
-        # ───────────── checkpoint flush callback (captured by _batched)
+        # ───── checkpoint flush callback ────────────────────────────────────────
         async def _flush(out_list: list, new_ids: list[int]) -> None:
             nonlocal done_df
-            global_indices = todo_df.loc[new_ids, "_row_id"]
+            global_indices = [idx_map[i] for i in new_ids]       # restore originals
             tmp = df.loc[global_indices].copy()
 
             if isinstance(self.output_column_name, str):
@@ -137,35 +136,27 @@ class SwarmJob(abc.ABC):
                 for col_idx, col_name in enumerate(self.output_column_name):
                     tmp[col_name] = [out_list[i][col_idx] for i in new_ids]
 
-            done_df = pd.concat([done_df, tmp]).sort_index()
-
-            # 🧵 Offload blocking I/O
+            done_df = pd.concat([done_df, tmp])                  # keep original idx
             await asyncio.to_thread(done_df.to_parquet, ckp_path)
 
             pbar.update(len(new_ids))
             rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
 
-        # expose the callback so _batched() can discover it transparently
         self._ckp_flush = _flush  # type: ignore[attr-defined]
 
         try:
-            _ = await self.transform(todo_df)  # returns df, but we rely on flushes
+            await self.transform(todo_df)                       # processing happens
         finally:
-            # always remove the attribute, even if transform() raises
             if hasattr(self, "_ckp_flush"):
                 delattr(self, "_ckp_flush")
 
-        # All slices flushed – combine w/ any remainder produced by transform()
-        final_df = done_df.combine_first(todo_df).sort_index()
-        final_df = final_df.drop(columns=["_row_id"], errors="ignore")
-
-        # Success → drop checkpoint file
+        # no combine_first ⇒ no duplicates
         try:
             os.remove(ckp_path)
         except FileNotFoundError:
             pass
 
-        return final_df
+        return done_df.sort_index()                           # 50 rows, in order
 
     async def batched(
         self,
@@ -205,9 +196,10 @@ class SwarmJob(abc.ABC):
         pending_ids: list[int] = []
 
         pbar = tqdm(
-            total=len(seq),
+            total=self.batch_size,
             desc=f"[{threading.get_ident()}] Batch request execution",
             dynamic_ncols=True,
+            leave=True
         )
 
         async def worker() -> None:
@@ -232,6 +224,8 @@ class SwarmJob(abc.ABC):
                         ids_now = pending_ids
                         pending_ids = []
                         await on_batch_done(out, ids_now)
+                        remaining = self.batch_size if queue.qsize() >= self.batch_size else self.batch_size - queue.qsize()
+                        pbar.reset(total=remaining)
 
         try:
             await tqdm.gather(
