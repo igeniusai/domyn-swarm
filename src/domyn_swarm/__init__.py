@@ -415,6 +415,7 @@ class DomynLLMSwarm(BaseModel):
         input_path: pathlib.Path,
         output_path: pathlib.Path,
         num_threads: int = 1,
+        detach: bool = False,
     ) -> None:
         """
         Launch `job` inside the swarm allocation.  The job is serialized by
@@ -467,8 +468,17 @@ class DomynLLMSwarm(BaseModel):
             f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
         rprint(f"  {' '.join(map(str, cmd[:-1]))}" + f" '{job_kwargs}'")
-
-        subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
+        if detach:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                start_new_session=True,
+                close_fds=True,
+            )
+            rprint(f"Detached process with PID {proc.pid}")
+        else:
+            subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
     @classmethod
     def from_state(cls, state_file: pathlib.Path) -> "DomynLLMSwarm":
@@ -549,3 +559,10 @@ def _start_swarm(
                 int(swarm.endpoint.split(":")[2]),
                 cfg.ray_dashboard_port,
             )
+
+
+"""
+    "config_path": Path("/leonardo_scratch/fast/iGen_train/dataset_difficulty_assessment/domyn-swarm/examples/configs/italia_10b.yaml"),
+    "input_path": Path("/leonardo_scratch/fast/iGen_train/dataset_difficulty_assessment/data/deepscaler_train.parquet"),
+    "output_path": Path("/leonardo_scratch/fast/iGen_train/dataset_difficulty_assessment/results/deepscaler_train_italia10b.parquet"),
+"""

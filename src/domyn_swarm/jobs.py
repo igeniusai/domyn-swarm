@@ -25,11 +25,10 @@ import asyncio
 import dataclasses
 import abc
 import threading
-from typing import Callable, Coroutine, Sequence, Any, Tuple
+from typing import Callable, Coroutine, Dict, List, Sequence, Any, Tuple
 from tenacity import (
     before_log,
     retry,
-    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -37,10 +36,16 @@ from tqdm.asyncio import tqdm
 
 import pandas as pd
 from rich import print as rprint
-from openai.types.chat.chat_completion import Choice
-from domyn_swarm.helpers import compute_perplexity_metrics, extract_token_logprobs, setup_logger
+from openai.types.chat.chat_completion import Choice, ChatCompletion
+
+from domyn_swarm.helpers import (
+    compute_perplexity_metrics,
+    extract_token_logprobs,
+    setup_logger,
+)
 
 logger = setup_logger(__name__)
+
 
 class SwarmJob(abc.ABC):
     """
@@ -115,7 +120,7 @@ class SwarmJob(abc.ABC):
             done_idx = set()
 
         todo_df = df.loc[~df.index.isin(done_idx)].copy()
-        idx_map = todo_df.index.to_numpy()          # position → original index
+        idx_map = todo_df.index.to_numpy()  # position → original index
 
         pbar = tqdm(
             total=len(df),
@@ -127,7 +132,7 @@ class SwarmJob(abc.ABC):
         # ───── checkpoint flush callback ────────────────────────────────────────
         async def _flush(out_list: list, new_ids: list[int]) -> None:
             nonlocal done_df
-            global_indices = [idx_map[i] for i in new_ids]       # restore originals
+            global_indices = [idx_map[i] for i in new_ids]  # restore originals
             tmp = df.loc[global_indices].copy()
 
             if isinstance(self.output_column_name, str):
@@ -136,7 +141,7 @@ class SwarmJob(abc.ABC):
                 for col_idx, col_name in enumerate(self.output_column_name):
                     tmp[col_name] = [out_list[i][col_idx] for i in new_ids]
 
-            done_df = pd.concat([done_df, tmp])                  # keep original idx
+            done_df = pd.concat([done_df, tmp])  # keep original idx
             await asyncio.to_thread(done_df.to_parquet, ckp_path)
 
             pbar.update(len(new_ids))
@@ -145,7 +150,7 @@ class SwarmJob(abc.ABC):
         self._ckp_flush = _flush  # type: ignore[attr-defined]
 
         try:
-            await self.transform(todo_df)                       # processing happens
+            await self.transform(todo_df)  # processing happens
         finally:
             if hasattr(self, "_ckp_flush"):
                 delattr(self, "_ckp_flush")
@@ -156,7 +161,7 @@ class SwarmJob(abc.ABC):
         except FileNotFoundError:
             pass
 
-        return done_df.sort_index()                           # 50 rows, in order
+        return done_df.sort_index()  # 50 rows, in order
 
     async def batched(
         self,
@@ -199,7 +204,7 @@ class SwarmJob(abc.ABC):
             total=self.batch_size,
             desc=f"[{threading.get_ident()}] Batch request execution",
             dynamic_ncols=True,
-            leave=True
+            leave=True,
         )
 
         async def worker() -> None:
@@ -224,7 +229,11 @@ class SwarmJob(abc.ABC):
                         ids_now = pending_ids
                         pending_ids = []
                         await on_batch_done(out, ids_now)
-                        remaining = self.batch_size if queue.qsize() >= self.batch_size else self.batch_size - queue.qsize()
+                        remaining = (
+                            self.batch_size
+                            if queue.qsize() >= self.batch_size
+                            else self.batch_size - queue.qsize()
+                        )
                         pbar.reset(total=remaining)
 
         try:
@@ -393,8 +402,6 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
         self.output_column_name = ["text", "perplexity", " bottom50_perplexity"]
 
     async def transform(self, df: pd.DataFrame):
-        from openai.types.chat.chat_completion import ChatCompletion, Choice
-
         df = df.copy()
 
         async def _call(messages) -> dict:
@@ -410,3 +417,78 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
         _ = await self.batched(
             [messages for messages in df[self.input_column_name].tolist()], _call
         )
+
+
+class MultiTurnChatCompletionJob(SwarmJob):
+    """
+    For each row’s `messages` (a list of dicts), replay the conversation
+    turn by turn, appending the assistant’s reply after each user/tool message.
+
+    - Input  column: `messages`
+    - Output column: `running_messages`
+    """
+
+    def __init__(
+        self,
+        *,
+        endpoint: str | None = None,
+        model: str = "",
+        input_column_name: str = "messages",
+        output_column_name: str = "results",
+        batch_size: int = 16,
+        parallel: int = 2,
+        retries: int = 5,
+        **extra_kwargs: Any,
+    ):
+        super().__init__(
+            endpoint=endpoint,
+            model=model,
+            input_column_name=input_column_name,
+            output_column_name=output_column_name,
+            batch_size=batch_size,
+            parallel=parallel,
+            retries=retries,
+            **extra_kwargs,
+        )
+
+    async def transform(self, df: pd.DataFrame):
+        # Copy input
+        df = df.copy()
+
+        await self.batched(
+            df[self.input_column_name].tolist(),
+            self._run_multi_turn,
+        )
+
+    async def _run_multi_turn(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        # Find indices of user or tool messages
+        user_idxs = [i for i, m in enumerate(messages) if m["role"] in {"user", "tool"}]
+        if not user_idxs:
+            raise ValueError("Input must contain at least one 'user' or 'tool' message")
+
+        running: List[Dict[str, Any]] = []
+
+        # Zip together slice starts and ends
+        idx = 0
+
+        for i in user_idxs:
+            # append all the messages until the next user message (including system, etc.)
+            running.extend(messages[idx : i + 1])
+
+            resp: ChatCompletion = await self.client.chat.completions.create(
+                model=self.model, messages=running, **self.kwargs
+            )
+
+            # append the assistant's response to the messages
+            running.append(
+                {
+                    "role": "assistant",
+                    "content": resp.choices[0].message.content,
+                }
+            )
+
+            # update the index skipping assistant message
+            idx = i + 2
+        return running

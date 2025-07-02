@@ -117,14 +117,17 @@ async def _amain():
     job_params = json.loads(args.job_kwargs or os.getenv("JOB_KWARGS", "{}"))
     kwargs = job_params.pop("kwargs", {})
 
+    rprint(f"Instantiating job {cls_path}")
     JobCls = _load_cls(cls_path)
     job = JobCls(endpoint=endpoint, model=model, **job_params, **kwargs)
 
+    rprint(f"Reading input dataset from {in_path}")
     tag = parquet_hash(in_path)
     df_in = pd.read_parquet(in_path)
     if args.nthreads <= 1:
         df_out: pd.DataFrame = await job.run(df_in, tag)
     else:
+        rprint(f"Running job in multithreaded mode (num_threads={args.nthreads})")
         df_out: pd.DataFrame = run_swarm_in_threads(
             df_in,
             JobCls,
@@ -133,6 +136,7 @@ async def _amain():
             num_threads=args.nthreads,
         )
 
+    rprint(f"Saving output dataset to {out_path}")
     os.makedirs(out_path.parent, exist_ok=True)
     df_out.to_parquet(out_path)
 
