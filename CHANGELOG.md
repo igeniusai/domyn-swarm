@@ -1,3 +1,13 @@
+## v0.6.0 (2025-07-02)
+
+### Feat
+
+- add MultiTurnChatCompletion job
+
+### Fix
+
+- use squeue instead of sacct for checking slurm job status, add reasoning_content key to MultiTurnChatCompletionJob
+
 ## v0.5.3 (2025-07-02)
 
 ### Fix
