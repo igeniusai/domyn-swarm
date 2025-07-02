@@ -13,11 +13,14 @@ import jinja2
 import requests
 import typer
 from rich import print as rprint
+from rich.panel import Panel
+from rich.syntax import Syntax
 import yaml
 
 from domyn_swarm.helpers import is_folder, path_exists
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
+import shlex
 
 
 class DriverConfig(BaseModel):
@@ -416,6 +419,7 @@ class DomynLLMSwarm(BaseModel):
         output_path: pathlib.Path,
         num_threads: int = 1,
         detach: bool = False,
+        limit: int | None = None,
     ) -> None:
         """
         Launch `job` inside the swarm allocation.  The job is serialized by
@@ -438,36 +442,40 @@ class DomynLLMSwarm(BaseModel):
 
         cmd = [
             "srun",
-            "--jobid",
-            str(self.lb_jobid),
-            "--nodelist",
-            self.lb_node,
+            f"--jobid={self.lb_jobid}",
+            f"--nodelist={self.lb_node}",
             "--ntasks=1",
             "--overlap",
             "--export=ALL",  # Keep this to preserve the default env
             python_interpreter,
             "-m",
             "domyn_swarm.run_job",
-            "--job-class",
-            job_class,
-            "--model",
-            self.model,
-            "--input-parquet",
-            str(input_path),
-            "--output-parquet",
-            str(output_path),
-            "--endpoint",
-            self.endpoint,
-            "--nthreads",
-            str(num_threads),
+            f"--job-class={job_class}",
+            f"--model={self.model}",
+            f"--input-parquet={input_path}",
+            f"--output-parquet={output_path}",
+            f"--endpoint={self.endpoint}",
+            f"--nthreads={num_threads}",
             "--job-kwargs",
             job_kwargs,
         ]
 
+        if limit:
+            cmd.append(f"--limit={limit}")
+
         rprint(
             f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
-        rprint(f"  {' '.join(map(str, cmd[:-1]))}" + f" '{job_kwargs}'")
+        full_cmd = shlex.join(cmd)
+        syntax = Syntax(
+            full_cmd,
+            "bash",
+            line_numbers=False,
+            word_wrap=True,
+            indent_guides=True,
+            padding=1,
+        )
+        rprint(Panel(syntax, title="You can submit this job again using this command"))
         if detach:
             proc = subprocess.Popen(
                 cmd,
@@ -559,10 +567,3 @@ def _start_swarm(
                 int(swarm.endpoint.split(":")[2]),
                 cfg.ray_dashboard_port,
             )
-
-
-"""
-    "config_path": Path("/leonardo_scratch/fast/iGen_train/dataset_difficulty_assessment/domyn-swarm/examples/configs/italia_10b.yaml"),
-    "input_path": Path("/leonardo_scratch/fast/iGen_train/dataset_difficulty_assessment/data/deepscaler_train.parquet"),
-    "output_path": Path("/leonardo_scratch/fast/iGen_train/dataset_difficulty_assessment/results/deepscaler_train_italia10b.parquet"),
-"""

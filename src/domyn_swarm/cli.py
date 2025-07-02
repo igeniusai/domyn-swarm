@@ -14,17 +14,20 @@ app.add_typer(
     submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation."
 )
 
+
 def version_callback(value: bool):
     if value:
-        version = metadata.version('domyn-swarm')
+        version = metadata.version("domyn-swarm")
         rprint(f"Domyn-Swarm CLI Version: {version}")
         raise typer.Exit()
 
 
 @app.command
-def main(version: Annotated[
+def main(
+    version: Annotated[
         Optional[bool], typer.Option("--version", callback=version_callback)
-    ] = None):
+    ] = None,
+):
     pass
 
 
@@ -190,6 +193,12 @@ def submit_job(
         "-t",
         help="How many threads should be used by the driver to run the job",
     ),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        "-l",
+        help="Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset",
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -213,7 +222,11 @@ def submit_job(
                 output_column_name=output_column,
             )
             swarm.submit_job(
-                job, input_path=input, output_path=output, num_threads=num_threads
+                job,
+                input_path=input,
+                output_path=output,
+                num_threads=num_threads,
+                limit=limit,
             )
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
@@ -229,7 +242,11 @@ def submit_job(
             output_column_name=output_column,
         )
         swarm.submit_job(
-            job, input_path=input, output_path=output, num_threads=num_threads
+            job,
+            input_path=input,
+            output_path=output,
+            num_threads=num_threads,
+            limit=limit,
         )
 
 

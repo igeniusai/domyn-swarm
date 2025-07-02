@@ -101,6 +101,7 @@ def parse_args():
         default=1,
         help="How many threads should be used when executing this job",
     )
+    parser.add_argument("--limit", default=None, type=int, required=False)
 
     return parser.parse_args()
 
@@ -124,6 +125,10 @@ async def _amain():
     rprint(f"Reading input dataset from {in_path}")
     tag = parquet_hash(in_path)
     df_in = pd.read_parquet(in_path)
+
+    if args.limit:
+        df_in = df_in.head(args.limit)
+
     if args.nthreads <= 1:
         df_out: pd.DataFrame = await job.run(df_in, tag)
     else:
