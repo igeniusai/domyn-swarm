@@ -331,7 +331,7 @@ class DomynLLMSwarm(BaseModel):
 
         def _sacct_state(jid: int) -> str:
             out = subprocess.check_output(
-                ["sacct", "-j", str(jid), "-n", "-X", "-o", "State"],
+                ["squeue", "-j", str(jid), "-h", "-o", "State"],
                 text=True,
             ).strip()
             return out.split()[0] if out else "UNKNOWN"

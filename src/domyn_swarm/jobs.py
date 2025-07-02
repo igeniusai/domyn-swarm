@@ -480,14 +480,17 @@ class MultiTurnChatCompletionJob(SwarmJob):
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model, messages=running, **self.kwargs
             )
+            choice = resp.choices[0]
 
             # append the assistant's response to the messages
-            running.append(
-                {
+            response_dict = {
                     "role": "assistant",
-                    "content": resp.choices[0].message.content,
-                }
-            )
+                    "content": choice.message.content,
+            }
+            if hasattr(choice.message, "reasoning_content"):
+                response_dict["reasoning_content"] = choice.message.reasoning_content
+            running.append(response_dict)
+
 
             # update the index skipping assistant message
             idx = i + 2
