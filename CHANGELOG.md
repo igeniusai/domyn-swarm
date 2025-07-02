@@ -1,3 +1,11 @@
+## v0.5.3 (2025-07-02)
+
+### Fix
+
+- fix issue with srun not being able to be executed inside lb node
+- fix checkpointing
+- fix example data to mirror actual implementation of ChatCompletionJob
+
 ## v0.5.2 (2025-07-01)
 
 ### Fix
