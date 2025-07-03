@@ -5,8 +5,10 @@ from typing import List, Optional
 from rich import print as rprint
 import typer
 from typing_extensions import Annotated
+import yaml
 
 from domyn_swarm import DomynLLMSwarm, _start_swarm, _load_job, _load_swarm_config
+from domyn_swarm.pool import SwarmPoolConfig
 
 app = typer.Typer()
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
@@ -97,7 +99,11 @@ def deploy_pool(
         ),
     ],
 ):
-    pass
+    pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(config.read()))
+    
+
+
+
 
 
 @app.command("down", short_help="Shut down a swarm allocation")
