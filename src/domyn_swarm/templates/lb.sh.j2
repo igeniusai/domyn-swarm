@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task={{ cfg.driver.cpus_per_task }}
 #SBATCH --mem={{ cfg.driver.mem }}
 #SBATCH --threads-per-core={{ cfg.driver.threads_per_core }}
-#SBATCH --time=36:00:00
+#SBATCH --time={{ cfg.driver.wall_time }}
 #SBATCH --output={{ cfg.log_directory }}/lb_%j.out
 #SBATCH --error={{ cfg.log_directory }}/lb_%j.err
 

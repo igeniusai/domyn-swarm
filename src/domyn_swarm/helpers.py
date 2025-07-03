@@ -18,6 +18,7 @@ import logging
 
 libc = ctypes.CDLL("libc.so.6", use_errno=True)
 
+
 def get_unused_port(start=50000, end=65535):
     """
     Find an unused port in the specified range.
@@ -290,11 +291,12 @@ def setup_logger(name: str = "app", level=logging.INFO) -> logging.Logger:
 
     return logger
 
+
 PR_SET_PDEATHSIG = 1
+
 
 def _set_pdeathsig(sig=signal.SIGTERM):
     # ask the kernel to send `sig` when this process's parent dies
     if libc.prctl(PR_SET_PDEATHSIG, sig) != 0:
         err = ctypes.get_errno()
         raise OSError(err, os.strerror(err))
-

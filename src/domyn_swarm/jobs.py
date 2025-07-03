@@ -484,13 +484,12 @@ class MultiTurnChatCompletionJob(SwarmJob):
 
             # append the assistant's response to the messages
             response_dict = {
-                    "role": "assistant",
-                    "content": choice.message.content,
+                "role": "assistant",
+                "content": choice.message.content,
             }
             if hasattr(choice.message, "reasoning_content"):
                 response_dict["reasoning_content"] = choice.message.reasoning_content
             running.append(response_dict)
-
 
             # update the index skipping assistant message
             idx = i + 2

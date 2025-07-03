@@ -25,8 +25,9 @@ import shlex
 
 class DriverConfig(BaseModel):
     cpus_per_task: int = 2
-    mem: str = "1GB"
+    mem: str = "16GB"
     threads_per_core: int = 1
+    wall_time: str = "24:00:00"
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -374,10 +375,13 @@ class DomynLLMSwarm(BaseModel):
 
                     # 3) once LB RUNNING, probe its HTTP endpoint
                     if self.lb_node is None:
-                        self.lb_node = self._get_lb_node()
-                        status.update(
-                            f"[yellow]LB job running on {self.lb_node}, probing …"
-                        )
+                        try:
+                            self.lb_node = self._get_lb_node()
+                            status.update(
+                                f"[yellow]LB job running on {self.lb_node}, probing …"
+                            )
+                        except:
+                            continue
 
                     try:
                         url = f"http://{self.lb_node}:{lb_port}/v1/models"
@@ -447,6 +451,8 @@ class DomynLLMSwarm(BaseModel):
             "--ntasks=1",
             "--overlap",
             "--export=ALL",  # Keep this to preserve the default env
+            f"--mem={self.cfg.driver.mem}",
+            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
             python_interpreter,
             "-m",
             "domyn_swarm.run_job",
@@ -475,7 +481,7 @@ class DomynLLMSwarm(BaseModel):
             indent_guides=True,
             padding=1,
         )
-        rprint(Panel(syntax, title="You can submit this job again using this command"))
+        rprint(syntax)
         if detach:
             proc = subprocess.Popen(
                 cmd,
