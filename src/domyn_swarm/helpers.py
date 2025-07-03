@@ -300,3 +300,11 @@ def _set_pdeathsig(sig=signal.SIGTERM):
     if libc.prctl(PR_SET_PDEATHSIG, sig) != 0:
         err = ctypes.get_errno()
         raise OSError(err, os.strerror(err))
+
+def compute_hash(s: str, algorithm='sha256'):
+    """
+    Compute the hexadecimal hash digest of string `s` using `algorithm`.
+    """
+    h = hashlib.new(algorithm)
+    h.update(s.encode("utf-8"))
+    return h.hexdigest()
