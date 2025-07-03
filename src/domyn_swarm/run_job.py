@@ -5,7 +5,7 @@ import json
 import importlib
 import pandas as pd
 import asyncio
-from domyn_swarm.helpers import parquet_hash
+from domyn_swarm.helpers import compute_hash, parquet_hash
 from domyn_swarm.jobs import SwarmJob  # base class
 from pathlib import Path
 import threading
@@ -123,7 +123,7 @@ async def _amain():
     job = JobCls(endpoint=endpoint, model=model, **job_params, **kwargs)
 
     rprint(f"Reading input dataset from {in_path}")
-    tag = parquet_hash(in_path)
+    tag = parquet_hash(in_path) + compute_hash(str(out_path))
     df_in = pd.read_parquet(in_path)
 
     if args.limit:
