@@ -1,4 +1,4 @@
-model: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+model: /leonardo_scratch/fast/iGen_train/models/Llama-3.1-8B-Instruct/
 revision: main
 nodes: 1
 gpus_per_node: 4

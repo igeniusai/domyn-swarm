@@ -1,3 +1,20 @@
+## v0.7.0 (2025-07-03)
+
+### Feat
+
+- add swarm pool data models
+
+### Fix
+
+- improve robustness for checking slurm jobs state, add create_swarm_pool utility
+- add PID returned if job is submitted as detached
+- rmeove unneeded files
+- add --exclusive to load balancer template
+- add --exclusive to load balancer template
+- use output path as part of checkpointing naming convention
+- use model to differentiate between checkpoints on the same source dataset
+- fix issue when domyn-swarm python script is running in sbatch script
+
 ## v0.6.0 (2025-07-02)
 
 ### Feat
