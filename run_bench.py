@@ -1,0 +1,6 @@
+# /// script
+# dependencies = [
+#   "vllm",
+#   "datasets",
+# ]
+# ///

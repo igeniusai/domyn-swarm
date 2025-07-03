@@ -9,4 +9,4 @@ hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
 lb_port: 9001
 driver:
   cpus_per_task: 4
-  mem: 4GB
+  wall_time: "200:00:00"

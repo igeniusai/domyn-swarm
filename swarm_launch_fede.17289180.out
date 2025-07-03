@@ -1,0 +1,57 @@
+ Huggingface model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B will be used, make 
+sure that HF_HOME is specified correctly and the model is available in 
+/leonardo_scratch/fast/iGen_train/shared_hf_cache/hub
+ Huggingface model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B will be used, make 
+sure that HF_HOME is specified correctly and the model is available in 
+/leonardo_scratch/fast/iGen_train/shared_hf_cache/hub
+[LLMSwarm] submitted Slurm job 17289193 with 1 replicas
+[LLMSwarm] submitted LB job for 17289195
+[LLMSwarm] state saved to 
+/leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/.domyn_swarm/swarm_172891
+93.json
+[LLMSwarm] LB healthy → http://lrdn3417:9001
+[LLMSwarm] state saved to 
+/leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/.domyn_swarm/swarm_172891
+93.json
+{'batch_size': 16, 'parallel': 2, 'retries': 5, 'input_column_name': 'messages', 'output_column_name': 'result', 'kwargs': {}}
+[LLMSwarm] submitting job ChatCompletionJob to swarm 17289193:
+                                                                                
+ srun --jobid=17289195 --nodelist=lrdn3417 --ntasks=1 --overlap --export=ALL    
+ --mem=16GB --cpus-per-task=4                                                   
+ /leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/.venv/bin/python -m     
+ domyn_swarm.run_job --job-class=domyn_swarm.jobs:ChatCompletionJob             
+ --model=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B                               
+ --input-parquet=examples/data/chat_completion.parquet                          
+ --output-parquet=detached_results_0.parquet --endpoint=http://lrdn3417:9001    
+ --nthreads=1 --job-kwargs '{"batch_size": 16, "parallel": 2, "retries": 5,     
+ "input_column_name": "messages", "output_column_name": "result", "kwargs": {}} 
+                                                                                
+Detached process with PID 363067
+[LLMSwarm] submitted Slurm job 17289604 with 1 replicas
+[LLMSwarm] submitted LB job for 17289607
+[LLMSwarm] state saved to 
+/leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/.domyn_swarm/swarm_172896
+04.json
+Instantiating job domyn_swarm.jobs:ChatCompletionJob
+Reading input dataset from examples/data/chat_completion.parquet
+ wrote 16/65 rows
+[LLMSwarm] LB healthy → http://lrdn3416:9001
+[LLMSwarm] state saved to 
+/leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/.domyn_swarm/swarm_172896
+04.json
+{'batch_size': 16, 'parallel': 2, 'retries': 5, 'input_column_name': 'messages', 'output_column_name': 'result', 'kwargs': {}}
+[LLMSwarm] submitting job ChatCompletionJob to swarm 17289604:
+                                                                                
+ srun --jobid=17289607 --nodelist=lrdn3416 --ntasks=1 --overlap --export=ALL    
+ --mem=16GB --cpus-per-task=4                                                   
+ /leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/.venv/bin/python -m     
+ domyn_swarm.run_job --job-class=domyn_swarm.jobs:ChatCompletionJob             
+ --model=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B                               
+ --input-parquet=examples/data/chat_completion.parquet                          
+ --output-parquet=detached_results_1.parquet --endpoint=http://lrdn3416:9001    
+ --nthreads=1 --job-kwargs '{"batch_size": 16, "parallel": 2, "retries": 5,     
+ "input_column_name": "messages", "output_column_name": "result", "kwargs": {}} 
+                                                                                
+Detached process with PID 363651
+Instantiating job domyn_swarm.jobs:ChatCompletionJob
+Reading input dataset from examples/data/chat_completion.parquet
