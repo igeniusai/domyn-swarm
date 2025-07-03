@@ -1,6 +1,0 @@
-# /// script
-# dependencies = [
-#   "vllm",
-#   "datasets",
-# ]
-# ///
