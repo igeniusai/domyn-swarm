@@ -97,7 +97,9 @@ class DomynLLMSwarmConfig(BaseModel):
         return super().model_post_init(context)
 
     @classmethod
-    def read(cls, path: pathlib.Path) -> "DomynLLMSwarmConfig":
+    def read(cls, path: str | pathlib.Path) -> "DomynLLMSwarmConfig":
+        if isinstance(path, str):
+            path = pathlib.Path(path)
         return _load_swarm_config(path.open())
 
     @field_validator("model", mode="after")
@@ -424,11 +426,14 @@ class DomynLLMSwarm(BaseModel):
         num_threads: int = 1,
         detach: bool = False,
         limit: int | None = None,
-    ) -> None:
+    ) -> int | None:
         """
         Launch `job` inside the swarm allocation.  The job is serialized by
         its own `.to_kwargs()` and reconstructed with run_job.py on the head
         node (SLURM_NODEID 0).
+
+        If the job is launched with detached=True, then the process PID is returned to be handled
+        by the parent process (e.g. waiting for its termination)
         """
         if self.jobid is None or self.endpoint is None:
             raise RuntimeError("Swarm not ready")
@@ -491,6 +496,7 @@ class DomynLLMSwarm(BaseModel):
                 close_fds=True,
             )
             rprint(f"Detached process with PID {proc.pid}")
+            return proc.pid
         else:
             subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
