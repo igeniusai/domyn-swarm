@@ -256,7 +256,7 @@ class DomynLLMSwarm(BaseModel):
         ).strip()
         return int(out)
 
-    def submit_script(self, script_path: pathlib.Path):
+    def submit_script(self, script_path: pathlib.Path, detach: bool = False):
         """
         Submit a user script to the swarm allocation.
         The script will be run on the head node (SLURM_NODEID 0).
@@ -267,21 +267,40 @@ class DomynLLMSwarm(BaseModel):
             raise FileNotFoundError(f"Script not found: {script_path}")
 
         rprint(f"[LLMSwarm] submitting user script {script_path} to job {self.jobid}")
-        # TODO: THis should be a separate sbatch job, not an srun
-        subprocess.run(
-            [
-                "srun",
-                "--jobid",
-                str(self.lb_jobid),
-                f"--export=ALL,ENDPOINT={self.endpoint},MODEL={self.model}",
-                "--overlap",
-                "--ntasks=1",
-                f"{self.cfg.venv_path / 'bin' / 'python'} {str(script_path)}",
-            ],
-            check=True,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
-        )
+
+        cmd = [
+            "srun",
+            "--jobid",
+            str(self.lb_jobid),
+            f"--nodelist={self.lb_node}",
+            "--ntasks=1",
+            "--overlap",
+            f"--mem={self.cfg.driver.mem}",
+            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
+            f"--export=ALL,ENDPOINT={self.endpoint},MODEL={self.model}",
+            "--overlap",
+            "--ntasks=1",
+            f"{self.cfg.venv_path / 'bin' / 'python'}",
+            str(script_path),
+        ]
+
+        if detach:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                start_new_session=True,
+                close_fds=True,
+            )
+            rprint(f"Detached process with PID {proc.pid}")
+            return proc.pid
+        else:
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            )
 
     def _persist(self):
         state_file = pathlib.Path(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
@@ -437,7 +456,7 @@ class DomynLLMSwarm(BaseModel):
         its own `.to_kwargs()` and reconstructed with run_job.py on the head
         node (SLURM_NODEID 0).
 
-        If the job is launched with detached=True, then the process PID is returned to be handled
+        If the job is launched with detach=True, then the process PID is returned to be handled
         by the parent process (e.g. waiting for its termination)
         """
         if self.jobid is None or self.endpoint is None:
@@ -585,6 +604,7 @@ def _start_swarm(
                 cfg.ray_dashboard_port,
             )
 
+
 @contextmanager
 def create_swarm_pool(*configs: list[DomynLLMSwarmConfig], max_workers=None):
     """
@@ -618,7 +638,7 @@ def create_swarm_pool(*configs: list[DomynLLMSwarmConfig], max_workers=None):
             futures = {exe.submit(cm.__enter__): cm for cm in cms}
             for future in as_completed(futures):
                 cm = futures[future]
-                res = future.result()   # will re‐raise if __enter__ failed
+                res = future.result()  # will re‐raise if __enter__ failed
                 entered.append((cm, res))
 
         # 3) yield the tuple of entered results in the original order

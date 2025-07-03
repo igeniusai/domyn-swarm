@@ -301,7 +301,8 @@ def _set_pdeathsig(sig=signal.SIGTERM):
         err = ctypes.get_errno()
         raise OSError(err, os.strerror(err))
 
-def compute_hash(s: str, algorithm='sha256'):
+
+def compute_hash(s: str, algorithm="sha256"):
     """
     Compute the hexadecimal hash digest of string `s` using `algorithm`.
     """

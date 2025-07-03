@@ -20,15 +20,15 @@ app.add_typer(
 def version_callback(value: bool):
     if value:
         version = metadata.version("domyn-swarm")
-        rprint(f"Domyn-Swarm CLI Version: {version}")
+        rprint(f"domyn-swarm CLI Version: {version}")
         raise typer.Exit()
 
 
-@app.command
+@app.command("version")
 def main(
     version: Annotated[
         Optional[bool], typer.Option("--version", callback=version_callback)
-    ] = None,
+    ] = True,
 ):
     pass
 
@@ -100,10 +100,6 @@ def deploy_pool(
     ],
 ):
     pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(config.read()))
-    
-
-
-
 
 
 @app.command("down", short_help="Shut down a swarm allocation")
