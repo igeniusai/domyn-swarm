@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 import yaml
 
-from domyn_swarm.helpers import is_folder, path_exists, to_path
+from domyn_swarm.helpers import generate_swarm_name, is_folder, path_exists, to_path
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 import shlex
@@ -149,9 +149,7 @@ class DomynLLMSwarm(BaseModel):
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    name: str | None = f"""domyn-swarm-{int(time.time())}-{
-        "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    }"""
+    name: Optional[str] = Field(default_factory=generate_swarm_name)
     cfg: DomynLLMSwarmConfig
     jobid: Optional[int] = None  # Slurm job id, set after job submission
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
@@ -165,7 +163,7 @@ class DomynLLMSwarm(BaseModel):
     @classmethod
     def validate_name(cls, v: str, info: ValidationInfo) -> str:
         if v is None:
-            return cls.model_fields[info.field_name].get_default()
+            return cls.model_fields[info.field_name].get_default(call_default_factory=True)
         return v
 
     @computed_field

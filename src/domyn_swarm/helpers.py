@@ -318,3 +318,12 @@ def to_path(path: pathlib.Path | str) -> pathlib.Path:
     if isinstance(path, str):
         return pathlib.Path(path)
     return path
+
+
+def generate_swarm_name() -> str:
+    import random
+    import string
+
+    return f"""domyn-swarm-{int(time.time())}-{
+        "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    }"""
