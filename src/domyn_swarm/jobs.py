@@ -232,7 +232,7 @@ class SwarmJob(abc.ABC):
                         remaining = (
                             self.batch_size
                             if queue.qsize() >= self.batch_size
-                            else self.batch_size - queue.qsize()
+                            else queue.qsize()
                         )
                         pbar.reset(total=remaining)
 
