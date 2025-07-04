@@ -108,6 +108,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
          --ntasks-per-node=1 \
          --exclusive \
          --exclude="$HEAD_NODE" \
+         --error="$LOG_DIR/worker_%t.err" \
          --output="$LOG_DIR/worker_%t.out" \
           bash -c '
               export SINGULARITYENV_VLLM_HOST_IP=$(hostname -I | awk "{print \$1}")
@@ -121,7 +122,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     WORKER_STEP_PID=$!
 
     echo "[workers] waiting for workers to start ..."
-    sleep 30 # give workers time to start
+    sleep 60 # give workers time to start
 
     echo "[head] starting vLLM REST server ..."
     singularity exec --bind $MOUNTS --contain --nv --env VLLM_USE_PRECOMPILED=1 instance://"$INSTANCE_TAG" \

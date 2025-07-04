@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional
+from typing import Any, Generator, Optional
 import jinja2
 import requests
 import typer
@@ -664,7 +664,7 @@ def _start_swarm(
 def create_swarm_pool(
     *configs_or_swarms: list[DomynLLMSwarmConfig] | list[DomynLLMSwarm],
     max_workers=None,
-):
+) -> Generator[tuple[DomynLLMSwarm], Any, None] :
     """
     You can use this utility function like this:
 
