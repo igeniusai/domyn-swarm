@@ -452,13 +452,66 @@ class DomynLLMSwarm(BaseModel):
         limit: int | None = None,
     ) -> int | None:
         """
-        Launch `job` inside the swarm allocation.  The job is serialized by
-        its own `.to_kwargs()` and reconstructed with run_job.py on the head
-        node (SLURM_NODEID 0).
+        Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
+        SLURM swarm allocation.
 
-        If the job is launched with detach=True, then the process PID is returned to be handled
-        by the parent process (e.g. waiting for its termination)
-        """
+        The *job* object is converted to keyword arguments via
+        :py:meth:`SwarmJob.to_kwargs`, transmitted to the head node
+        (where ``SLURM_NODEID == 0``), reconstructed by
+        ``domyn_swarm.run_job``, and executed under ``srun``.
+
+        Parameters
+        ----------
+        job : SwarmJob
+            The job instance to execute.
+        input_path : pathlib.Path
+            Parquet file produced by the upstream pipeline stage.
+        output_path : pathlib.Path
+            Destination Parquet file to be written by *job*.
+        num_threads : int, default 1
+            Number of CPU threads the job may use in the worker process.
+        detach : bool, default False
+            If *True*, start the job in a new process group and return
+            immediately with its PID; if *False* (default) the call blocks
+            until completion.
+        limit : int or None, optional
+            Maximum number of rows to read from *input_path* — handy for
+            dry-runs and debugging.  When *None* (default) the entire
+            dataset is processed.
+
+        Returns
+        -------
+        int or None
+            *detach=True*  → PID of the spawned process.  
+            *detach=False* → ``None`` (the call blocks).
+
+        Raises
+        ------
+        RuntimeError
+            The swarm manager is not ready (`self.jobid` or `self.endpoint`
+            is ``None``).
+        FileNotFoundError
+            *input_path* does not exist.
+        subprocess.CalledProcessError
+            Propagated when the synchronous ``srun`` command exits with a
+            non-zero status code.
+
+        Notes
+        -----
+        The constructed command is logged with *rich* for transparency, e.g.::
+
+            srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
+                python -m domyn_swarm.run_job --job-class=<module:Class> ...
+
+        Examples
+        --------
+        >>> swarm.submit_job(
+        ...     my_job,
+        ...     input_path=Path("batch.parquet"),
+        ...     output_path=Path("predictions.parquet"),
+        ...     num_threads=4
+        ... )
+        """        
         if self.jobid is None or self.endpoint is None:
             raise RuntimeError("Swarm not ready")
 

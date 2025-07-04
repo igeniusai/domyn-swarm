@@ -184,29 +184,53 @@ Internally uses checkpointing, batching, and retry logic.
 
 ### Configuration: `DomynLLMSwarmConfig`
 
-All runtime options for the swarm launcher live in a single YAML file that is loaded into the `DomynLLMSwarmConfig` dataclass.  
+All runtime options for the swarm launcher live in a single YAML file that is loaded into the `DomynLLMSwarmConfig` dataclass.
 Below is an overview of every field, its purpose, and the default that will be used if you omit it.
 
-| Field | Type | Default | Purpose |
-|-------|------|---------|---------|
-| **model** | `str` | **required** | HF model ID or local path. Please note that this value will be passed verbatim to `vllm serve`, thus it must be a valid path for a model or the id of an HuggingFace model saved locally. If using an HF model, make sure it is available offline in the configured HF_HOME (hf_home in this configuration)|
-| **hf_home** | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | HF cache dir mounted on workers. |
-| **revision** | `str \| null` | `null` | Git tag/commit for the model (if using HF). |
-| **nodes** | `int` | `4` | Number of **worker nodes** (one *vLLM* instance per node). |
-| **gpus_per_node** | `int` | `4` | GPUs allocated on each worker. |
-| **cpus_per_task** | `int` | `8` | vCPUs reserved per SLURM task. |
-| **mem_per_cpu** | `str` | `"40G"` | Memory per CPU core (SLURM syntax). |
-| **partition** | `str` | `"boost_usr_prod"` | SLURM partition to submit to. |
-| **account** | `str` | `"iGen_train"` | SLURM account / charge code. |
-| **vllm_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif` | Singularity image that runs the vLLM workers. |
-| **nginx_image** | `str` | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif` | Image that runs the NGINX + Dask side-services. |
-| **log_directory** | `pathlib.Path` | `./logs` | Directory where SLURM output/error logs are written. |
-| **max_concurrent_requests** | `int` | `2000` | Upper bound enforced by vLLM REST gateway. |
-| **poll_interval** | `int` | `10` | Seconds between `sacct` polling cycles while waiting for jobs. |
-| **template_path** | `pathlib.Path` | *(auto-filled)* | Internal path of the Jinja2 SLURM script template; no need to touch. |
-| **vllm_args** | `str` | `""` | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`. |
-| **vllm_port** | `int` | `8000` | Port where each worker’s OpenAI-compatible API listens. |
-| **venv_path** | `pathlib.Path` | `./.venv` | Virtual-env used by the *driver* process (not the containers). |
+| Field                         | Type           | Default                                      | Purpose                                                                                                                                      |                                                                   |
+| ----------------------------- | -------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **model**                     | `str`          | **required**                                 | HF model ID or local path. Passed verbatim to `vllm serve`; must resolve to a local directory or an offline Hugging Face model in `hf_home`. |                                                                   |
+| **hf\_home**                  | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | Shared Hugging Face cache mounted on all workers.                                                                                            |                                                                   |
+| **revision**                  | \`str          | null\`                                       | `null`                                                                                                                                       | Git tag/commit for the model (if using HF).                       |
+| **replicas**                  | `int`          | `1`                                          | How many *independent* vLLM clusters to launch (useful for A/B tests).                                                                       |                                                                   |
+| **nodes**                     | `int`          | `4`                                          | Worker nodes per replica (one vLLM server per node).                                                                                         |                                                                   |
+| **gpus\_per\_node**           | `int`          | `4`                                          | GPUs allocated on each worker node.                                                                                                          |                                                                   |
+| **cpus\_per\_task**           | `int`          | `8`                                          | vCPUs reserved per SLURM task.                                                                                                               |                                                                   |
+| **mem\_per\_cpu**             | `str`          | `"40G"`                                      | Memory per CPU core (SLURM syntax).                                                                                                          |                                                                   |
+| **partition**                 | `str`          | `"boost_usr_prod"`                           | SLURM partition to submit to.                                                                                                                |                                                                   |
+| **account**                   | `str`          | `"iGen_train"`                               | SLURM account / charge code.                                                                                                                 |                                                                   |
+| **vllm\_image**               | \`str          | pathlib.Path\`                               | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif`                                                                                   | Singularity image for vLLM workers.                               |
+| **nginx\_image**              | \`str          | pathlib.Path\`                               | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif`                                                                                   | Image running NGINX + Dask side-services.                         |
+| **lb\_wait**                  | `int`          | `1200`                                       | Seconds to wait for the load balancer to become healthy.                                                                                     |                                                                   |
+| **lb\_port**                  | `int`          | `9000`                                       | External port exposed by the NGINX load balancer.                                                                                            |                                                                   |
+| **home\_directory**           | `pathlib.Path` | `./.domyn_swarm/`                            | Root folder for swarm state (auto-generated inside CWD).                                                                                     |                                                                   |
+| **log\_directory**            | \`pathlib.Path | null\`                                       | `<home_directory>/logs`                                                                                                                      | Where SLURM stdout/stderr files are written.                      |
+| **max\_concurrent\_requests** | `int`          | `2000`                                       | Upper bound enforced by vLLM’s OpenAI gateway.                                                                                               |                                                                   |
+| **poll\_interval**            | `int`          | `10`                                         | Seconds between `sacct` polling cycles while waiting for jobs.                                                                               |                                                                   |
+| **template\_path**            | `pathlib.Path` | *(auto-filled)*                              | Internal path of the Jinja2 SLURM script template; no need to modify.                                                                        |                                                                   |
+| **nginx\_template\_path**     | `pathlib.Path` | *(auto-filled)*                              | Jinja2 template for the NGINX config.                                                                                                        |                                                                   |
+| **vllm\_args**                | `str`          | `""`                                         | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`.                                                         |                                                                   |
+| **vllm\_port**                | `int`          | `8000`                                       | Port where each worker’s OpenAI-compatible API listens.                                                                                      |                                                                   |
+| **ray\_port**                 | `int`          | `6379`                                       | Port for Ray’s GCS/head node inside each replica.                                                                                            |                                                                   |
+| **ray\_dashboard\_port**      | `int`          | `8265`                                       | Ray dashboard (optional).                                                                                                                    |                                                                   |
+| **venv\_path**                | \`pathlib.Path | null\`                                       | `null`                                                                                                                                       | Virtual-env used by the *driver* process (not the containers).    |
+| **time\_limit**               | `str`          | `"36:00:00"`                                 | Overall SLURM wall-clock limit for the allocation.                                                                                           |                                                                   |
+| **exclude\_nodes**            | \`str          | null\`                                       | `null`                                                                                                                                       | Nodes to exclude, e.g. `"node[001-004]"` (pass-through to SLURM). |
+| **node\_list**                | \`str          | null\`                                       | `null`                                                                                                                                       | Explicit node list, e.g. `"node[005-008]"`.                       |
+| **driver**                    | `DriverConfig` | *see below*                                  | Resource overrides for the lightweight “driver” job that orchestrates the swarm.                                                             |                                                                   |
+
+#### Nested: `DriverConfig`
+
+| Field                  | Type  | Default      | Purpose                                                         |
+| ---------------------- | ----- | ------------ | --------------------------------------------------------------- |
+| **cpus\_per\_task**    | `int` | `2`          | vCPUs for the driver process (launches and monitors the swarm). |
+| **mem**                | `str` | `"16GB"`     | Physical memory for the driver job.                             |
+| **threads\_per\_core** | `int` | `1`          | SMT threads to request per physical core.                       |
+| **wall\_time**         | `str` | `"24:00:00"` | SLURM time limit for the driver job.                            |
+
+---
+
+*Tip:* Any field omitted from your YAML file inherits the default above, so you can keep configuration files minimal—only override what you need.
 
 ---
 
