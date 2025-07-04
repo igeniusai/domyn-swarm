@@ -661,7 +661,10 @@ def _start_swarm(
 
 
 @contextmanager
-def create_swarm_pool(*configs: list[DomynLLMSwarmConfig], max_workers=None):
+def create_swarm_pool(
+    *configs_or_swarms: list[DomynLLMSwarmConfig] | list[DomynLLMSwarm],
+    max_workers=None,
+):
     """
     You can use this utility function like this:
 
@@ -680,10 +683,16 @@ def create_swarm_pool(*configs: list[DomynLLMSwarmConfig], max_workers=None):
             swarm.submit_job()
     ```
 
-
     """
     # 1) instantiate all the context‐manager objects
-    cms = [DomynLLMSwarm(cfg=config) for config in configs]
+    if configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarmConfig):
+        cms = [DomynLLMSwarm(cfg=config) for config in configs_or_swarms]
+    elif configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarm):
+        cms = configs_or_swarms
+    else:
+        raise ValueError(
+            "configs_or_swarms must be either a sequence of DomynLLMSwarmConfig or DomynLLMSwarm"
+        )
 
     entered = []
     try:

@@ -7,7 +7,14 @@ import typer
 from typing_extensions import Annotated
 import yaml
 
-from domyn_swarm import DomynLLMSwarm, _start_swarm, _load_job, _load_swarm_config
+from domyn_swarm import (
+    DomynLLMSwarm,
+    DomynLLMSwarmConfig,
+    _start_swarm,
+    _load_job,
+    _load_swarm_config,
+    create_swarm_pool,
+)
 from domyn_swarm.pool import SwarmPoolConfig
 
 app = typer.Typer()
@@ -100,6 +107,12 @@ def deploy_pool(
     ],
 ):
     pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(config.read()))
+    named_swarms = [
+        DomynLLMSwarm(name=name, cfg=DomynLLMSwarmConfig.read(config_path))
+        for name, config_path in pool_config.pool
+    ]
+    with create_swarm_pool(*named_swarms):
+        pass
 
 
 @app.command("down", short_help="Shut down a swarm allocation")
