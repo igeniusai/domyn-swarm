@@ -44,7 +44,7 @@ from domyn_swarm.helpers import (
     setup_logger,
 )
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level=logging.DEBUG)
 
 
 class SwarmJob(abc.ABC):

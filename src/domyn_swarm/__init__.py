@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 import yaml
 
-from domyn_swarm.helpers import is_folder, path_exists
+from domyn_swarm.helpers import is_folder, path_exists, to_path
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 import shlex
@@ -100,8 +100,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
     @classmethod
     def read(cls, path: str | pathlib.Path) -> "DomynLLMSwarmConfig":
-        if isinstance(path, str):
-            path = pathlib.Path(path)
+        path = to_path(path)
         return _load_swarm_config(path.open())
 
     @field_validator("model", mode="after")
@@ -445,8 +444,8 @@ class DomynLLMSwarm(BaseModel):
         self,
         job: SwarmJob,
         *,
-        input_path: pathlib.Path,
-        output_path: pathlib.Path,
+        input_path: pathlib.Path | str,
+        output_path: pathlib.Path | str,
         num_threads: int = 1,
         detach: bool = False,
         limit: int | None = None,
@@ -464,9 +463,9 @@ class DomynLLMSwarm(BaseModel):
         ----------
         job : SwarmJob
             The job instance to execute.
-        input_path : pathlib.Path
+        input_path : pathlib.Path | str
             Parquet file produced by the upstream pipeline stage.
-        output_path : pathlib.Path
+        output_path : pathlib.Path | str
             Destination Parquet file to be written by *job*.
         num_threads : int, default 1
             Number of CPU threads the job may use in the worker process.
@@ -511,7 +510,10 @@ class DomynLLMSwarm(BaseModel):
         ...     output_path=Path("predictions.parquet"),
         ...     num_threads=4
         ... )
-        """        
+        """
+        input_path: pathlib.Path = to_path(input_path)
+        output_path: pathlib.Path = to_path(output_path)
+
         if self.jobid is None or self.endpoint is None:
             raise RuntimeError("Swarm not ready")
 
