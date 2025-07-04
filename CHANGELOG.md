@@ -1,3 +1,16 @@
+## v0.8.0 (2025-07-04)
+
+### Feat
+
+- implement pool command to spin up multiple clusters with different configs
+- add --detach flag to domyn-swarm submit job
+
+### Fix
+
+- fix issue increasing wait time for ray workers
+- add to_path helper
+- fix progress bar batch request execution in last batch
+
 ## v0.7.0 (2025-07-03)
 
 ### Feat
