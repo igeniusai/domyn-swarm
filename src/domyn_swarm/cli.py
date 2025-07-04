@@ -201,6 +201,12 @@ def submit_job(
         "-l",
         help="Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset",
     ),
+    detach: bool = typer.Option(
+        False,
+        "--detach",
+        "-d",
+        help="Detach the job from the current terminal"
+    )
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -229,6 +235,7 @@ def submit_job(
                 output_path=output,
                 num_threads=num_threads,
                 limit=limit,
+                detach=detach,
             )
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
@@ -249,6 +256,7 @@ def submit_job(
             output_path=output,
             num_threads=num_threads,
             limit=limit,
+            detach=detach,
         )
 
 
