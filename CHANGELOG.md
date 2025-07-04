@@ -1,3 +1,9 @@
+## v0.8.1 (2025-07-04)
+
+### Fix
+
+- fix issue with allocation of nodes for workers in swarms with multiple replicas
+
 ## v0.8.0 (2025-07-04)
 
 ### Feat
