@@ -202,11 +202,8 @@ def submit_job(
         help="Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset",
     ),
     detach: bool = typer.Option(
-        False,
-        "--detach",
-        "-d",
-        help="Detach the job from the current terminal"
-    )
+        False, "--detach", "-d", help="Detach the job from the current terminal"
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.

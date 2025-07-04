@@ -310,6 +310,7 @@ def compute_hash(s: str, algorithm="sha256"):
     h.update(s.encode("utf-8"))
     return h.hexdigest()
 
+
 def to_path(path: pathlib.Path | str) -> pathlib.Path:
     """
     Return the path given a string

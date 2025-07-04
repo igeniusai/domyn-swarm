@@ -149,9 +149,9 @@ class DomynLLMSwarm(BaseModel):
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    name: str | None = f"domyn-swarm-{int(time.time())}-{
-        ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    }"
+    name: str | None = f"""domyn-swarm-{int(time.time())}-{
+        "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    }"""
     cfg: DomynLLMSwarmConfig
     jobid: Optional[int] = None  # Slurm job id, set after job submission
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
@@ -481,7 +481,7 @@ class DomynLLMSwarm(BaseModel):
         Returns
         -------
         int or None
-            *detach=True*  → PID of the spawned process.  
+            *detach=True*  → PID of the spawned process.
             *detach=False* → ``None`` (the call blocks).
 
         Raises
