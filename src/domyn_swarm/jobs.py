@@ -27,8 +27,9 @@ import abc
 import threading
 from typing import Callable, Coroutine, Dict, List, Sequence, Any, Tuple
 from tenacity import (
-    before_log,
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -44,7 +45,7 @@ from domyn_swarm.helpers import (
     setup_logger,
 )
 
-logger = setup_logger(__name__, level=logging.DEBUG)
+logger = setup_logger(__name__, level=logging.INFO)
 
 
 class SwarmJob(abc.ABC):
@@ -182,12 +183,11 @@ class SwarmJob(abc.ABC):
         on_batch_done = on_batch_done or getattr(self, "_ckp_flush", None)
 
         fn = retry(
-            fn,
             wait=wait_exponential(multiplier=1, min=4, max=10),
             stop=stop_after_attempt(self.retries),
             reraise=True,
-            before=before_log(logger=logger, log_level=logging.WARN),
-        )
+            before_sleep=before_sleep_log(logger=logger, log_level=logging.WARN),
+        )(fn)
 
         out: list[Any | None] = [None] * len(seq)
         sem = asyncio.Semaphore(self.parallel)
