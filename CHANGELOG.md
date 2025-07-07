@@ -1,3 +1,9 @@
+## v0.8.2 (2025-07-07)
+
+### Refactor
+
+- refactor cli package structure
+
 ## v0.8.1 (2025-07-04)
 
 ### Fix
