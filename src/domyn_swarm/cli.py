@@ -1,5 +1,5 @@
 from importlib import metadata
-import pathlib
+from domyn_swarm import utils
 import subprocess
 from typing import List, Optional
 from rich import print as rprint
@@ -144,8 +144,8 @@ def submit_script(
         exists=True,
         help="YAML that defines/creates a new swarm",
     ),
-    state: Optional[pathlib.Path] = typer.Option(
-        None, "--state", exists=True, help="swarm_*.json file of an existing swarm"
+    state: Optional[utils.ClickEnvPath] = typer.Option(
+        None, "--state", exists=True, click_type=utils.ClickEnvPath(), help="swarm_*.json file of an existing swarm"
     ),
     args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
@@ -171,8 +171,8 @@ def submit_job(
         default="domyn_swarm.jobs:ChatCompletionJob",
         help="Job class to run, in the form `module:ClassName`",
     ),
-    input: pathlib.Path = typer.Option(..., "--input", exists=True),
-    output: pathlib.Path = typer.Option(..., "--output"),
+    input: utils.ClickEnvPath = typer.Option(..., "--input", exists=True, click_type=utils.ClickEnvPath()),
+    output: utils.ClickEnvPath = typer.Option(..., "--output", click_type=utils.ClickEnvPath()),
     input_column: str = typer.Option("messages", "--input-column"),
     output_column: str = typer.Option("results", "--output-column"),
     job_kwargs: str = typer.Option(
@@ -181,8 +181,8 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    state: Optional[pathlib.Path] = typer.Option(
-        None, "--state", exists=True, help="swarm_*.json of a running swarm"
+    state: Optional[utils.ClickEnvPath] = typer.Option(
+        None, "--state", exists=True, click_type=utils.ClickEnvPath(), help="swarm_*.json of a running swarm"
     ),
     batch_size: int = typer.Option(
         32,

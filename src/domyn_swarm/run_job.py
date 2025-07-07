@@ -124,7 +124,13 @@ async def _amain():
 
     rprint(f"Reading input dataset from {in_path}")
     tag = parquet_hash(in_path) + compute_hash(str(out_path))
-    df_in = pd.read_parquet(in_path)
+
+    # Read the input DataFrame based on the file format
+    match in_path.suffix.lower():
+        case ".parquet" : df_in: pd.DataFrame = pd.read_parquet(in_path)
+        case ".csv"     : df_in: pd.DataFrame = pd.read_csv(in_path)
+        case ".jsonl"   : df_in: pd.DataFrame = pd.read_json(in_path, orient="records", lines=True)
+        case _          : raise ValueError(f"Unsupported file format: {in_path.suffix.lower()}")
 
     if args.limit:
         df_in = df_in.head(args.limit)
@@ -143,7 +149,13 @@ async def _amain():
 
     rprint(f"Saving output dataset to {out_path}")
     os.makedirs(out_path.parent, exist_ok=True)
-    df_out.to_parquet(out_path)
+    
+    # Save the output DataFrame to the specified format
+    match out_path.suffix.lower():
+        case ".parquet" : df_out.to_parquet(out_path, index=False)
+        case ".csv"     : df_out.to_csv(out_path, index=False)
+        case ".jsonl"   : df_out.to_json(out_path, orient="records", lines=True)
+        case _          : raise ValueError(f"Unsupported output file format: {out_path.suffix.lower()}")
 
 
 def main():
