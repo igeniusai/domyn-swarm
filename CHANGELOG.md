@@ -1,3 +1,13 @@
+## v0.8.3 (2025-07-07)
+
+### Fix
+
+- fix issue after refactoring
+
+### Refactor
+
+- move config models to own package
+
 ## v0.8.2 (2025-07-07)
 
 ### Refactor
