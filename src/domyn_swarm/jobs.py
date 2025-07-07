@@ -300,7 +300,7 @@ class CompletionJob(SwarmJob):
             from openai.types.completion import Completion
 
             resp: Completion = await self.client.completions.create(
-                model=self.model, prompt=prompt, **self.kwargs
+                model=self.model, prompt=prompt, extra_body=self.kwargs
             )
             return resp.choices[0].text
 
@@ -320,8 +320,8 @@ class ChatCompletionJob(SwarmJob):
 
         async def _call(messages: list[dict]) -> str:
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=messages, **self.kwargs
-            )
+                    model=self.model, messages=messages, extra_body=self.kwargs
+                )
             return resp.choices[0].message.content
 
         await self.batched(
@@ -358,7 +358,7 @@ class MultiChatCompletionJob(SwarmJob):
                 model=self.model,
                 messages=messages,
                 n=self.n,  # ask the API for n choices at once
-                **self.kwargs,
+                extra_body=self.kwargs,
             )
             return [choice.message.content for choice in resp.choices]
 
@@ -406,7 +406,7 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
 
         async def _call(messages) -> dict:
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=messages, logprobs=True, **self.kwargs
+                model=self.model, messages=messages, logprobs=True, extra_body=self.kwargs
             )
 
             choice: Choice = resp.choices[0]
@@ -478,7 +478,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
             running.extend(messages[idx : i + 1])
 
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=running, **self.kwargs
+                model=self.model, messages=running, extra_body=self.kwargs
             )
             choice = resp.choices[0]
 
