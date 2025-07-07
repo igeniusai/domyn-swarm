@@ -29,7 +29,6 @@ from typing import Callable, Coroutine, Dict, List, Sequence, Any, Tuple
 from tenacity import (
     before_sleep_log,
     retry,
-    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -320,8 +319,8 @@ class ChatCompletionJob(SwarmJob):
 
         async def _call(messages: list[dict]) -> str:
             resp: ChatCompletion = await self.client.chat.completions.create(
-                    model=self.model, messages=messages, extra_body=self.kwargs
-                )
+                model=self.model, messages=messages, extra_body=self.kwargs
+            )
             return resp.choices[0].message.content
 
         await self.batched(
@@ -406,7 +405,10 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
 
         async def _call(messages) -> dict:
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=messages, logprobs=True, extra_body=self.kwargs
+                model=self.model,
+                messages=messages,
+                logprobs=True,
+                extra_body=self.kwargs,
             )
 
             choice: Choice = resp.choices[0]
