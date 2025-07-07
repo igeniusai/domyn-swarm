@@ -2,6 +2,7 @@ import pydantic_core
 import pathlib
 import os
 
+
 class EnvPath(pathlib.Path):
     _flavour = type(pathlib.Path())._flavour  # Required for subclassing Path
 
@@ -20,5 +21,5 @@ class EnvPath(pathlib.Path):
             serialization=pydantic_core.core_schema.plain_serializer_function_ser_schema(
                 lambda v: str(v),
                 when_used="always",
-            )
+            ),
         )

@@ -1,6 +1,7 @@
 import domyn_swarm
 import pathlib
-import click 
+import click
+
 
 class ClickEnvPath(click.ParamType):
     name = "envpath"

@@ -6,6 +6,7 @@ from domyn_swarm import DomynLLMSwarm, _load_job, _load_swarm_config, utils
 
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 
+
 @submit_app.command("script")
 def submit_script(
     script_file: typer.FileText = typer.Argument(..., exists=True, readable=True),
@@ -17,7 +18,11 @@ def submit_script(
         help="YAML that defines/creates a new swarm",
     ),
     state: Optional[utils.ClickEnvPath] = typer.Option(
-        None, "--state", exists=True, click_type=utils.ClickEnvPath(), help="swarm_*.json file of an existing swarm"
+        None,
+        "--state",
+        exists=True,
+        click_type=utils.ClickEnvPath(),
+        help="swarm_*.json file of an existing swarm",
     ),
     args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
@@ -43,8 +48,12 @@ def submit_job(
         default="domyn_swarm.jobs:ChatCompletionJob",
         help="Job class to run, in the form `module:ClassName`",
     ),
-    input: utils.ClickEnvPath = typer.Option(..., "--input", exists=True, click_type=utils.ClickEnvPath()),
-    output: utils.ClickEnvPath = typer.Option(..., "--output", click_type=utils.ClickEnvPath()),
+    input: utils.ClickEnvPath = typer.Option(
+        ..., "--input", exists=True, click_type=utils.ClickEnvPath()
+    ),
+    output: utils.ClickEnvPath = typer.Option(
+        ..., "--output", click_type=utils.ClickEnvPath()
+    ),
     input_column: str = typer.Option("messages", "--input-column"),
     output_column: str = typer.Option("results", "--output-column"),
     job_kwargs: str = typer.Option(
@@ -54,7 +63,11 @@ def submit_job(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
     state: Optional[utils.ClickEnvPath] = typer.Option(
-        None, "--state", exists=True, click_type=utils.ClickEnvPath(), help="swarm_*.json of a running swarm"
+        None,
+        "--state",
+        exists=True,
+        click_type=utils.ClickEnvPath(),
+        help="swarm_*.json of a running swarm",
     ),
     batch_size: int = typer.Option(
         32,
