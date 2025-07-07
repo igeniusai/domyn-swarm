@@ -43,7 +43,7 @@ if you want to add it as a dependency:
    > [!NOTE] 
    > `model` can be either an HF model or a path to a directory with a model compatible with vllm. If using an HF id, make sure that the model is saved locally in your `HF_HOME`
 
-   You can find more examples in the `examples/` folder
+   You can find more examples in the [examples/configs] folder
 
 2. **Launch a fresh swarm**
 
@@ -58,7 +58,7 @@ if you want to add it as a dependency:
    * print a `swarm_<jobid>.json` file containing the state related to configuration of the swarm
 
 3. **Run a typed job on the cluster**
-   The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at `src/domyn_swarm/jobs.py`
+   The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at [src/domyn_swarm/jobs.py]
 
 ```bash
    domyn-swarm submit job \
@@ -112,10 +112,10 @@ Options:
 
 Commands:
   up        Launch a new swarm allocation
-  status    Check existing swarm status (TBD)
-  pool      Deploy multiple swarms from one config (TBD)
-  down      Tear down a swarm (by state file)
-  submit    Submit work (script | job) to a live swarm
+  status    Check the status of the swarm allocation (not yet implemented)
+  down      Shut down a swarm allocation
+  submit    Submit a workload to a Domyn-Swarm allocation.
+  pool      Submit a pool of swarm allocations from a YAML config.
 ```
 
 ### `domyn-swarm up`
@@ -176,6 +176,9 @@ domyn-swarm submit job \
 * **--batch-size** - batch size of the requests to be sent to be processed. Once a batch has finished processing, the checkpoint will be updated
 * **--parallel** - Number of concurrent requests to process
 * **--retries** - Number of retries for failed requests
+* **--num-threads** - How many threads should be used by the driver to run the job
+* **--limit** / **-l** - Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset
+* **--detach** - Detach the job from the current terminal, running in a different process (PID will be printed)
 
 
 Internally uses checkpointing, batching, and retry logic.
@@ -236,10 +239,10 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 ## Python API (Programmatic usage)
 
-> [!NOTE]
-> This API is in constant evolution and you can expect breaking changes up to the final stable release
+>[!NOTE]
+>This API is in constant evolution and you can expect breaking changes up to the final stable release
 
-In the `examples` folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: `examples/scripts/custom_main.py`.
+In the [examples/] folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: [examples/scripts/custom_main.py].
 
 ### Define a custom job
 
@@ -329,7 +332,19 @@ PYTHONPATH=. uv run examples/scripts/custom_main.py
 PYTHONPATH=. python examples/scripts/custom_main.py
 ```
 
+### Use in a slurm script to be submitted with sbatch
 
+```slurm
+#SBATCH various options
+
+# You can either run the command directly
+domyn-swarm submit job .....
+
+# Or run a script which is using the programmatic API
+python path/to/custom_script.py
+```
+
+You can find more examples in [examples/api]
 
 ---
 
