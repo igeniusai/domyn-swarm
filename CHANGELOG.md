@@ -1,3 +1,9 @@
+## v0.8.5 (2025-07-07)
+
+### Fix
+
+- fix issue with exceptions retries not being logged properly by tenacity
+
 ## v0.8.4 (2025-07-07)
 
 ### Fix
