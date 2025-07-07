@@ -1,3 +1,9 @@
+## v0.8.4 (2025-07-07)
+
+### Fix
+
+- use extra_body parameter in openai client to make sure to pass all kwargs to vllm
+
 ## v0.8.3 (2025-07-07)
 
 ### Fix
