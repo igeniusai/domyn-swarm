@@ -36,6 +36,7 @@ class SwarmPool(BaseModel):
 
 pool_app = typer.Typer(help="Submit a pool to a Domyn-Swarm allocation.")
 
+
 @pool_app.command(
     "pool",
     short_help="Deploy a pool of swarm allocations from a YAML config (not yet implemented)",

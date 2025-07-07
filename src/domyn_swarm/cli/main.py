@@ -1,19 +1,14 @@
 from importlib import metadata
-from domyn_swarm import utils
 import subprocess
-from typing import List, Optional
+from typing import Optional
 from rich import print as rprint
 import typer
 from typing_extensions import Annotated
-import yaml
 
 from domyn_swarm import (
     DomynLLMSwarm,
-    DomynLLMSwarmConfig,
     _start_swarm,
-    _load_job,
     _load_swarm_config,
-    create_swarm_pool,
 )
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.cli.submit import submit_app
@@ -116,7 +111,6 @@ def down(
     subprocess.run(["scancel", str(arr)], check=False)
 
     typer.echo("✅  Swarm shutdown request sent.")
-
 
 
 if __name__ == "__main__":

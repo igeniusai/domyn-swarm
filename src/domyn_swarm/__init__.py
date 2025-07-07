@@ -4,8 +4,6 @@ from domyn_swarm import utils
 import importlib
 import json
 import os
-import random
-import string
 import subprocess
 import sys
 import tempfile
@@ -15,7 +13,6 @@ import jinja2
 import requests
 import typer
 from rich import print as rprint
-from rich.panel import Panel
 from rich.syntax import Syntax
 import yaml
 
@@ -23,7 +20,6 @@ from domyn_swarm.helpers import generate_swarm_name, is_folder, path_exists, to_
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 import shlex
-
 
 
 class DriverConfig(BaseModel):
@@ -164,7 +160,9 @@ class DomynLLMSwarm(BaseModel):
     @classmethod
     def validate_name(cls, v: str, info: ValidationInfo) -> str:
         if v is None:
-            return cls.model_fields[info.field_name].get_default(call_default_factory=True)
+            return cls.model_fields[info.field_name].get_default(
+                call_default_factory=True
+            )
         return v
 
     @computed_field
@@ -358,7 +356,7 @@ class DomynLLMSwarm(BaseModel):
                     text=True,
                 ).strip()
                 return out.split()[0] if out else "UNKNOWN"
-            except:
+            except Exception:
                 return "UNKNOWN"
 
         from rich.console import Console
@@ -404,7 +402,7 @@ class DomynLLMSwarm(BaseModel):
                             status.update(
                                 f"[yellow]LB job running on {self.lb_node}, probing …"
                             )
-                        except:
+                        except Exception:
                             continue
 
                     try:
@@ -664,7 +662,7 @@ def _start_swarm(
 def create_swarm_pool(
     *configs_or_swarms: list[DomynLLMSwarmConfig] | list[DomynLLMSwarm],
     max_workers=None,
-) -> Generator[tuple[DomynLLMSwarm], Any, None] :
+) -> Generator[tuple[DomynLLMSwarm], Any, None]:
     """
     You can use this utility function like this:
 
