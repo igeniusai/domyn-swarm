@@ -1,5 +1,5 @@
-import pathlib
 from pydantic import BaseModel
+from domyn_swarm import utils
 import yaml
 
 from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
@@ -19,7 +19,7 @@ class SwarmPool(BaseModel):
     swarms: list[DomynLLMSwarm]
 
     @classmethod
-    def from_config(cls, path: pathlib.Path | str):
+    def from_config(cls, path: utils.EnvPath | str):
         path = to_path(path)
         pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(path.open()))
         return cls(

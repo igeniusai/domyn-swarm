@@ -1,9 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from domyn_swarm import utils
 import importlib
 import json
 import os
-import pathlib
 import random
 import string
 import subprocess
@@ -25,6 +25,7 @@ from pydantic import BaseModel, ValidationInfo, computed_field, field_validator,
 import shlex
 
 
+
 class DriverConfig(BaseModel):
     cpus_per_task: int = 2
     mem: str = "16GB"
@@ -33,7 +34,7 @@ class DriverConfig(BaseModel):
 
 
 class DomynLLMSwarmConfig(BaseModel):
-    hf_home: pathlib.Path = pathlib.Path("/leonardo_work/iGen_train/shared_hf_cache/")
+    hf_home: utils.EnvPath = utils.EnvPath("/leonardo_work/iGen_train/shared_hf_cache/")
 
     # model / revision --------------------------------------------------------
     model: str
@@ -49,20 +50,20 @@ class DomynLLMSwarmConfig(BaseModel):
     account: str = "iGen_train"
 
     # container images --------------------------------------------------------
-    vllm_image: str | pathlib.Path = pathlib.Path(
+    vllm_image: str | utils.EnvPath = utils.EnvPath(
         "/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif"
     )
-    nginx_image: str | pathlib.Path = pathlib.Path(
+    nginx_image: str | utils.EnvPath = utils.EnvPath(
         "/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif"
     )
     lb_wait: int = 1200  # seconds to wait for LB to be ready
     lb_port: int = 9000
 
-    home_directory: pathlib.Path = Field(
-        default_factory=lambda: pathlib.Path(os.path.join(os.getcwd(), ".domyn_swarm"))
+    home_directory: utils.EnvPath = Field(
+        default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
     )
 
-    log_directory: Optional[pathlib.Path] = Field(
+    log_directory: Optional[utils.EnvPath] = Field(
         default_factory=lambda data: data["home_directory"] / "logs"
     )
 
@@ -71,13 +72,13 @@ class DomynLLMSwarmConfig(BaseModel):
     poll_interval: int = 10  # sacct polling cadence (s)
 
     # template path (auto-filled after clone)
-    template_path: pathlib.Path = Field(
-        default_factory=lambda: pathlib.Path(__file__).with_suffix("").parent
+    template_path: utils.EnvPath = Field(
+        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent
         / "templates"
         / "llm_swarm.sh.j2"
     )
-    nginx_template_path: pathlib.Path = Field(
-        default_factory=lambda: pathlib.Path(__file__).with_suffix("").parent
+    nginx_template_path: utils.EnvPath = Field(
+        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent
         / "templates"
         / "nginx.conf.j2"
     )
@@ -85,7 +86,7 @@ class DomynLLMSwarmConfig(BaseModel):
     vllm_port: int = 8000
     ray_port: int = 6379
     ray_dashboard_port: int = 8265
-    venv_path: pathlib.Path | None = None
+    venv_path: utils.EnvPath | None = None
 
     time_limit: str = "36:00:00"  # e.g. 36 hours
     exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
@@ -99,7 +100,7 @@ class DomynLLMSwarmConfig(BaseModel):
         return super().model_post_init(context)
 
     @classmethod
-    def read(cls, path: str | pathlib.Path) -> "DomynLLMSwarmConfig":
+    def read(cls, path: str | utils.EnvPath) -> "DomynLLMSwarmConfig":
         path = to_path(path)
         return _load_swarm_config(path.open())
 
@@ -255,7 +256,7 @@ class DomynLLMSwarm(BaseModel):
         ).strip()
         return int(out)
 
-    def submit_script(self, script_path: pathlib.Path, detach: bool = False):
+    def submit_script(self, script_path: utils.EnvPath, detach: bool = False):
         """
         Submit a user script to the swarm allocation.
         The script will be run on the head node (SLURM_NODEID 0).
@@ -302,7 +303,7 @@ class DomynLLMSwarm(BaseModel):
             )
 
     def _persist(self):
-        state_file = pathlib.Path(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
+        state_file = utils.EnvPath(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
         state_file.write_text(self.model_dump_json(indent=2))
         rprint(f"[LLMSwarm] state saved to {state_file}")
 
@@ -444,8 +445,8 @@ class DomynLLMSwarm(BaseModel):
         self,
         job: SwarmJob,
         *,
-        input_path: pathlib.Path | str,
-        output_path: pathlib.Path | str,
+        input_path: utils.EnvPath | str,
+        output_path: utils.EnvPath | str,
         num_threads: int = 1,
         detach: bool = False,
         limit: int | None = None,
@@ -463,9 +464,9 @@ class DomynLLMSwarm(BaseModel):
         ----------
         job : SwarmJob
             The job instance to execute.
-        input_path : pathlib.Path | str
+        input_path : utils.EnvPath | str
             Parquet file produced by the upstream pipeline stage.
-        output_path : pathlib.Path | str
+        output_path : utils.EnvPath | str
             Destination Parquet file to be written by *job*.
         num_threads : int, default 1
             Number of CPU threads the job may use in the worker process.
@@ -511,8 +512,8 @@ class DomynLLMSwarm(BaseModel):
         ...     num_threads=4
         ... )
         """
-        input_path: pathlib.Path = to_path(input_path)
-        output_path: pathlib.Path = to_path(output_path)
+        input_path: utils.EnvPath = to_path(input_path)
+        output_path: utils.EnvPath = to_path(output_path)
 
         if self.jobid is None or self.endpoint is None:
             raise RuntimeError("Swarm not ready")
@@ -537,7 +538,7 @@ class DomynLLMSwarm(BaseModel):
             "--export=ALL",  # Keep this to preserve the default env
             f"--mem={self.cfg.driver.mem}",
             f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
-            python_interpreter,
+            str(python_interpreter),
             "-m",
             "domyn_swarm.run_job",
             f"--job-class={job_class}",
@@ -556,6 +557,7 @@ class DomynLLMSwarm(BaseModel):
         rprint(
             f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
+
         full_cmd = shlex.join(cmd)
         syntax = Syntax(
             full_cmd,
@@ -580,7 +582,7 @@ class DomynLLMSwarm(BaseModel):
             subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
     @classmethod
-    def from_state(cls, state_file: pathlib.Path) -> "DomynLLMSwarm":
+    def from_state(cls, state_file: utils.EnvPath) -> "DomynLLMSwarm":
         """
         Load a swarm from a saved state file (swarm_*.json).
         """

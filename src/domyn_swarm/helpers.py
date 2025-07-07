@@ -1,4 +1,4 @@
-import pathlib
+from domyn_swarm import utils
 import signal
 import socket
 import subprocess
@@ -71,7 +71,7 @@ def generate_ssh_tunnel_cmd(
 
 
 def generate_nginx_config(
-    nginx_template: pathlib.Path,
+    nginx_template: utils.EnvPath,
     host: str,
     public_port: int,
     vllm_port: int,
@@ -89,11 +89,11 @@ def generate_nginx_config(
 
 
 def launch_nginx_singularity(
-    sif_path: pathlib.Path, conf_path: pathlib.Path, html_path: pathlib.Path
+    sif_path: utils.EnvPath, conf_path: utils.EnvPath, html_path: utils.EnvPath
 ):
     rprint(f"[INFO] Starting nginx from Singularity container: {sif_path}")
-    logfile = conf_path.parent / pathlib.Path("nginx_singularity.log")
-    cache_dir = pathlib.Path(os.getenv("TMPDIR", "/tmp")) / "cache"
+    logfile = conf_path.parent / utils.EnvPath("nginx_singularity.log")
+    cache_dir = utils.EnvPath(os.getenv("TMPDIR", "/tmp")) / "cache"
     os.makedirs(str(cache_dir), exist_ok=True)
     with open(logfile, "w") as log:
         subprocess.Popen(
@@ -127,8 +127,8 @@ def launch_nginx_singularity(
 
 
 def launch_reverse_proxy(
-    nginx_template: pathlib.Path,
-    image_path: pathlib.Path,
+    nginx_template: utils.EnvPath,
+    image_path: utils.EnvPath,
     lb_node: str,
     head_node: str,
     vllm_port: int,
@@ -145,10 +145,10 @@ def launch_reverse_proxy(
     )
 
     with tempfile.TemporaryDirectory(delete=False) as temp_dir:
-        conf_path = pathlib.Path(temp_dir) / "nginx.conf"
+        conf_path = utils.EnvPath(temp_dir) / "nginx.conf"
         with open(conf_path, "w") as f:
             f.write(nginx_conf)
-        html_path = pathlib.Path(temp_dir) / "html" / "index.html"
+        html_path = utils.EnvPath(temp_dir) / "html" / "index.html"
         html_path.parent.mkdir(parents=True, exist_ok=True)
         with open(html_path, "w") as f:
             f.write(
@@ -176,7 +176,7 @@ def launch_reverse_proxy(
 
 
 def parquet_hash(
-    path: str | pathlib.Path,
+    path: str | utils.EnvPath,
     algorithm: str = "blake2b",
     *,
     block_size: int = 128 << 20,  # 128 MiB windows if we have to chunk
@@ -201,7 +201,7 @@ def parquet_hash(
     str
         Hexadecimal digest of the file contents.
     """
-    path: pathlib.Path = pathlib.Path(path)
+    path: utils.EnvPath = utils.EnvPath(path)
     h = hashlib.new(algorithm)
 
     file_size = path.stat().st_size
@@ -260,7 +260,7 @@ def path_exists(path: str):
 
 
 def is_folder(path: str):
-    return pathlib.Path(path).is_dir()
+    return utils.EnvPath(path).is_dir()
 
 
 def setup_logger(name: str = "app", level=logging.INFO) -> logging.Logger:
@@ -311,10 +311,10 @@ def compute_hash(s: str, algorithm="sha256"):
     return h.hexdigest()
 
 
-def to_path(path: pathlib.Path | str) -> pathlib.Path:
+def to_path(path: utils.EnvPath | str) -> utils.EnvPath:
     """
     Return the path given a string
     """
     if isinstance(path, str):
-        return pathlib.Path(path)
+        return utils.EnvPath(path)
     return path
