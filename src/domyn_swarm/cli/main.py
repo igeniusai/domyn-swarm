@@ -8,10 +8,10 @@ from typing_extensions import Annotated
 from domyn_swarm import (
     DomynLLMSwarm,
     _start_swarm,
-    _load_swarm_config,
 )
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.cli.submit import submit_app
+from domyn_swarm.models.swarm import _load_swarm_config
 
 app = typer.Typer()
 

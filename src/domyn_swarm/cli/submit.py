@@ -1,7 +1,8 @@
 from typing import List, Optional
 import typer
 
-from domyn_swarm import DomynLLMSwarm, _load_job, _load_swarm_config, utils
+from domyn_swarm import DomynLLMSwarm, _load_job, utils
+from domyn_swarm.models.swarm import _load_swarm_config
 
 
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
