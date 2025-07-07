@@ -15,6 +15,8 @@ import os
 import math
 from openai.types.chat.chat_completion import Choice
 import logging
+import requests
+from requests.exceptions import RequestException
 
 libc = ctypes.CDLL("libc.so.6", use_errno=True)
 
@@ -327,3 +329,21 @@ def generate_swarm_name() -> str:
     return f"""domyn-swarm-{int(time.time())}-{
         "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     }"""
+
+
+def is_endpoint_healthy(endpoint: str, timeout: float = 2.0) -> bool:
+    """
+    Check if an NGINX server is healthy by sending a GET request.
+
+    Args:
+        endpoint (str): The URL of the NGINX server (e.g., http://localhost:80).
+        timeout (float): Timeout in seconds for the request.
+
+    Returns:
+        bool: True if the server responds with 2xx status code, False otherwise.
+    """
+    try:
+        response = requests.get(endpoint, timeout=timeout)
+        return response.status_code >= 200 and response.status_code < 300
+    except RequestException:
+        return False

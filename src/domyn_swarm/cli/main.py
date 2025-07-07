@@ -2,6 +2,8 @@ from importlib import metadata
 import subprocess
 from typing import Optional
 from rich import print as rprint
+from rich.table import Table
+from rich.panel import Panel
 import typer
 from typing_extensions import Annotated
 
@@ -11,7 +13,9 @@ from domyn_swarm import (
 )
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.cli.submit import submit_app
+from domyn_swarm.helpers import is_endpoint_healthy
 from domyn_swarm.models.swarm import _load_swarm_config
+from domyn_swarm.slurm import get_job_status
 
 app = typer.Typer()
 
@@ -82,6 +86,9 @@ def launch_up(
     short_help="Check the status of the swarm allocation (not yet implemented)",
 )
 def check_status(
+    state_file: typer.FileText = typer.Argument(
+        ..., exists=True, help="The swarm_*.json file printed at launch"
+    ),
     name: Annotated[
         Optional[str],
         typer.Option(
@@ -89,10 +96,47 @@ def check_status(
             "-n",
             help="Name of the swarm allocation to check status for. If not provided, checks all allocations.",
         ),
-    ],
+    ] = None,
 ):
-    pass
+    """
+    Check the status of the swarm allocation.
 
+    This command will read the state file and print the status of the swarm allocation.
+    If a name is provided, it will check the status of that specific allocation.
+    """
+    swarm: DomynLLMSwarm = DomynLLMSwarm.model_validate_json(state_file.read())
+
+    name = name or swarm.name
+    load_balancer_jobid = swarm.lb_jobid
+    array_jobid = swarm.jobid
+    endpoint = swarm.endpoint
+    replicas = swarm.cfg.replicas
+
+    job_home = swarm.cfg.home_directory / "swarms" / str(array_jobid) 
+    how_many_vllm_endpoints = sum(1 for _ in job_home.glob("*.head"))
+
+    vllm_endpoints = [f"http://{f.open().read().strip()}" for f in job_home.glob("*.head")]
+    vllm_status = ["HEALTHY" if is_endpoint_healthy(f"{ep}/v1/models") else "UNHEALTHY" for ep in vllm_endpoints]
+    vllm_endpoints_status = [f"{ep} ({status})" for ep, status in zip(vllm_endpoints, vllm_status)]
+
+    lb_status = "HEALTHY" if is_endpoint_healthy(endpoint) else "UNHEALTHY"
+    lb_job_status = get_job_status(load_balancer_jobid)
+    array_job_status = get_job_status(array_jobid)
+
+
+    lb_table = Table.grid(padding=1)
+    lb_table.add_row("Job ID:", str(load_balancer_jobid))
+    lb_table.add_row("Status:", f"{lb_status} ({lb_job_status})")
+    lb_table.add_row("Endpoint:", endpoint or "N/A")
+
+    vllm_table = Table.grid(padding=1)
+    vllm_table.add_row("Array Job ID:", str(array_jobid))
+    vllm_table.add_row("Status:", array_job_status)
+    vllm_table.add_row("Replicas:", f"{how_many_vllm_endpoints}/{str(replicas)}")
+    vllm_table.add_row("Endpoints:", "{} ({})\n".join(vllm_endpoints_status) or "N/A")
+
+    rprint(Panel(lb_table, title="[bold cyan]Load Balancer", expand=False))
+    rprint(Panel(vllm_table, title="[bold magenta]vLLM Workers", expand=False))
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
