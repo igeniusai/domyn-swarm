@@ -83,7 +83,7 @@ def launch_up(
 
 @app.command(
     "status",
-    short_help="Check the status of the swarm allocation (not yet implemented)",
+    short_help="Check the status of the swarm allocation given its state file",
 )
 def check_status(
     state_file: typer.FileText = typer.Argument(
