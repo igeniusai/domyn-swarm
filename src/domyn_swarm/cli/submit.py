@@ -96,7 +96,7 @@ def submit_job(
         help="Number of retries for failed requests (default: 5)",
     ),
     timeout: float = typer.Option(
-        openai.NOT_GIVEN,
+        600,
         "--timeout",
         "-t",
         help="Timeout for each request in seconds (default: 600)",

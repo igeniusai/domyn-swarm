@@ -36,7 +36,6 @@ from tqdm.asyncio import tqdm
 
 import pandas as pd
 from openai.types.chat.chat_completion import Choice, ChatCompletion
-from openai import NOT_GIVEN
 
 from domyn_swarm.helpers import (
     compute_perplexity_metrics,
@@ -67,7 +66,7 @@ class SwarmJob(abc.ABC):
         batch_size: int = 16,
         parallel: int = 2,
         retries: int = 5,
-        timeout: float = NOT_GIVEN,
+        timeout: float = 600,
         **extra_kwargs,
     ):
         from openai import AsyncOpenAI
@@ -282,7 +281,7 @@ class CompletionJob(SwarmJob):
         batch_size=16,
         parallel=2,
         retries=5,
-        timeout=NOT_GIVEN,
+        timeout=600,
         **extra_kwargs,
     ):
         super().__init__(

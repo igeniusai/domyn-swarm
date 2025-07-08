@@ -13,7 +13,7 @@ import threading
 import numpy as np
 from typing import Type, Optional, Union
 
-logger = setup_logger(__name__, level=logging.INFO)
+logger = setup_logger("domyn_swarm.run_job", level=logging.INFO)
 
 
 def _load_cls(path: str) -> type[SwarmJob]:
