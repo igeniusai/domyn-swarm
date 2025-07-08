@@ -1,7 +1,9 @@
 from importlib import metadata
+import logging
 import subprocess
 from typing import Optional
 from rich import print as rprint
+from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 import typer
@@ -13,11 +15,11 @@ from domyn_swarm import (
 )
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.cli.submit import submit_app
-from domyn_swarm.helpers import is_endpoint_healthy
+from domyn_swarm.helpers import is_endpoint_healthy, setup_logger
 from domyn_swarm.models.swarm import _load_swarm_config
 from domyn_swarm.slurm import get_job_status
 
-app = typer.Typer()
+app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
 app.add_typer(
     submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation."
@@ -27,16 +29,18 @@ app.add_typer(
     name="pool",
     help="Submit a pool of swarm allocations from a YAML config.",
 )
+console = Console()
+logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 
 
 def version_callback(value: bool):
     if value:
         version = metadata.version("domyn-swarm")
-        rprint(f"domyn-swarm CLI Version: {version}")
+        rprint(f"domyn-swarm CLI Version: [cyan]{version}[/cyan]")
         raise typer.Exit()
 
 
-@app.command("version")
+@app.command("version", short_help="Show the version of the domyn-swarm CLI")
 def main(
     version: Annotated[
         Optional[bool], typer.Option("--version", callback=version_callback)
@@ -133,10 +137,11 @@ def check_status(
     vllm_table.add_row("Array Job ID:", str(array_jobid))
     vllm_table.add_row("Status:", array_job_status)
     vllm_table.add_row("Replicas:", f"{how_many_vllm_endpoints}/{str(replicas)}")
-    vllm_table.add_row("Endpoints:", "{} ({})\n".join(vllm_endpoints_status) or "N/A")
+    vllm_table.add_row("Endpoints:", "\n".join(vllm_endpoints_status) or "N/A")
 
-    rprint(Panel(lb_table, title="[bold cyan]Load Balancer", expand=False))
-    rprint(Panel(vllm_table, title="[bold magenta]vLLM Workers", expand=False))
+
+    console.print(Panel(lb_table, title="[bold cyan]Load Balancer", expand=False))
+    console.print(Panel(vllm_table, title="[bold magenta]vLLM Workers", expand=False))
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
@@ -148,10 +153,10 @@ def down(
     lb = swarm.lb_jobid
     arr = swarm.jobid
 
-    typer.echo(f"🔴  Cancelling LB  job {lb}")
+    console.print(f"🔴  Cancelling LB  job {lb}")
     subprocess.run(["scancel", str(lb)], check=False)
 
-    typer.echo(f"🔴  Cancelling array job {arr}")
+    console.print(f"🔴  Cancelling array job {arr}")
     subprocess.run(["scancel", str(arr)], check=False)
 
     typer.echo("✅  Swarm shutdown request sent.")

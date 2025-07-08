@@ -89,7 +89,7 @@ class DomynLLMSwarmConfig(BaseModel):
         else:
             hf_home = info.data["hf_home"]
             rprint(
-                f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in {hf_home}/hub"
+                f"[yellow]Huggingface model[/yellow] [bold green]{v}[/bold green] [yellow]will be used, make sure that[/yellow] [bold cyan]HF_HOME[/bold cyan] [yellow]is specified correctly and the model is available in[/yellow] {hf_home}/hub"
             )
         return v
 

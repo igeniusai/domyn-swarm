@@ -35,7 +35,7 @@ from tenacity import (
 from tqdm.asyncio import tqdm
 
 import pandas as pd
-from rich import print as rprint
+from rich.console import Console
 from openai.types.chat.chat_completion import Choice, ChatCompletion
 
 from domyn_swarm.helpers import (
@@ -114,7 +114,7 @@ class SwarmJob(abc.ABC):
         if os.path.exists(ckp_path):
             done_df = pd.read_parquet(ckp_path)
             done_idx = set(done_df.index)
-            rprint(f"[ckp] resuming – {len(done_df)} rows done already")
+            logger.info(f"[ckp] resuming – {len(done_df)} rows done already")
         else:
             done_df = pd.DataFrame()
             done_idx = set()
@@ -125,7 +125,7 @@ class SwarmJob(abc.ABC):
         pbar = tqdm(
             total=len(df),
             initial=len(done_df),
-            desc=f"[{threading.get_ident()}] Total samples processed",
+            desc=f"[{threading.current_thread().name}] Total samples processed",
             dynamic_ncols=True,
         )
 
@@ -145,7 +145,7 @@ class SwarmJob(abc.ABC):
             await asyncio.to_thread(done_df.to_parquet, ckp_path)
 
             pbar.update(len(new_ids))
-            rprint(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
+            logger.info(f"[ckp] wrote {len(done_df)}/{len(df)} rows")
 
         self._ckp_flush = _flush  # type: ignore[attr-defined]
 
@@ -201,7 +201,7 @@ class SwarmJob(abc.ABC):
 
         pbar = tqdm(
             total=self.batch_size,
-            desc=f"[{threading.get_ident()}] Batch request execution",
+            desc=f"[{threading.current_thread().name}] Batch request execution",
             dynamic_ncols=True,
             leave=True,
         )
@@ -238,10 +238,10 @@ class SwarmJob(abc.ABC):
         try:
             await tqdm.gather(
                 *(asyncio.create_task(worker()) for _ in range(self.parallel)),
-                desc=f"[{threading.get_ident()}] Worker task completion",
+                desc=f"[{threading.current_thread().name}] Worker task completion",
             )
         except Exception as e:
-            rprint(f"An exception occurred while the worker was running: {e}")
+            logger.info(f"An exception occurred while the worker was running: {e}")
         finally:
             pbar.close()
 

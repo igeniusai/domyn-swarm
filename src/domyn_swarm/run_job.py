@@ -1,18 +1,19 @@
 # domyn_swarm/run_job.py  (installed with your library)
 import argparse
+import logging
 import os
 import json
 import importlib
 import pandas as pd
 import asyncio
-from domyn_swarm.helpers import compute_hash, parquet_hash
+from domyn_swarm.helpers import compute_hash, parquet_hash, setup_logger
 from domyn_swarm.jobs import SwarmJob  # base class
 from pathlib import Path
 import threading
 import numpy as np
 from typing import Type, Optional, Union
-from rich import print as rprint
 
+logger = setup_logger(__name__, level=logging.INFO)
 
 def _load_cls(path: str) -> type[SwarmJob]:
     mod, cls = path.split(":")
@@ -74,7 +75,7 @@ def run_swarm_in_threads(
     for t in threads:
         t.join()
 
-    rprint("[bold green]✅ All shards finished. Merging...[/bold green]")
+    logger.info("[bold green]✅ All shards finished. Merging...[/bold green]")
 
     final_df = pd.concat(results).sort_index()
     return final_df
@@ -118,11 +119,11 @@ async def _amain():
     job_params = json.loads(args.job_kwargs or os.getenv("JOB_KWARGS", "{}"))
     kwargs = job_params.pop("kwargs", {})
 
-    rprint(f"Instantiating job {cls_path}")
+    logger.info(f"[bold yellow]Instantiating job {cls_path}")
     JobCls = _load_cls(cls_path)
     job = JobCls(endpoint=endpoint, model=model, **job_params, **kwargs)
 
-    rprint(f"Reading input dataset from {in_path}")
+    logger.info(f"[bold yellow]Reading input dataset from {in_path}")
     tag = parquet_hash(in_path) + compute_hash(str(out_path))
 
     # Read the input DataFrame based on the file format
@@ -142,7 +143,7 @@ async def _amain():
     if args.nthreads <= 1:
         df_out: pd.DataFrame = await job.run(df_in, tag)
     else:
-        rprint(f"Running job in multithreaded mode (num_threads={args.nthreads})")
+        logger.info(f"[bold green]Running job in multithreaded mode (num_threads={args.nthreads})")
         df_out: pd.DataFrame = run_swarm_in_threads(
             df_in,
             JobCls,
@@ -151,7 +152,7 @@ async def _amain():
             num_threads=args.nthreads,
         )
 
-    rprint(f"Saving output dataset to {out_path}")
+    logger.info(f"[bold green]Saving output dataset to {out_path}")
     os.makedirs(out_path.parent, exist_ok=True)
 
     # Save the output DataFrame to the specified format
