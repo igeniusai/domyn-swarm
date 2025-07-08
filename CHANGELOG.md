@@ -1,3 +1,11 @@
+## v0.9.1 (2025-07-08)
+
+### Fix
+
+- fix issue with NOT_GIVEN used as default for openai timeout
+- fix bug in batch execution progress bar
+- fix status check for load balancer in domyn-swarm status
+
 ## v0.9.0 (2025-07-08)
 
 ### Feat

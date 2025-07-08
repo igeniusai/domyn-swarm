@@ -1,12 +1,12 @@
 model: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 revision: main
-nodes: 1
+nodes: 2
 gpus_per_node: 4
-replicas: 4
+replicas: 2
 vllm_args: "--dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 8192 --reasoning-parser deepseek_r1 --max-num-seqs 128"
 lb_wait: 3600
 hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
 lb_port: 9001
 driver:
   cpus_per_task: 4
-  wall_time: "200:00:00"
+  wall_time: "36:00:00"
