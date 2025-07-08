@@ -40,10 +40,10 @@ if you want to add it as a dependency:
    venv_path: ".venv"
    ```
 
-   > [!NOTE] 
-   > `model` can be either an HF model or a path to a directory with a model compatible with vllm. If using an HF id, make sure that the model is saved locally in your `HF_HOME`
+> [!NOTE] 
+> `model` can be either an HF model or a path to a directory with a model compatible with vllm. If using an HF id, make sure that the model is saved locally in your `HF_HOME`
 
-   You can find more examples in the [examples/configs] folder
+   You can find more examples in the [examples/configs](examples/configs) folder
 
 2. **Launch a fresh swarm**
 
@@ -58,7 +58,7 @@ if you want to add it as a dependency:
    * print a `swarm_<jobid>.json` file containing the state related to configuration of the swarm
 
 3. **Run a typed job on the cluster**
-   The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at [src/domyn_swarm/jobs.py]
+   The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at [src/domyn_swarm/jobs.py](src/domyn_swarm/jobs.py)
 
 ```bash
    domyn-swarm submit job \
@@ -150,20 +150,6 @@ domyn-swarm down logs/swarm_16803892.json
 
 Stops the LB and all replica jobs via `scancel`.
 
-### `domyn-swarm submit script`
-
-Free-form script on the head node:
-
-```bash
-domyn-swarm submit script \
-  --state logs/swarm_16803892.json \
-  path/to/script.py -- --foo 1 --bar 2
-```
-
-* **script\_file**: your `.py` file (must exist)
-* **--config** or **--state** (one only)
-* **args…** after `--` are forwarded to your script
-
 ### `domyn-swarm submit job`
 
 Typed DataFrame → DataFrame jobs:
@@ -190,6 +176,21 @@ domyn-swarm submit job \
 
 
 Internally uses checkpointing, batching, and retry logic.
+
+
+### `domyn-swarm submit script`
+
+Free-form script on the head node:
+
+```bash
+domyn-swarm submit script \
+  --state logs/swarm_16803892.json \
+  path/to/script.py -- --foo 1 --bar 2
+```
+
+* **script\_file**: your `.py` file (must exist)
+* **--config** or **--state** (one only)
+* **args…** after `--` are forwarded to your script
 
 ---
 
@@ -352,7 +353,7 @@ domyn-swarm submit job .....
 python path/to/custom_script.py
 ```
 
-You can find more examples in [examples/api]
+You can find more examples in [examples/api](examples/api)
 
 ---
 
