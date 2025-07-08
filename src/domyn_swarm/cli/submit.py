@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 from rich.console import Console
 import typer
+import openai
 
 from domyn_swarm import DomynLLMSwarm, _load_job, utils
 from domyn_swarm.helpers import setup_logger
@@ -94,6 +95,12 @@ def submit_job(
         "-r",
         help="Number of retries for failed requests (default: 5)",
     ),
+    timeout: float = typer.Option(
+        openai.NOT_GIVEN,
+        "--timeout",
+        "-t",
+        help="Timeout for each request in seconds (default: 600)",
+    ),
     num_threads: int = typer.Option(
         1,
         "--num-threads",
@@ -128,6 +135,7 @@ def submit_job(
                 batch_size=batch_size,
                 parallel=parallel,
                 retries=retries,
+                timeout=timeout,
                 input_column_name=input_column,
                 output_column_name=output_column,
             )
@@ -149,6 +157,7 @@ def submit_job(
             batch_size=batch_size,
             parallel=parallel,
             retries=retries,
+            timeout=timeout,
             input_column_name=input_column,
             output_column_name=output_column,
         )
