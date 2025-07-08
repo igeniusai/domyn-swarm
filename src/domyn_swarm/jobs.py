@@ -205,7 +205,7 @@ class SwarmJob(abc.ABC):
         pending_ids: list[int] = []
 
         pbar = tqdm(
-            total=self.batch_size,
+            total=min(self.batch_size, len(seq)),
             desc=f"[{threading.current_thread().name}] Batch request execution",
             dynamic_ncols=True,
             leave=True,
