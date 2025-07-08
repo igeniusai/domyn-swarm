@@ -90,6 +90,14 @@ if you want to add it as a dependency:
 
    on the head node.
 
+5. **Check the status of your cluster**
+
+```bash
+   domyn-swarm status swarm_16803892.json
+```
+
+
+
 5. **Shut down your swarm**
 
 ```bash
@@ -112,7 +120,7 @@ Options:
 
 Commands:
   up        Launch a new swarm allocation
-  status    Check the status of the swarm allocation (not yet implemented)
+  status    Check the status of the swarm allocation
   down      Shut down a swarm allocation
   submit    Submit a workload to a Domyn-Swarm allocation.
   pool      Submit a pool of swarm allocations from a YAML config.

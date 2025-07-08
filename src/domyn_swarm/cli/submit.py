@@ -1,9 +1,15 @@
+import logging
 from typing import List, Optional
-import openai
+from rich.console import Console
 import typer
+import openai
 
 from domyn_swarm import DomynLLMSwarm, _load_job, utils
+from domyn_swarm.helpers import setup_logger
 from domyn_swarm.models.swarm import _load_swarm_config
+
+console = Console()
+logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 
 
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
@@ -32,7 +38,7 @@ def submit_script(
     Run an *arbitrary* Python file inside the swarm head node.
     """
     if bool(config) == bool(state):
-        typer.echo("Either --config or --state must be provided, not both.", err=True)
+        logger.info("Either --config or --state must be provided, not both.", err=True)
         raise typer.Exit(1)
 
     if config:
@@ -115,7 +121,7 @@ def submit_job(
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
     """
     if bool(config) == bool(state):
-        typer.echo("Either --config or --state must be provided, not both.", err=True)
+        logger.info("Either --config or --state must be provided, not both.", err=True)
         raise typer.Exit(1)
 
     if config:

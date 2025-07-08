@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+import logging
 from domyn_swarm import utils
 import importlib
 import json
@@ -15,12 +16,14 @@ import typer
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from domyn_swarm.helpers import generate_swarm_name, is_folder, path_exists, to_path
+from domyn_swarm.helpers import generate_swarm_name, is_folder, path_exists, setup_logger, to_path
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 import shlex
 
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+
+logger = setup_logger("domyn_swarm.models.swarm", level=logging.INFO)
 
 
 def is_job_running(job_id: str):
@@ -160,7 +163,7 @@ class DomynLLMSwarm(BaseModel):
         if not script_path.is_file():
             raise FileNotFoundError(f"Script not found: {script_path}")
 
-        rprint(f"[LLMSwarm] submitting user script {script_path} to job {self.jobid}")
+        logger.info(f"Submitting user script {script_path} to job {self.jobid}")
 
         cmd = [
             "srun",
@@ -186,7 +189,7 @@ class DomynLLMSwarm(BaseModel):
                 start_new_session=True,
                 close_fds=True,
             )
-            rprint(f"Detached process with PID {proc.pid}")
+            logger.info(f"Detached process with PID {proc.pid}")
             return proc.pid
         else:
             subprocess.run(
@@ -199,17 +202,17 @@ class DomynLLMSwarm(BaseModel):
     def _persist(self):
         state_file = utils.EnvPath(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
         state_file.write_text(self.model_dump_json(indent=2))
-        rprint(f"[LLMSwarm] state saved to {state_file}")
+        logger.info(f"State saved to {state_file}")
 
     def _submit_clusters_job(self):
         job_name = self.name
 
         self.jobid = self._submit_replicas(job_name)
-        rprint(
-            f"[LLMSwarm] submitted Slurm job {self.jobid} with {self.cfg.replicas} replicas"
+        logger.info(
+            f"Submitted Slurm job {self.jobid} with {self.cfg.replicas} replicas"
         )
         self.lb_jobid = self._submit_lb(job_name)
-        rprint(f"[LLMSwarm] submitted LB job for {self.lb_jobid}")
+        logger.info(f"Submitted LB job for {self.lb_jobid}")
         self._persist()
 
     def _get_lb_node(self) -> str:
@@ -448,8 +451,8 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             cmd.append(f"--limit={limit}")
 
-        rprint(
-            f"[LLMSwarm] submitting job {job.__class__.__name__} to swarm {self.jobid}:"
+        logger.info(
+            f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:"
         )
 
         full_cmd = shlex.join(cmd)
@@ -470,7 +473,7 @@ class DomynLLMSwarm(BaseModel):
                 start_new_session=True,
                 close_fds=True,
             )
-            rprint(f"Detached process with PID {proc.pid}")
+            logger.info(f"Detached process with PID {proc.pid}")
             return proc.pid
         else:
             subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
@@ -519,13 +522,13 @@ class DomynLLMSwarm(BaseModel):
         self.endpoint = endpoint
         self.model = model or self.cfg.model
 
-        rprint(f"[LLMSwarm] Loaded state from {self.jobid} and {self.lb_jobid}")
+        logger.info(f"Loaded state from {self.jobid} and {self.lb_jobid}")
         return self
 
     def cleanup(self):
         subprocess.run(["scancel", str(self.jobid)], check=False)
         subprocess.run(["scancel", str(self.lb_jobid)], check=False)
-        rprint(f"[LLMSwarm] scancel {self.jobid} and {self.lb_jobid} requested")
+        logger.info(f"scancel {self.jobid} and {self.lb_jobid} requested")
         self._cleaned = True
 
 

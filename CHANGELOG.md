@@ -1,3 +1,14 @@
+## v0.9.0 (2025-07-08)
+
+### Feat
+
+- add status command
+
+### Fix
+
+- improve logging
+- fix issue with default template path
+
 ## v0.8.5 (2025-07-07)
 
 ### Fix

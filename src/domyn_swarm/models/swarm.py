@@ -1,5 +1,4 @@
 import os
-import pathlib
 from typing import Optional
 from pydantic import BaseModel, ValidationInfo, field_validator, Field
 import typer
@@ -51,12 +50,12 @@ class DomynLLMSwarmConfig(BaseModel):
 
     # template path (auto-filled after clone)
     template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent
+        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
         / "templates"
         / "llm_swarm.sh.j2"
     )
     nginx_template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent
+        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
         / "templates"
         / "nginx.conf.j2"
     )
@@ -90,7 +89,7 @@ class DomynLLMSwarmConfig(BaseModel):
         else:
             hf_home = info.data["hf_home"]
             rprint(
-                f"[yellow] Huggingface model {v} will be used, make sure that HF_HOME is specified correctly and the model is available in {hf_home}/hub"
+                f"[yellow]Huggingface model[/yellow] [bold green]{v}[/bold green] [yellow]will be used, make sure that[/yellow] [bold cyan]HF_HOME[/bold cyan] [yellow]is specified correctly and the model is available in[/yellow] {hf_home}/hub"
             )
         return v
 

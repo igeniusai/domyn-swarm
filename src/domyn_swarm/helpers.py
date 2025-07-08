@@ -8,6 +8,8 @@ import tempfile
 import time
 from typing import List, Tuple
 from rich import print as rprint
+from rich.console import Console
+from rich.logging import RichHandler
 import jinja2
 import hashlib
 import mmap
@@ -15,6 +17,8 @@ import os
 import math
 from openai.types.chat.chat_completion import Choice
 import logging
+import requests
+from requests.exceptions import RequestException
 
 libc = ctypes.CDLL("libc.so.6", use_errno=True)
 
@@ -263,43 +267,46 @@ def is_folder(path: str):
     return utils.EnvPath(path).is_dir()
 
 
-def setup_logger(name: str = "app", level=logging.INFO) -> logging.Logger:
+def setup_logger(name: str = "app", level=logging.INFO, console: Console = None) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.propagate = False  # Avoid duplicate logs
 
     if logger.handlers:
         return logger
+    
+     # Console setup
+    stdout_console = console or Console(file=sys.stdout, width=None)  # Use full terminal width
+    stderr_console = Console(file=sys.stderr, width=None)
+
 
     # Info and below → stdout
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(logging.DEBUG)
-    stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
-    stdout_handler.setFormatter(
-        logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s")
+    stdout_handler = RichHandler(
+        level=logging.DEBUG,
+        console=stdout_console,
+        rich_tracebacks=False,
+        markup=True,
+        show_time=True,
+        show_level=True,
+        show_path=False,
     )
+    stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
 
     # Warnings and above → stderr
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setLevel(logging.WARNING)
-    stderr_handler.setFormatter(
-        logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s")
+    stderr_handler = RichHandler(
+        level=logging.WARNING,
+        console=stderr_console,
+        rich_tracebacks=True,
+        markup=True,
+        show_time=True,
+        show_level=True,
+        show_path=False,
     )
 
     logger.addHandler(stdout_handler)
     logger.addHandler(stderr_handler)
 
     return logger
-
-
-PR_SET_PDEATHSIG = 1
-
-
-def _set_pdeathsig(sig=signal.SIGTERM):
-    # ask the kernel to send `sig` when this process's parent dies
-    if libc.prctl(PR_SET_PDEATHSIG, sig) != 0:
-        err = ctypes.get_errno()
-        raise OSError(err, os.strerror(err))
 
 
 def compute_hash(s: str, algorithm="sha256"):
@@ -327,3 +334,21 @@ def generate_swarm_name() -> str:
     return f"""domyn-swarm-{int(time.time())}-{
         "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     }"""
+
+
+def is_endpoint_healthy(endpoint: str, timeout: float = 2.0) -> bool:
+    """
+    Check if an NGINX server is healthy by sending a GET request.
+
+    Args:
+        endpoint (str): The URL of the NGINX server (e.g., http://localhost:80).
+        timeout (float): Timeout in seconds for the request.
+
+    Returns:
+        bool: True if the server responds with 2xx status code, False otherwise.
+    """
+    try:
+        response = requests.get(endpoint, timeout=timeout)
+        return response.status_code >= 200 and response.status_code < 300
+    except RequestException:
+        return False
