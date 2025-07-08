@@ -50,12 +50,12 @@ class DomynLLMSwarmConfig(BaseModel):
 
     # template path (auto-filled after clone)
     template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent
+        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
         / "templates"
         / "llm_swarm.sh.j2"
     )
     nginx_template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent
+        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
         / "templates"
         / "nginx.conf.j2"
     )
