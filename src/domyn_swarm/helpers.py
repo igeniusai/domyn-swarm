@@ -1,5 +1,4 @@
 from domyn_swarm import utils
-import signal
 import socket
 import subprocess
 import ctypes
@@ -267,18 +266,21 @@ def is_folder(path: str):
     return utils.EnvPath(path).is_dir()
 
 
-def setup_logger(name: str = "app", level=logging.INFO, console: Console = None) -> logging.Logger:
+def setup_logger(
+    name: str = "app", level=logging.INFO, console: Console = None
+) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.propagate = False  # Avoid duplicate logs
 
     if logger.handlers:
         return logger
-    
-     # Console setup
-    stdout_console = console or Console(file=sys.stdout, width=None)  # Use full terminal width
-    stderr_console = Console(file=sys.stderr, width=None)
 
+    # Console setup
+    stdout_console = console or Console(
+        file=sys.stdout, width=None
+    )  # Use full terminal width
+    stderr_console = Console(file=sys.stderr, width=None)
 
     # Info and below → stdout
     stdout_handler = RichHandler(

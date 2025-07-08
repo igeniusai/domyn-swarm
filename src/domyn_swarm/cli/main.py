@@ -116,17 +116,23 @@ def check_status(
     endpoint = swarm.endpoint
     replicas = swarm.cfg.replicas
 
-    job_home = swarm.cfg.home_directory / "swarms" / str(array_jobid) 
+    job_home = swarm.cfg.home_directory / "swarms" / str(array_jobid)
     how_many_vllm_endpoints = sum(1 for _ in job_home.glob("*.head"))
 
-    vllm_endpoints = [f"http://{f.open().read().strip()}" for f in job_home.glob("*.head")]
-    vllm_status = ["HEALTHY" if is_endpoint_healthy(f"{ep}/v1/models") else "UNHEALTHY" for ep in vllm_endpoints]
-    vllm_endpoints_status = [f"{ep} ({status})" for ep, status in zip(vllm_endpoints, vllm_status)]
+    vllm_endpoints = [
+        f"http://{f.open().read().strip()}" for f in job_home.glob("*.head")
+    ]
+    vllm_status = [
+        "HEALTHY" if is_endpoint_healthy(f"{ep}/v1/models") else "UNHEALTHY"
+        for ep in vllm_endpoints
+    ]
+    vllm_endpoints_status = [
+        f"{ep} ({status})" for ep, status in zip(vllm_endpoints, vllm_status)
+    ]
 
     lb_status = "HEALTHY" if is_endpoint_healthy(endpoint) else "UNHEALTHY"
     lb_job_status = get_job_status(load_balancer_jobid)
     array_job_status = get_job_status(array_jobid)
-
 
     lb_table = Table.grid(padding=1)
     lb_table.add_row("Job ID:", str(load_balancer_jobid))
@@ -139,9 +145,9 @@ def check_status(
     vllm_table.add_row("Replicas:", f"{how_many_vllm_endpoints}/{str(replicas)}")
     vllm_table.add_row("Endpoints:", "\n".join(vllm_endpoints_status) or "N/A")
 
-
     console.print(Panel(lb_table, title="[bold cyan]Load Balancer", expand=False))
     console.print(Panel(vllm_table, title="[bold magenta]vLLM Workers", expand=False))
+
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(

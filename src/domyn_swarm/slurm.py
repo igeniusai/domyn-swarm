@@ -1,4 +1,3 @@
-
 def get_job_status(job_id: int) -> str:
     """
     Get the status of a job in Slurm.

@@ -15,6 +15,7 @@ from typing import Type, Optional, Union
 
 logger = setup_logger(__name__, level=logging.INFO)
 
+
 def _load_cls(path: str) -> type[SwarmJob]:
     mod, cls = path.split(":")
     return getattr(importlib.import_module(mod), cls)
@@ -143,7 +144,9 @@ async def _amain():
     if args.nthreads <= 1:
         df_out: pd.DataFrame = await job.run(df_in, tag)
     else:
-        logger.info(f"[bold green]Running job in multithreaded mode (num_threads={args.nthreads})")
+        logger.info(
+            f"[bold green]Running job in multithreaded mode (num_threads={args.nthreads})"
+        )
         df_out: pd.DataFrame = run_swarm_in_threads(
             df_in,
             JobCls,

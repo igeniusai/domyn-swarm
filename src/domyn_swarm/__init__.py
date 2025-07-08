@@ -16,7 +16,13 @@ import typer
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from domyn_swarm.helpers import generate_swarm_name, is_folder, path_exists, setup_logger, to_path
+from domyn_swarm.helpers import (
+    generate_swarm_name,
+    is_folder,
+    path_exists,
+    setup_logger,
+    to_path,
+)
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 import shlex
@@ -451,9 +457,7 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             cmd.append(f"--limit={limit}")
 
-        logger.info(
-            f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:"
-        )
+        logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")
 
         full_cmd = shlex.join(cmd)
         syntax = Syntax(

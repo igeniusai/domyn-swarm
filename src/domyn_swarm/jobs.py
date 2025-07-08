@@ -35,7 +35,6 @@ from tenacity import (
 from tqdm.asyncio import tqdm
 
 import pandas as pd
-from rich.console import Console
 from openai.types.chat.chat_completion import Choice, ChatCompletion
 from openai import NOT_GIVEN
 
@@ -84,7 +83,11 @@ class SwarmJob(abc.ABC):
         self.input_column_name: str = input_column_name
         self.output_column_name: str = output_column_name
         self.client = AsyncOpenAI(
-            base_url=f"{self.endpoint}/v1", api_key="-", organization="-", project="-", timeout=timeout
+            base_url=f"{self.endpoint}/v1",
+            api_key="-",
+            organization="-",
+            project="-",
+            timeout=timeout,
         )
         if "kwargs" in extra_kwargs.keys():
             self.kwargs = {**extra_kwargs.get("kwargs", {})}
