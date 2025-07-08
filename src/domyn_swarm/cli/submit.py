@@ -2,7 +2,6 @@ import logging
 from typing import List, Optional
 from rich.console import Console
 import typer
-import openai
 
 from domyn_swarm import DomynLLMSwarm, _load_job, utils
 from domyn_swarm.helpers import setup_logger

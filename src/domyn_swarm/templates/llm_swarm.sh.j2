@@ -3,7 +3,8 @@
 #  SLURM DIRECTIVES
 ###############################################################################
 #SBATCH --account=iGen_train
-#SBATCH --mail-user=federico.dambrosio@igenius.ai
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=federico.dambrosio@domyn.com
 #SBATCH --qos=qos_llm_min
 
 #SBATCH --exclusive=user
@@ -106,8 +107,7 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
 
     COMMA_SEPARATED_WORKERS=$(IFS=,; echo "${NODES[*]:1}")
     echo "[workers] launching Ray workers on $((SLURM_JOB_NUM_NODES-1)) nodes ($COMMA_SEPARATED_WORKERS)..."
-    srun --nodes=$((SLURM_JOB_NUM_NODES-1)) \
-         --ntasks-per-node=1 \
+    srun --ntasks=$((SLURM_JOB_NUM_NODES-1)) \
          --nodelist=$COMMA_SEPARATED_WORKERS \
          --exclusive \
          --error="$LOG_DIR/worker_%t.err" \
