@@ -234,12 +234,9 @@ class SwarmJob(abc.ABC):
                         ids_now = pending_ids
                         pending_ids = []
                         await on_batch_done(out, ids_now)
-                        remaining = (
-                            self.batch_size
-                            if queue.qsize() >= self.batch_size
-                            else queue.qsize()
-                        )
-                        pbar.reset(total=remaining)
+                        remaining = min(queue.qsize(), self.batch_size)
+                        if remaining > 0:
+                            pbar.reset(total=remaining)
 
         try:
             await tqdm.gather(

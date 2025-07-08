@@ -130,7 +130,9 @@ def check_status(
         f"{ep} ({status})" for ep, status in zip(vllm_endpoints, vllm_status)
     ]
 
-    lb_status = "HEALTHY" if is_endpoint_healthy(f"{endpoint}/v1/models") else "UNHEALTHY"
+    lb_status = (
+        "HEALTHY" if is_endpoint_healthy(f"{endpoint}/v1/models") else "UNHEALTHY"
+    )
     lb_job_status = get_job_status(load_balancer_jobid)
     array_job_status = get_job_status(array_jobid)
 
