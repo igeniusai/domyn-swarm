@@ -2,9 +2,14 @@ import pydantic_core
 import pathlib
 import os
 
+import sys
 
-class EnvPath(pathlib.Path):
-    _flavour = type(pathlib.Path())._flavour  # Required for subclassing Path
+if sys.platform == "win32":
+    base = pathlib.WindowsPath
+else:
+    base = pathlib.PosixPath
+
+class EnvPath(base):
 
     def __new__(cls, *args, **kwargs):
         raw_path = os.path.expandvars(os.path.join(*map(str, args)))
