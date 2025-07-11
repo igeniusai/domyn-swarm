@@ -166,7 +166,7 @@ class SwarmJob(abc.ABC):
         except FileNotFoundError:
             pass
 
-        return done_df.sort_index()  # 50 rows, in order
+        return done_df.sort_index()
 
     async def batched(
         self,

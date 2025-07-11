@@ -130,7 +130,6 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
     singularity exec --bind $MOUNTS --contain --nv --env VLLM_USE_PRECOMPILED=1 instance://"$INSTANCE_TAG" \
             vllm serve {{ cfg.model }} \
             --tensor-parallel-size {{ cfg.gpus_per_node }} \
-            --disable-log-stats \
             --distributed-executor-backend ray \
             {{ cfg.vllm_args | default('') }} \
             --port $REST_PORT \
