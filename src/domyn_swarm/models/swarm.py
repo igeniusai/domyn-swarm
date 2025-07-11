@@ -69,6 +69,9 @@ class DomynLLMSwarmConfig(BaseModel):
     exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
     node_list: str | None = None  # e.g. "node[4-6]" (optional)
 
+    # mail notification -------------------------------------------------------
+    mail_user: str | None = None  # Enable email notifications if set
+
     driver: DriverConfig | None = DriverConfig()
 
     def model_post_init(self, context):

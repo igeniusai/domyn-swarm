@@ -3,8 +3,11 @@
 #  SLURM DIRECTIVES
 ###############################################################################
 #SBATCH --account=iGen_train
+{% if cfg.mail_user %}
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=federico.dambrosio@domyn.com
+#SBATCH --mail-user={{ cfg.mail_user }}
+{% endif %}
+
 #SBATCH --qos=qos_llm_min
 
 #SBATCH --exclusive=user

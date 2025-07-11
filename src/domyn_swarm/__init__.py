@@ -183,9 +183,16 @@ class DomynLLMSwarm(BaseModel):
             f"--export=ALL,ENDPOINT={self.endpoint},MODEL={self.model}",
             "--overlap",
             "--ntasks=1",
+        ]
+        if self.cfg.mail_user:
+            cmd.append(f"--mail-user={self.cfg.mail_user}")
+            cmd.append("--mail-type=END,FAIL")
+        
+        exe = [
             f"{self.cfg.venv_path / 'bin' / 'python'}",
             str(script_path),
         ]
+        cmd.extend(exe)
 
         if detach:
             proc = subprocess.Popen(
@@ -441,6 +448,13 @@ class DomynLLMSwarm(BaseModel):
             "--export=ALL",  # Keep this to preserve the default env
             f"--mem={self.cfg.driver.mem}",
             f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
+        ]
+
+        if self.cfg.mail_user:
+            cmd.append(f"--mail-user={self.cfg.mail_user}")
+            cmd.append("--mail-type=END,FAIL")
+        
+        exe = [
             str(python_interpreter),
             "-m",
             "domyn_swarm.run_job",
@@ -455,7 +469,9 @@ class DomynLLMSwarm(BaseModel):
         ]
 
         if limit:
-            cmd.append(f"--limit={limit}")
+            exe.append(f"--limit={limit}")
+        
+        cmd.extend(exe)
 
         logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")
 
