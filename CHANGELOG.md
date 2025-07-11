@@ -1,3 +1,14 @@
+## v0.10.0 (2025-07-11)
+
+### Feat
+
+- add mail_user to configuration to enable mail notifications via slurm
+
+### Fix
+
+- enable log stats
+- fix nodes allocation of ray workers
+
 ## v0.9.1 (2025-07-08)
 
 ### Fix
