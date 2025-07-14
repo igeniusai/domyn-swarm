@@ -115,6 +115,12 @@ def submit_job(
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Detach the job from the current terminal"
     ),
+    mail_user: Optional[str] = typer.Option(
+        None,
+        "--mail-user",
+        "-m",
+        help="Email address to receive job notifications. If set, email notifications will be enabled.",
+    )
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -145,6 +151,7 @@ def submit_job(
                 num_threads=num_threads,
                 limit=limit,
                 detach=detach,
+                mail_user=mail_user,
             )
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
@@ -167,4 +174,5 @@ def submit_job(
             num_threads=num_threads,
             limit=limit,
             detach=detach,
+            mail_user=mail_user,
         )

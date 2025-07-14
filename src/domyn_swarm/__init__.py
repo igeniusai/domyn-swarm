@@ -360,6 +360,7 @@ class DomynLLMSwarm(BaseModel):
         num_threads: int = 1,
         detach: bool = False,
         limit: int | None = None,
+        mail_user: Optional[str] = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -450,7 +451,9 @@ class DomynLLMSwarm(BaseModel):
             f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
         ]
 
-        if self.cfg.mail_user:
+        if mail_user or self.cfg.mail_user:
+            if mail_user:
+                self.cfg.mail_user = mail_user
             cmd.append(f"--mail-user={self.cfg.mail_user}")
             cmd.append("--mail-type=END,FAIL")
         
