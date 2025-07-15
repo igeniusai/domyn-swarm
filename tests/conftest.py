@@ -3,6 +3,7 @@ import pytest
 
 from domyn_swarm.utils.env_path import EnvPath
 
+
 @pytest.fixture(autouse=True)
 def set_env(monkeypatch):
     monkeypatch.setenv("ENDPOINT", "http://localhost")
@@ -35,6 +36,7 @@ def mock_launch_reverse_proxy(monkeypatch, tmp_path):
         "called_launch": called_launch,
         "temp_dir": tmp_path,
     }
+
 
 @pytest.fixture
 def parquet_file(tmp_path):

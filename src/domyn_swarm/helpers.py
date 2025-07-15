@@ -273,10 +273,8 @@ def setup_logger(
         return logger
 
     # Console setup
-    stdout_console = console or Console(
-        file=sys.stdout, width=None
-    )  # Use full terminal width
-    stderr_console = Console(file=sys.stderr, width=None)
+    stdout_console = console or Console()  # Use full terminal width
+    stderr_console = Console(stderr=True)
 
     # Info and below → stdout
     stdout_handler = RichHandler(

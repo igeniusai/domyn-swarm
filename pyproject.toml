@@ -3,7 +3,7 @@ name = "domyn-swarm"
 version = "0.10.0"
 description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes using simple configuration files"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "blake3>=1.0.5",
     "huggingface-hub>=0.32.6",

@@ -5,7 +5,17 @@ import time
 
 import pandas as pd
 import pytest
-from domyn_swarm.helpers import compute_perplexity, compute_perplexity_metrics, generate_ssh_tunnel_cmd, get_login_node_suffix, get_unused_port, launch_nginx_singularity, launch_reverse_proxy, parquet_hash, run_command
+from domyn_swarm.helpers import (
+    compute_perplexity,
+    compute_perplexity_metrics,
+    generate_ssh_tunnel_cmd,
+    get_login_node_suffix,
+    get_unused_port,
+    launch_nginx_singularity,
+    launch_reverse_proxy,
+    parquet_hash,
+    run_command,
+)
 from domyn_swarm.utils.env_path import EnvPath
 
 
@@ -27,11 +37,19 @@ def test_get_unused_port_exhausted_range(monkeypatch):
     def always_fail_bind(*args, **kwargs):
         raise OSError("Port in use")
 
-    monkeypatch.setattr(socket, "socket", lambda: type("MockSocket", (), {
-        "bind": always_fail_bind,
-        "listen": lambda self, n=1: None,
-        "close": lambda self: None,
-    })())
+    monkeypatch.setattr(
+        socket,
+        "socket",
+        lambda: type(
+            "MockSocket",
+            (),
+            {
+                "bind": always_fail_bind,
+                "listen": lambda self, n=1: None,
+                "close": lambda self: None,
+            },
+        )(),
+    )
 
     with pytest.raises(IOError, match="No free ports available"):
         get_unused_port(start=60000, end=60001)
@@ -39,9 +57,7 @@ def test_get_unused_port_exhausted_range(monkeypatch):
 
 def test_get_login_node_suffix_success(monkeypatch):
     monkeypatch.setattr(
-        subprocess,
-        "check_output",
-        lambda *args, **kwargs: "lrdn1234.domain.local\n"
+        subprocess, "check_output", lambda *args, **kwargs: "lrdn1234.domain.local\n"
     )
 
     result = get_login_node_suffix()
@@ -62,6 +78,7 @@ def test_get_login_node_suffix_error(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Error getting hostname" in captured.err
 
+
 def test_run_command_success():
     output = run_command("echo 'hello world'")
     assert output == "hello world"
@@ -72,12 +89,10 @@ def test_run_command_failure():
     with pytest.raises(AssertionError, match="Command failed with error"):
         run_command("ls non_existent_file")
 
+
 def test_generate_ssh_tunnel_cmd_basic():
     cmd = generate_ssh_tunnel_cmd(
-        user="fdambro1",
-        localhost_port=8888,
-        nginx_port=9000,
-        login_node_suffix="35"
+        user="fdambro1", localhost_port=8888, nginx_port=9000, login_node_suffix="35"
     )
 
     expected = (
@@ -86,6 +101,7 @@ def test_generate_ssh_tunnel_cmd_basic():
     )
 
     assert cmd == expected
+
 
 def test_launch_nginx_singularity(monkeypatch, tmp_path):
     # Setup fake paths
@@ -129,6 +145,7 @@ def test_launch_nginx_singularity(monkeypatch, tmp_path):
     log_path = tmp_path / "nginx_singularity.log"
     assert log_path.exists()
 
+
 def test_launch_reverse_proxy(mock_launch_reverse_proxy, tmp_path, capsys):
     nginx_template = EnvPath(tmp_path / "nginx_template.j2")
     nginx_template.write_text("# template")
@@ -147,12 +164,16 @@ def test_launch_reverse_proxy(mock_launch_reverse_proxy, tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "[INFO] Launching reverse proxy on port 54321" in out
-    assert "ssh -N -L 54321:login42.leonardo.local:54321 \nfakeuser@login42-ext.leonardo.cineca.it" in out
+    assert (
+        "ssh -N -L 54321:login42.leonardo.local:54321 \nfakeuser@login42-ext.leonardo.cineca.it"
+        in out
+    )
 
     called = mock_launch_reverse_proxy["called_launch"]
     assert called.get("called") is True
     assert "nginx.conf" in called["conf_path"].name
     assert "index.html" in [f.name for f in called["html_path"].rglob("*")]
+
 
 def test_parquet_hash_blake2b(parquet_file):
     digest = parquet_hash(parquet_file, algorithm="blake2b")
@@ -202,6 +223,7 @@ def test_parquet_hash_different_files(tmp_path):
     hash2 = parquet_hash(f2)
     assert hash1 != hash2
 
+
 def test_perplexity_typical_case():
     logprobs = [-1.0, -2.0, -1.5]
     result = compute_perplexity(logprobs)
@@ -224,6 +246,7 @@ def test_perplexity_all_zero_logprobs():
     logprobs = [0.0, 0.0, 0.0]
     result = compute_perplexity(logprobs)
     assert math.isclose(result, 1.0)
+
 
 def test_perplexity_metrics_normal_case():
     logprobs = [-1.0, -2.0, -3.0, -4.0, -5.0]
