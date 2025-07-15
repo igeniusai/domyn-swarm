@@ -58,7 +58,9 @@ def run_swarm_in_threads(
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    shards = np.array_split(df, num_threads)
+    shards = np.array_split(df.index, num_threads)
+    shards = [df.loc[idx].copy() for idx in shards]
+
     results = [None] * num_threads
     threads: list[threading.Thread] = []
 

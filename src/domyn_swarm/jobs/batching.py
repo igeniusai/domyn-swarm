@@ -7,12 +7,25 @@ logger = logging.getLogger(__name__)
 
 
 class BatchExecutor:
+    """
+    Executor for running tasks in parallel batches.
+    This class handles batching of items and parallel execution of a function on those items.
+    It supports retry logic and can execute callbacks after each batch.
+    """
     def __init__(self, parallel: int, batch_size: int, retries: int):
         self.parallel = parallel
         self.batch_size = batch_size
         self.retries = retries
 
     async def run(self, items, fn, *, on_batch_done=None):
+        """ 
+        Run a function `fn` on `items` in parallel batches.
+        
+        Args:
+            items: List of items to process.
+            fn: Function to apply to each item or batch of items.
+            on_batch_done: Optional callback to run after each batch is processed.
+        """
         out = [None] * len(items)
         sem = asyncio.Semaphore(self.parallel)
         queue = asyncio.Queue()

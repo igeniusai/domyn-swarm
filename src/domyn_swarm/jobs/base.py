@@ -22,13 +22,12 @@ import abc
 import os
 import dataclasses
 from typing import Callable
+from openai import AsyncOpenAI
 import pandas as pd
 from tqdm import tqdm
 
 from .checkpointing import CheckpointManager
 from .batching import BatchExecutor
-from .clients.factory import create_llm_client
-from .clients.base import LLMClient
 
 
 class SwarmJob(abc.ABC):
@@ -53,6 +52,8 @@ class SwarmJob(abc.ABC):
         parallel: int = 2,
         retries: int = 5,
         timeout: float = 600,
+        client = None,
+        client_kwargs: dict = None,
         **extra_kwargs,
     ):
         self.endpoint = endpoint or os.getenv("ENDPOINT")
@@ -69,7 +70,14 @@ class SwarmJob(abc.ABC):
         self.timeout = timeout
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
 
-        self.client: LLMClient = create_llm_client(provider, self.endpoint, timeout)
+        self.client = client or AsyncOpenAI(
+            base_url=f"{self.endpoint}/v1",
+            api_key="-",
+            organization="-",
+            project="-",
+            timeout=timeout,
+            **(client_kwargs or {}),
+        )
         self._callbacks: dict[str, Callable] = {}
 
         self.results = None
