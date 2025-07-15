@@ -42,5 +42,4 @@ def test_submit_job_mutual_exclusion(tmp_path):
             "swarm_123.json",
         ],
     )
-    print_cli_debug(result)
     assert result.exit_code != 0
