@@ -72,6 +72,8 @@ class SwarmJob(abc.ABC):
         self.client: LLMClient = create_llm_client(provider, self.endpoint, timeout)
         self._callbacks: dict[str, Callable] = {}
 
+        self.results = None
+
     def register_callback(self, event: str, fn: Callable) -> None:
         """Register a named callback (e.g., 'on_batch_done')."""
         self._callbacks[event] = fn
@@ -106,7 +108,8 @@ class SwarmJob(abc.ABC):
         finally:
             self._callbacks.clear()
 
-        return manager.finalize()
+        self.results = manager.finalize()
+        return self.results
 
     async def batched(self, seq: list, fn: Callable) -> list:
         """

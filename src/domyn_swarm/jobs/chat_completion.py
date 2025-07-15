@@ -146,7 +146,7 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
             retries=retries,
             **extra_kwargs,
         )
-        self.output_column_name = ["text", "perplexity", " bottom50_perplexity"]
+        self.output_column_name = ["text", "perplexity", "bottom50_perplexity"]
 
     async def transform(self, df: pd.DataFrame):
         df = df.copy()

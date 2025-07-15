@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from domyn_swarm.utils.env_path import EnvPath
+from unittest.mock import AsyncMock
 
 
 @pytest.fixture(autouse=True)
@@ -44,3 +45,10 @@ def parquet_file(tmp_path):
     file_path = tmp_path / "test.parquet"
     df.to_parquet(file_path)
     return EnvPath(file_path)
+
+
+@pytest.fixture
+def mock_client(monkeypatch):
+    mock = AsyncMock()
+    monkeypatch.setattr("openai.OpenAI", lambda *args, **kwargs: mock)
+    return mock
