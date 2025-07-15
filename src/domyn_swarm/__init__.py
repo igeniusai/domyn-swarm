@@ -31,16 +31,6 @@ from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 logger = setup_logger("domyn_swarm.models.swarm", level=logging.INFO)
 
-
-def is_job_running(job_id: str):
-    """Given job id, check if the job is in eunning state (needed to retrieve hostname from logs)"""
-    command = "squeue --me --states=R | awk '{print $1}' | tail -n +2"
-    my_running_jobs = subprocess.run(
-        command, shell=True, text=True, capture_output=True
-    ).stdout.splitlines()
-    return job_id in my_running_jobs
-
-
 class DomynLLMSwarm(BaseModel):
     """
     Context manager that:
@@ -187,7 +177,7 @@ class DomynLLMSwarm(BaseModel):
         if self.cfg.mail_user:
             cmd.append(f"--mail-user={self.cfg.mail_user}")
             cmd.append("--mail-type=END,FAIL")
-        
+
         exe = [
             f"{self.cfg.venv_path / 'bin' / 'python'}",
             str(script_path),
@@ -369,7 +359,7 @@ class DomynLLMSwarm(BaseModel):
         The *job* object is converted to keyword arguments via
         :py:meth:`SwarmJob.to_kwargs`, transmitted to the head node
         (where ``SLURM_NODEID == 0``), reconstructed by
-        ``domyn_swarm.run_job``, and executed under ``srun``.
+        ``domyn_swarm.jobs.run``, and executed under ``srun``.
 
         Parameters
         ----------
@@ -412,7 +402,7 @@ class DomynLLMSwarm(BaseModel):
         The constructed command is logged with *rich* for transparency, e.g.::
 
             srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
-                python -m domyn_swarm.run_job --job-class=<module:Class> ...
+                python -m domyn_swarm.jobs.run --job-class=<module:Class> ...
 
         Examples
         --------
@@ -456,11 +446,11 @@ class DomynLLMSwarm(BaseModel):
                 self.cfg.mail_user = mail_user
             cmd.append(f"--mail-user={self.cfg.mail_user}")
             cmd.append("--mail-type=END,FAIL")
-        
+
         exe = [
             str(python_interpreter),
             "-m",
-            "domyn_swarm.run_job",
+            "domyn_swarm.jobs.run",
             f"--job-class={job_class}",
             f"--model={self.model}",
             f"--input-parquet={input_path}",
@@ -473,7 +463,7 @@ class DomynLLMSwarm(BaseModel):
 
         if limit:
             exe.append(f"--limit={limit}")
-        
+
         cmd.extend(exe)
 
         logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")

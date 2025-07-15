@@ -1,4 +1,4 @@
-# domyn_swarm/run_job.py  (installed with your library)
+# domyn_swarm/jobs/run.py
 import argparse
 import logging
 import os
@@ -13,7 +13,7 @@ import threading
 import numpy as np
 from typing import Type, Optional, Union
 
-logger = setup_logger("domyn_swarm.run_job", level=logging.INFO)
+logger = setup_logger("domyn_swarm.jobs.run", level=logging.INFO)
 
 
 def _load_cls(path: str) -> type[SwarmJob]:

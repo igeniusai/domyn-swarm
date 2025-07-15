@@ -1,7 +1,6 @@
 from domyn_swarm import utils
 import socket
 import subprocess
-import ctypes
 import sys
 import tempfile
 import time
@@ -18,9 +17,6 @@ from openai.types.chat.chat_completion import Choice
 import logging
 import requests
 from requests.exceptions import RequestException
-
-libc = ctypes.CDLL("libc.so.6", use_errno=True)
-
 
 def get_unused_port(start=50000, end=65535):
     """

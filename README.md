@@ -71,7 +71,7 @@ if you want to add it as a dependency:
    Under the hood this:
 
    * reads `ENDPOINT=http://<lb-node>:9000`
-   * in a single `srun` on the Load Balancer node, invokes `domyn_swarm.run_job`
+   * in a single `srun` on the Load Balancer node, invokes `domyn_swarm.jobs.run`
    * streams prompts→answers in batches, retrying failures, checkpointing progress
 
 4. **Run a free-form Python script**

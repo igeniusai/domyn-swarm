@@ -120,7 +120,7 @@ def submit_job(
         "--mail-user",
         "-m",
         help="Email address to receive job notifications. If set, email notifications will be enabled.",
-    )
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
