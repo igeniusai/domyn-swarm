@@ -1,6 +1,5 @@
 import pytest
 import pandas as pd
-import asyncio
 from domyn_swarm.jobs.base import SwarmJob
 
 

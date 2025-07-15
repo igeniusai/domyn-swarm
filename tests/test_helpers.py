@@ -5,15 +5,19 @@ import time
 
 import pandas as pd
 import pytest
-from domyn_swarm.helpers import (
+from domyn_swarm.helpers.reverse_proxy import (
+    launch_reverse_proxy,
+)
+from domyn_swarm.helpers.data import (
     compute_perplexity,
     compute_perplexity_metrics,
+    parquet_hash,
+)
+from domyn_swarm.helpers.reverse_proxy import (
     generate_ssh_tunnel_cmd,
     get_login_node_suffix,
     get_unused_port,
     launch_nginx_singularity,
-    launch_reverse_proxy,
-    parquet_hash,
     run_command,
 )
 from domyn_swarm.utils.env_path import EnvPath

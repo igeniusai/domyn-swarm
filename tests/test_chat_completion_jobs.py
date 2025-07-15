@@ -33,7 +33,9 @@ async def test_completion_job(monkeypatch, tmp_path):
 async def test_chat_completion_job(monkeypatch, tmp_path):
     df = pd.DataFrame({"messages": [[{"role": "user", "content": "Hi"}]]})
 
-    mock_choice = type("Choice", (), {"message": type("Msg", (), {"content": "Mocked answer"})()})
+    mock_choice = type(
+        "Choice", (), {"message": type("Msg", (), {"content": "Mocked answer"})()}
+    )
     mock_resp = AsyncMock()
     mock_resp.choices = [mock_choice]
 
@@ -85,8 +87,14 @@ async def test_chat_completion_perplexity_job(monkeypatch, tmp_path):
     mock_resp = AsyncMock()
     mock_resp.choices = [mock_choice]
 
-    monkeypatch.setattr("domyn_swarm.jobs.chat_completion.extract_token_logprobs", lambda c: [0.1, 0.2, 0.3])
-    monkeypatch.setattr("domyn_swarm.jobs.chat_completion.compute_perplexity_metrics", lambda t: (42.0, 21.0))
+    monkeypatch.setattr(
+        "domyn_swarm.jobs.chat_completion.extract_token_logprobs",
+        lambda c: [0.1, 0.2, 0.3],
+    )
+    monkeypatch.setattr(
+        "domyn_swarm.jobs.chat_completion.compute_perplexity_metrics",
+        lambda t: (42.0, 21.0),
+    )
 
     job = ChatCompletionPerplexityJob(model="gpt-4")
     job.client = AsyncMock()
@@ -116,7 +124,9 @@ async def test_multi_turn_chat_completion_job(monkeypatch, tmp_path):
     )
 
     mock_resp = AsyncMock()
-    mock_resp.choices = [type("C", (), {"message": type("M", (), {"content": "Mocked reply"})()})]
+    mock_resp.choices = [
+        type("C", (), {"message": type("M", (), {"content": "Mocked reply"})()})
+    ]
 
     job = MultiTurnChatCompletionJob(model="gpt-4")
     job.client = AsyncMock()

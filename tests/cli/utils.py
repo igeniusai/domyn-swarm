@@ -19,7 +19,6 @@ def print_cli_debug(result):
     if result.exception:
         print("🧪 Exception:\n", result.exception)
 
-import re
 
 def extract_rich_text(output: str) -> str:
     in_box = False

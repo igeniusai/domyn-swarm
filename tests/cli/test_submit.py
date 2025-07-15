@@ -1,12 +1,11 @@
 from typer.testing import CliRunner
 from domyn_swarm.cli.submit import submit_app
-from utils import print_cli_debug, extract_rich_text
+from utils import extract_rich_text
 
 runner = CliRunner()
 
 
 def test_submit_script_requires_config_or_state(tmp_path):
-
     # Create a dummy script file
     script_path = tmp_path / "script.py"
     script_path.write_text("print('Hello, Domyn Swarm!')\n")
@@ -23,7 +22,6 @@ def test_submit_script_no_such_file(tmp_path):
 
 
 def test_submit_job_mutual_exclusion(tmp_path):
-
     config_path = tmp_path / "config.yaml"
     config_path.write_text("dummy_config: true\n")
 
