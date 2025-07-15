@@ -16,13 +16,11 @@ import typer
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from domyn_swarm.helpers import (
+from domyn_swarm.helpers.data import (
     generate_swarm_name,
-    is_folder,
-    path_exists,
-    setup_logger,
-    to_path,
 )
+from domyn_swarm.helpers.io import is_folder, path_exists, to_path
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
 from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
 import shlex
@@ -30,6 +28,7 @@ import shlex
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 logger = setup_logger("domyn_swarm.models.swarm", level=logging.INFO)
+
 
 class DomynLLMSwarm(BaseModel):
     """
@@ -560,7 +559,7 @@ def _start_swarm(
     """Common context-manager + reverse proxy logic."""
     with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
         if reverse_proxy:
-            from domyn_swarm.helpers import launch_reverse_proxy
+            from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
 
             launch_reverse_proxy(
                 cfg.nginx_template_path,

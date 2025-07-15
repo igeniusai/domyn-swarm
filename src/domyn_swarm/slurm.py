@@ -24,6 +24,7 @@ def get_job_status(job_id: int) -> str:
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to get job status for {job_id}: {e}") from e
 
+
 def is_job_running(job_id: str):
     """Given job id, check if the job is in eunning state (needed to retrieve hostname from logs)"""
     command = "squeue --me --states=R | awk '{print $1}' | tail -n +2"

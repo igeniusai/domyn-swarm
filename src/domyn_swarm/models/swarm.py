@@ -5,7 +5,8 @@ import typer
 import yaml
 
 from domyn_swarm import utils
-from domyn_swarm.helpers import is_folder, path_exists, to_path
+from domyn_swarm.helpers.io import path_exists
+from domyn_swarm.helpers.io import is_folder, to_path
 from domyn_swarm.models.driver import DriverConfig
 from rich import print as rprint
 

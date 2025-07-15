@@ -3,10 +3,10 @@ from typing import Dict, List, Any, Tuple
 import pandas as pd
 from openai.types.chat.chat_completion import Choice, ChatCompletion
 
-from domyn_swarm.helpers import (
+from domyn_swarm.helpers.data import (
     compute_perplexity_metrics,
-    extract_token_logprobs,
 )
+from domyn_swarm.helpers.data import extract_token_logprobs
 from domyn_swarm.jobs.base import SwarmJob
 
 

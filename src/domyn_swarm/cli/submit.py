@@ -1,10 +1,9 @@
 import logging
 from typing import List, Optional
-from rich.console import Console
 import typer
 
 from domyn_swarm import DomynLLMSwarm, _load_job, utils
-from domyn_swarm.helpers import setup_logger
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.models.swarm import _load_swarm_config
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
