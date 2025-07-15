@@ -12,10 +12,10 @@ def set_env(monkeypatch):
 
 @pytest.fixture
 def mock_launch_reverse_proxy(monkeypatch, tmp_path):
-    monkeypatch.setattr("domyn_swarm.helpers.get_unused_port", lambda: 54321)
+    monkeypatch.setattr("domyn_swarm.helpers.reverse_proxy.get_unused_port", lambda: 54321)
 
     monkeypatch.setattr(
-        "domyn_swarm.helpers.generate_nginx_config",
+        "domyn_swarm.helpers.reverse_proxy.generate_nginx_config",
         lambda *args, **kwargs: "# fake nginx config",
     )
 
@@ -28,10 +28,10 @@ def mock_launch_reverse_proxy(monkeypatch, tmp_path):
         called_launch["html_path"] = EnvPath(html_path)
 
     monkeypatch.setattr(
-        "domyn_swarm.helpers.launch_nginx_singularity", fake_launch_nginx_singularity
+        "domyn_swarm.helpers.reverse_proxy.launch_nginx_singularity", fake_launch_nginx_singularity
     )
-    monkeypatch.setattr("domyn_swarm.helpers.run_command", lambda cmd: "fakeuser")
-    monkeypatch.setattr("domyn_swarm.helpers.get_login_node_suffix", lambda: "42")
+    monkeypatch.setattr("domyn_swarm.helpers.reverse_proxy.run_command", lambda cmd: "fakeuser")
+    monkeypatch.setattr("domyn_swarm.helpers.reverse_proxy.get_login_node_suffix", lambda: "42")
 
     return {
         "called_launch": called_launch,
