@@ -52,7 +52,7 @@ class SwarmJob(abc.ABC):
         parallel: int = 2,
         retries: int = 5,
         timeout: float = 600,
-        client = None,
+        client=None,
         client_kwargs: dict = None,
         **extra_kwargs,
     ):

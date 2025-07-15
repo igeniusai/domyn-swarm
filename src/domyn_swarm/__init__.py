@@ -30,6 +30,218 @@ from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 logger = setup_logger("domyn_swarm.models.swarm", level=logging.INFO)
 
 
+# --- SlurmDriver class ---
+class SlurmDriver:
+    def __init__(self, cfg: DomynLLMSwarmConfig):
+        self.cfg = cfg
+
+    def submit_replicas(self, job_name: str) -> int:
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
+            autoescape=False,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        script_txt = env.get_template(self.cfg.template_path.name).render(
+            cfg=self.cfg,
+            job_name=job_name,
+            path_exists=path_exists,
+            is_folder=is_folder,
+        )
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
+            fh.write(script_txt)
+            script_path = fh.name
+
+        os.makedirs(self.cfg.log_directory / job_name, exist_ok=True)
+        array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
+        out = subprocess.check_output(
+            ["sbatch", "--parsable", "--array", array_spec, script_path], text=True
+        ).strip()
+        job_id = out.split(";")[0]
+
+        os.makedirs(self.cfg.home_directory / "swarms" / job_id, exist_ok=True)
+        return int(job_id)
+
+    def submit_lb(self, job_name: str, dep_jobid: int) -> int:
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
+            autoescape=False,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        lb_script_txt = env.get_template("lb.sh.j2").render(
+            cfg=self.cfg, job_name=job_name, dep_jobid=dep_jobid
+        )
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
+            fh.write(lb_script_txt)
+            script_path = fh.name
+
+        out = subprocess.check_output(
+            [
+                "sbatch",
+                "--parsable",
+                "--dependency",
+                f"after:{dep_jobid}",
+                "--export",
+                f"DEP_JOBID={dep_jobid}",
+                script_path,
+            ],
+            text=True,
+        ).strip()
+        return int(out)
+
+    def get_node_from_jobid(self, jobid: int) -> str:
+        nodespec = subprocess.check_output(
+            ["squeue", "-j", str(jobid), "-h", "-O", "NodeList:2048"],
+            text=True,
+        ).strip()
+        head_node = subprocess.check_output(
+            ["scontrol", "show", "hostnames", nodespec],
+            text=True,
+        ).splitlines()[0]
+        return head_node
+
+
+# --- SwarmStateManager class ---
+class SwarmStateManager:
+    def __init__(self, swarm: "DomynLLMSwarm"):
+        self.swarm = swarm
+
+    def save(self):
+        state_file = (
+            utils.EnvPath(self.swarm.cfg.home_directory)
+            / f"swarm_{self.swarm.jobid}.json"
+        )
+        state_file.write_text(self.swarm.model_dump_json(indent=2))
+        logger.info(f"State saved to {state_file}")
+
+    @classmethod
+    def load(cls, state_file: utils.EnvPath) -> "DomynLLMSwarm":
+        if not state_file.is_file():
+            raise FileNotFoundError(f"State file not found: {state_file}")
+        with state_file.open("r") as fh:
+            state = json.load(fh)
+
+        jobid = state.get("jobid")
+        lb_jobid = state.get("lb_jobid")
+        if jobid is None or lb_jobid is None:
+            raise ValueError("State file does not contain valid job IDs")
+
+        cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
+        return DomynLLMSwarm(
+            name=state.get("name", f"domyn-swarm-{int(time.time())}"),
+            cfg=cfg,
+            jobid=jobid,
+            lb_jobid=lb_jobid,
+            lb_node=state.get("lb_node"),
+            endpoint=state.get("endpoint"),
+            model=state.get("model"),
+        )
+
+
+# --- LBHealthChecker class ---
+class LBHealthChecker:
+    def __init__(self, swarm: "DomynLLMSwarm"):
+        self.swarm = swarm
+        self.cfg = swarm.cfg
+
+    def _sacct_state(self, jid: int) -> str:
+        try:
+            out = subprocess.check_output(
+                ["squeue", "-j", str(jid), "-h", "-o", "State"],
+                text=True,
+            ).strip()
+            return out.split()[0] if out else "UNKNOWN"
+        except Exception:
+            return "UNKNOWN"
+
+    def wait_for_lb(self):
+        if self.swarm.jobid is None or self.swarm.lb_jobid is None:
+            raise RuntimeError("Jobs not submitted")
+
+        lb_port = self.cfg.lb_port
+        poll = self.cfg.poll_interval
+
+        from rich.console import Console
+
+        console = Console()
+
+        try:
+            with console.status(
+                "[bold green]Waiting for LB and replicas to start..."
+            ) as status:
+                while True:
+                    rep_state = self._sacct_state(self.swarm.jobid)
+                    lb_state = self._sacct_state(self.swarm.lb_jobid)
+
+                    time.sleep(poll)
+                    if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
+                        status.update(
+                            f"[yellow]sacct UNKNOWN for job {self.swarm.jobid} or {self.swarm.lb_jobid}, retrying …"
+                        )
+                        time.sleep(poll)
+                        continue
+
+                    if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
+                        raise RuntimeError(f"replica array ended in {rep_state}")
+                    if rep_state == "PENDING":
+                        status.update("[yellow]Waiting for replicas to start …")
+                        time.sleep(poll)
+                        continue
+
+                    if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
+                        raise RuntimeError(f"LB job ended in {lb_state} state")
+                    if lb_state == "PENDING":
+                        status.update("[yellow]Waiting for LB job to start …")
+                        time.sleep(poll)
+                        continue
+
+                    if self.swarm.lb_node is None:
+                        try:
+                            self.swarm.lb_node = self.swarm._get_lb_node()
+                            status.update(
+                                f"[yellow]LB job running on {self.swarm.lb_node}, probing …"
+                            )
+                        except Exception:
+                            continue
+
+                    try:
+                        url = f"http://{self.swarm.lb_node}:{lb_port}/v1/models"
+                        res = requests.get(url, timeout=5)
+                        if res.status_code == 200:
+                            self.swarm.endpoint = (
+                                f"http://{self.swarm.lb_node}:{lb_port}"
+                            )
+                            console.print(
+                                f"[bold green]LB healthy → {self.swarm.endpoint}"
+                            )
+                            return
+                        status.update(
+                            f"[bold green]LB responded {res.status_code}, waiting …"
+                        )
+                    except requests.RequestException:
+                        status.update("[yellow]Waiting for LB health check…")
+
+                    time.sleep(poll)
+        except KeyboardInterrupt:
+            abort = typer.confirm(
+                "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
+            )
+            if abort:
+                self.swarm.cleanup()
+                console.print("[LLMSwarm] Swarm allocation cancelled by user")
+                raise typer.Abort()
+            else:
+                status.update("[LLMSwarm] Continuing to wait for LB health …")
+        except RuntimeError as e:
+            console.print(f"[red1][LLMSwarm] Error: {e}")
+            console.print("[red1][LLMSwarm] Cancelling swarm allocation")
+            self.swarm.cleanup()
+            raise e
+
+
 class DomynLLMSwarm(BaseModel):
     """
     Context manager that:
@@ -78,6 +290,11 @@ class DomynLLMSwarm(BaseModel):
         """
         self.cfg.model = value
 
+    def model_post_init(self, __context: Any) -> None:
+        self._slurm = SlurmDriver(self.cfg)
+        self._state_mgr = SwarmStateManager(self)
+        self._lb_checker = LBHealthChecker(self)
+
     def __enter__(self):
         self._submit_clusters_job()
         self._wait_for_lb_health()
@@ -89,64 +306,10 @@ class DomynLLMSwarm(BaseModel):
             self.cleanup()
 
     def _submit_replicas(self, job_name: str) -> int:
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
-            autoescape=False,
-            trim_blocks=True,
-            lstrip_blocks=True,
-        )
-        script_txt = env.get_template(self.cfg.template_path.name).render(
-            cfg=self.cfg,
-            job_name=job_name,
-            path_exists=path_exists,
-            is_folder=is_folder,
-        )
-
-        # write to temp file
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
-            fh.write(script_txt)
-            script_path = fh.name
-
-        # submit
-        os.makedirs(self.cfg.log_directory / job_name, exist_ok=True)
-        array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
-        out = subprocess.check_output(
-            ["sbatch", "--parsable", "--array", array_spec, script_path], text=True
-        ).strip()
-        job_id = out.split(";")[0]
-        # sbatch --parsable returns "<jobid>;<array_task_id>"
-
-        os.makedirs(self.cfg.home_directory / "swarms" / job_id, exist_ok=True)
-        return int(job_id)
+        return self._slurm.submit_replicas(job_name)
 
     def _submit_lb(self, job_name: str) -> int:
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
-            autoescape=False,
-            trim_blocks=True,
-            lstrip_blocks=True,
-        )
-        lb_script_txt = env.get_template("lb.sh.j2").render(
-            cfg=self.cfg, job_name=job_name, dep_jobid=self.jobid
-        )
-
-        # write to temp file
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
-            fh.write(lb_script_txt)
-            # submit
-        out = subprocess.check_output(
-            [
-                "sbatch",
-                "--parsable",
-                "--dependency",
-                f"after:{self.jobid}",
-                "--export",
-                f"DEP_JOBID={self.jobid}",
-                fh.name,
-            ],
-            text=True,
-        ).strip()
-        return int(out)
+        return self._slurm.submit_lb(job_name, self.jobid)
 
     def submit_script(self, script_path: utils.EnvPath, detach: bool = False):
         """
@@ -202,13 +365,10 @@ class DomynLLMSwarm(BaseModel):
             )
 
     def _persist(self):
-        state_file = utils.EnvPath(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
-        state_file.write_text(self.model_dump_json(indent=2))
-        logger.info(f"State saved to {state_file}")
+        self._state_mgr.save()
 
     def _submit_clusters_job(self):
         job_name = self.name
-
         self.jobid = self._submit_replicas(job_name)
         logger.info(
             f"Submitted Slurm job {self.jobid} with {self.cfg.replicas} replicas"
@@ -218,26 +378,10 @@ class DomynLLMSwarm(BaseModel):
         self._persist()
 
     def _get_lb_node(self) -> str:
-        nodespec = subprocess.check_output(
-            ["squeue", "-j", str(self.lb_jobid), "-h", "-O", "NodeList:2048"],
-            text=True,
-        ).strip()
-        head_node = subprocess.check_output(
-            ["scontrol", "show", "hostnames", nodespec],
-            text=True,
-        ).splitlines()[0]
-        return head_node
+        return self._slurm.get_node_from_jobid(self.lb_jobid)
 
     def _get_head_node(self) -> str:
-        nodespec = subprocess.check_output(
-            ["squeue", "-j", str(self.jobid), "-h", "-O", "NodeList:2048"],
-            text=True,
-        ).strip()
-        head_node = subprocess.check_output(
-            ["scontrol", "show", "hostnames", nodespec],
-            text=True,
-        ).splitlines()[0]
-        return head_node
+        return self._slurm.get_node_from_jobid(self.jobid)
 
     def _wait_for_lb_health(self):
         """
@@ -246,99 +390,7 @@ class DomynLLMSwarm(BaseModel):
             • self.lb_node    – host running the LB container
             • self.endpoint   – LB URL (http://host:<lb_port>)
         """
-        if self.jobid is None or self.lb_jobid is None:
-            raise RuntimeError("Jobs not submitted")
-
-        lb_port = self.cfg.lb_port
-        poll = self.cfg.poll_interval
-
-        def _sacct_state(jid: int) -> str:
-            try:
-                out = subprocess.check_output(
-                    ["squeue", "-j", str(jid), "-h", "-o", "State"],
-                    text=True,
-                ).strip()
-                return out.split()[0] if out else "UNKNOWN"
-            except Exception:
-                return "UNKNOWN"
-
-        from rich.console import Console
-
-        console = Console()
-
-        try:
-            with console.status(
-                "[bold green]Waiting for LB and replicas to start..."
-            ) as status:
-                while True:
-                    rep_state = _sacct_state(self.jobid)
-                    lb_state = _sacct_state(self.lb_jobid)
-
-                    time.sleep(poll)  # give sacct some time to update
-                    if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
-                        status.update(
-                            f"[yellow][LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
-                        )
-                        time.sleep(poll)
-                        continue
-
-                    # 1) replicas must at least be RUNNING or COMPLETED
-                    if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
-                        raise RuntimeError(f"replica array ended in {rep_state}")
-                    if rep_state == "PENDING":
-                        status.update("[yellow]Waiting for replicas to start …")
-                        time.sleep(poll)
-                        continue
-
-                    # 2) LB must reach RUNNING
-                    if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
-                        raise RuntimeError(f"LB job ended in {lb_state} state")
-                    if lb_state == "PENDING":
-                        status.update("[yellow]Waiting for LB job to start …")
-                        time.sleep(poll)
-                        continue
-
-                    # 3) once LB RUNNING, probe its HTTP endpoint
-                    if self.lb_node is None:
-                        try:
-                            self.lb_node = self._get_lb_node()
-                            status.update(
-                                f"[yellow]LB job running on {self.lb_node}, probing …"
-                            )
-                        except Exception:
-                            continue
-
-                    try:
-                        url = f"http://{self.lb_node}:{lb_port}/v1/models"
-                        res = requests.get(url, timeout=5)
-                        if res.status_code == 200:
-                            self.endpoint = f"http://{self.lb_node}:{lb_port}"
-                            console.print(
-                                f"[bold green][LLMSwarm] LB healthy → {self.endpoint}"
-                            )
-                            return
-                        status.update(
-                            f"[bold green]LB responded {res.status_code}, waiting …"
-                        )
-                    except requests.RequestException:
-                        status.update("[yellow]Waiting for LB health check…")
-
-                    time.sleep(poll)
-        except KeyboardInterrupt:
-            abort = typer.confirm(
-                "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-            )
-            if abort:
-                self.cleanup()
-                console.print("[LLMSwarm] Swarm allocation cancelled by user")
-                raise typer.Abort()
-            else:
-                status.update("[LLMSwarm] Continuing to wait for LB health …")
-        except RuntimeError as e:
-            console.print(f"[red1][LLMSwarm] Error: {e}")
-            console.print("[red1][LLMSwarm] Cancelling swarm allocation")
-            self.cleanup()
-            raise e
+        self._lb_checker.wait_for_lb()
 
     def submit_job(
         self,
@@ -495,27 +547,7 @@ class DomynLLMSwarm(BaseModel):
         """
         Load a swarm from a saved state file (swarm_*.json).
         """
-        if not state_file.is_file():
-            raise FileNotFoundError(f"State file not found: {state_file}")
-
-        with state_file.open("r") as fh:
-            state: dict = json.load(fh)
-
-        jobid = state.get("jobid")
-        lb_jobid = state.get("lb_jobid")
-        if jobid is None or lb_jobid is None:
-            raise ValueError("State file does not contain valid job IDs")
-
-        cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
-        return DomynLLMSwarm(
-            name=state.get("name", f"domyn-swarm-{int(time.time())}"),
-            cfg=cfg,
-            jobid=jobid,
-            lb_jobid=lb_jobid,
-            lb_node=state.get("lb_node"),
-            endpoint=state.get("endpoint"),
-            model=state.get("model"),
-        )
+        return SwarmStateManager.load(state_file)
 
     def _load_state(
         self,
