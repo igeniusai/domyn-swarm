@@ -14,6 +14,7 @@ from domyn_swarm.jobs.run import (
     _amain,
 )
 
+
 # Dummy SwarmJob for testing
 class DummySwarmJob:
     def __init__(self, **kwargs):
@@ -27,7 +28,7 @@ class DummySwarmJob:
 
 def test_load_cls_runtime():
     mod = types.ModuleType("fake_module")
-    
+
     class Dummy:
         pass
 
@@ -36,6 +37,7 @@ def test_load_cls_runtime():
 
     loaded = _load_cls("fake_module:Dummy")
     assert loaded is Dummy
+
 
 def test_build_job_from_args(monkeypatch):
     monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
@@ -74,13 +76,20 @@ async def test_run_swarm_in_threads():
 
 
 def test_parse_args_minimal():
-    args = parse_args([
-        "--job-class", "mod:Cls",
-        "--model", "gpt-4",
-        "--input-parquet", "in.parquet",
-        "--output-parquet", "out.parquet",
-        "--endpoint", "http://localhost"
-    ])
+    args = parse_args(
+        [
+            "--job-class",
+            "mod:Cls",
+            "--model",
+            "gpt-4",
+            "--input-parquet",
+            "in.parquet",
+            "--output-parquet",
+            "out.parquet",
+            "--endpoint",
+            "http://localhost",
+        ]
+    )
     assert args.model == "gpt-4"
     assert args.input_parquet.name == "in.parquet"
 
@@ -104,7 +113,8 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads", "1",  # Use single-threaded path
+        "--nthreads",
+        "1",  # Use single-threaded path
     ]
     await _amain(args)
 
@@ -112,9 +122,24 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     assert "output" in df_out.columns
     assert df_out.shape[0] == 2
 
+
 def test_main_wrapper(monkeypatch):
     # Use parse_args via monkeypatch to avoid invoking asyncio in this test
     with patch("domyn_swarm.jobs.run._amain") as mock_amain:
         from domyn_swarm.jobs.run import main
-        main(["--job-class", "mod:Cls", "--model", "gpt", "--input-parquet", "in.pq", "--output-parquet", "out.pq", "--endpoint", "ep"])
+
+        main(
+            [
+                "--job-class",
+                "mod:Cls",
+                "--model",
+                "gpt",
+                "--input-parquet",
+                "in.pq",
+                "--output-parquet",
+                "out.pq",
+                "--endpoint",
+                "ep",
+            ]
+        )
         mock_amain.assert_called_once()

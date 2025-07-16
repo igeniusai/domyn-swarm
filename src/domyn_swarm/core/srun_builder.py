@@ -1,11 +1,13 @@
 from __future__ import annotations
-from pathlib import Path
+
 from typing import Optional, Sequence
+
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 
 class SrunCommandBuilder:
     """Builder for constructing srun commands with various configurations."""
+
     def __init__(self, cfg: DomynLLMSwarmConfig, jobid: int, nodelist: str):
         self.cfg = cfg
         self.jobid = jobid
@@ -29,7 +31,7 @@ class SrunCommandBuilder:
     def build(self, exe: Sequence[str], ntasks: int = 1) -> list[str]:
         """
         Build the srun command with the configured parameters.
-        
+
         :param exe: The executable command to run.
         :param ntasks: Number of tasks to run.
         :return: A list representing the srun command.

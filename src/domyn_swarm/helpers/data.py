@@ -1,14 +1,13 @@
-import math
-import time
-
-from openai.types.chat.chat_completion import Choice
-from typing import List, Tuple
-from domyn_swarm import utils
-
-
 import hashlib
+import math
 import mmap
 import os
+import time
+from typing import List, Tuple
+
+from openai.types.chat.chat_completion import Choice
+
+from domyn_swarm import utils
 
 
 def parquet_hash(

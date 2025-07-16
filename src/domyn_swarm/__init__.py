@@ -1,29 +1,30 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
-import logging
-from domyn_swarm import utils
 import importlib
 import json
+import logging
+import shlex
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Any, Generator, Optional
+
+from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from .core.lb_health_checker import LBHealthChecker
-from .core.slurm_driver import SlurmDriver
-from .core.state import SwarmStateManager
-from .core.srun_builder import SrunCommandBuilder
+from domyn_swarm import utils
 from domyn_swarm.helpers.data import (
     generate_swarm_name,
 )
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
-from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
-import shlex
-
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+
+from .core.lb_health_checker import LBHealthChecker
+from .core.slurm_driver import SlurmDriver
+from .core.srun_builder import SrunCommandBuilder
+from .core.state import SwarmStateManager
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -109,18 +110,19 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(f"Submitting user script {script_path} to job {self.jobid}")
 
-        builder = (
-            SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
-            .with_env({"ENDPOINT": self.endpoint, "MODEL": self.model})
+        builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
+            {"ENDPOINT": self.endpoint, "MODEL": self.model}
         )
 
         if self.cfg.mail_user:
             builder = builder.with_mail(self.cfg.mail_user)
 
-        cmd = builder.build([
-            str(self.cfg.venv_path / "bin" / "python"),
-            str(script_path),
-        ])
+        cmd = builder.build(
+            [
+                str(self.cfg.venv_path / "bin" / "python"),
+                str(script_path),
+            ]
+        )
 
         if detach:
             proc = subprocess.Popen(
@@ -257,14 +259,13 @@ class DomynLLMSwarm(BaseModel):
         else:
             python_interpreter = sys.executable
 
-        builder = (
-            SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
-            .with_env({
+        builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
+            {
                 "ENDPOINT": self.endpoint,
                 "MODEL": self.model,
                 "JOB_CLASS": job_class,
                 "JOB_KWARGS": job_kwargs,
-            })
+            }
         )
 
         if mail_user or self.cfg.mail_user:

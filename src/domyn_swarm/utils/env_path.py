@@ -1,6 +1,7 @@
-import pydantic_core
-import pathlib
 import os
+import pathlib
+
+from pydantic_core import core_schema
 
 
 class EnvPath(pathlib.Path):
@@ -15,10 +16,12 @@ class EnvPath(pathlib.Path):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type, handler):
-        return pydantic_core.core_schema.no_info_after_validator_function(
+        return core_schema.no_info_after_validator_function(
             function=cls,
-            schema=pydantic_core.core_schema.str_schema(),
-            serialization=pydantic_core.core_schema.plain_serializer_function_ser_schema(
+            schema=core_schema.union_schema(
+                [core_schema.str_schema(), core_schema.is_instance_schema(pathlib.Path)]
+            ),
+            serialization=core_schema.plain_serializer_function_ser_schema(
                 lambda v: str(v),
                 when_used="always",
             ),

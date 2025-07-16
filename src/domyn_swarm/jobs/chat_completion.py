@@ -1,12 +1,12 @@
-from typing import Dict, List, Any, Tuple
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
-from openai.types.chat.chat_completion import Choice, ChatCompletion
+from openai.types.chat.chat_completion import ChatCompletion, Choice
 
 from domyn_swarm.helpers.data import (
     compute_perplexity_metrics,
+    extract_token_logprobs,
 )
-from domyn_swarm.helpers.data import extract_token_logprobs
 from domyn_swarm.jobs.base import SwarmJob
 
 

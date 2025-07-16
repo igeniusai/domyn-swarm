@@ -1,5 +1,6 @@
 import logging
 from typing import List, Optional
+
 import typer
 
 from domyn_swarm import DomynLLMSwarm, _load_job, utils

@@ -1,6 +1,8 @@
-import domyn_swarm
 import pathlib
+
 import click
+
+import domyn_swarm
 
 
 class ClickEnvPath(click.ParamType):

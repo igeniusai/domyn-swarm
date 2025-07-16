@@ -3,15 +3,14 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 
+import jinja2
 import requests
 from requests.exceptions import RequestException
 from rich import print as rprint
-import time
 
 from domyn_swarm import utils
-
-import jinja2
 
 
 def get_unused_port(start=50000, end=65535):

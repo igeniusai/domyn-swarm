@@ -19,15 +19,16 @@ Sub-classes included:
 """
 
 import abc
-import os
 import dataclasses
+import os
 from typing import Callable
-from openai import AsyncOpenAI
+
 import pandas as pd
+from openai import AsyncOpenAI
 from tqdm import tqdm
 
-from .checkpointing import CheckpointManager
 from .batching import BatchExecutor
+from .checkpointing import CheckpointManager
 
 
 class SwarmJob(abc.ABC):
