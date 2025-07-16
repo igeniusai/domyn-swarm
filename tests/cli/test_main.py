@@ -1,4 +1,5 @@
 from typer.testing import CliRunner
+
 from domyn_swarm.cli.main import app
 
 runner = CliRunner()

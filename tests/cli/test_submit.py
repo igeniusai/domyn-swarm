@@ -1,6 +1,7 @@
 from typer.testing import CliRunner
-from domyn_swarm.cli.submit import submit_app
 from utils import extract_rich_text
+
+from domyn_swarm.cli.submit import submit_app
 
 runner = CliRunner()
 

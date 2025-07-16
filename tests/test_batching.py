@@ -1,5 +1,7 @@
 import asyncio
+
 import pytest
+
 from domyn_swarm.jobs.batching import BatchExecutor
 
 

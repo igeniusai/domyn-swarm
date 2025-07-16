@@ -2,7 +2,8 @@
 
 import os
 from time import sleep
-from domyn_swarm import DomynLLMSwarmConfig, create_swarm_pool
+from domyn_swarm import DomynLLMSwarmConfig
+from domyn_swarm.core.swarm_pool import create_swarm_pool
 from domyn_swarm.jobs import ChatCompletionJob
 
 

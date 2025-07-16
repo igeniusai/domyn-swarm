@@ -1,12 +1,13 @@
-import pandas as pd
-import pytest
 from unittest.mock import AsyncMock
 
+import pandas as pd
+import pytest
+
 from domyn_swarm.jobs import (
-    CompletionJob,
     ChatCompletionJob,
-    MultiChatCompletionJob,
     ChatCompletionPerplexityJob,
+    CompletionJob,
+    MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
 )
 

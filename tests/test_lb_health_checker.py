@@ -1,6 +1,8 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 import requests
+
 from domyn_swarm.core.lb_health_checker import LBHealthChecker
 
 

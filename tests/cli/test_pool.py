@@ -1,6 +1,8 @@
-import yaml
 import pathlib
+
+import yaml
 from typer.testing import CliRunner
+
 from domyn_swarm.cli.pool import pool_app
 
 

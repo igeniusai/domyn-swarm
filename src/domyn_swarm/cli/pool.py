@@ -2,7 +2,8 @@ import typer
 import yaml
 from typing_extensions import Annotated
 
-from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig, create_swarm_pool
+from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
+from domyn_swarm.core.swarm_pool import create_swarm_pool
 from domyn_swarm.models.pool import SwarmPoolConfig
 
 pool_app = typer.Typer(help="Submit a pool to a Domyn-Swarm allocation.")

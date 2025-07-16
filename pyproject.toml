@@ -24,8 +24,11 @@ dev = [
     "commitizen>=4.8.3",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
+    "pytest-check>=2.5.3",
     "pytest-cov>=6.2.1",
+    "pytest-icdiff>=0.9",
     "pytest-mock>=3.14.1",
+    "pytest-sugar>=1.0.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.11.13",
 ]

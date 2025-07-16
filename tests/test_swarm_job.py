@@ -1,5 +1,6 @@
-import pytest
 import pandas as pd
+import pytest
+
 from domyn_swarm.jobs.base import SwarmJob
 
 

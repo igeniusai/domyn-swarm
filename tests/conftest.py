@@ -1,8 +1,9 @@
+from unittest.mock import AsyncMock, Mock
+
 import pandas as pd
 import pytest
 
 from domyn_swarm.utils.env_path import EnvPath
-from unittest.mock import AsyncMock, Mock
 
 
 @pytest.fixture(autouse=True)

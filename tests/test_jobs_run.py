@@ -1,17 +1,18 @@
 import sys
-import types
-import pytest
-import pandas as pd
 import tempfile
-import domyn_swarm.jobs.run as run_mod
+import types
 from unittest.mock import patch
 
+import pandas as pd
+import pytest
+
+import domyn_swarm.jobs.run as run_mod
 from domyn_swarm.jobs.run import (
+    _amain,
     _load_cls,
     build_job_from_args,
-    run_swarm_in_threads,
     parse_args,
-    _amain,
+    run_swarm_in_threads,
 )
 
 
