@@ -4,7 +4,10 @@ import time
 import requests
 import typer
 
-from domyn_swarm import DomynLLMSwarm
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from domyn_swarm import DomynLLMSwarm
 
 
 class LBHealthChecker:

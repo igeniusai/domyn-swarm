@@ -10,9 +10,10 @@ from typing import Any, Generator, Optional
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from domyn_swarm.core.lb_health_checker import LBHealthChecker
-from domyn_swarm.core.slurm_driver import SlurmDriver
-from domyn_swarm.core.state import SwarmStateManager
+from .core.lb_health_checker import LBHealthChecker
+from .core.slurm_driver import SlurmDriver
+from .core.state import SwarmStateManager
+from .core.srun_builder import SrunCommandBuilder
 from domyn_swarm.helpers.data import (
     generate_swarm_name,
 )
@@ -108,28 +109,18 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(f"Submitting user script {script_path} to job {self.jobid}")
 
-        cmd = [
-            "srun",
-            "--jobid",
-            str(self.lb_jobid),
-            f"--nodelist={self.lb_node}",
-            "--ntasks=1",
-            "--overlap",
-            f"--mem={self.cfg.driver.mem}",
-            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
-            f"--export=ALL,ENDPOINT={self.endpoint},MODEL={self.model}",
-            "--overlap",
-            "--ntasks=1",
-        ]
-        if self.cfg.mail_user:
-            cmd.append(f"--mail-user={self.cfg.mail_user}")
-            cmd.append("--mail-type=END,FAIL")
+        builder = (
+            SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
+            .with_env({"ENDPOINT": self.endpoint, "MODEL": self.model})
+        )
 
-        exe = [
-            f"{self.cfg.venv_path / 'bin' / 'python'}",
+        if self.cfg.mail_user:
+            builder = builder.with_mail(self.cfg.mail_user)
+
+        cmd = builder.build([
+            str(self.cfg.venv_path / "bin" / "python"),
             str(script_path),
-        ]
-        cmd.extend(exe)
+        ])
 
         if detach:
             proc = subprocess.Popen(
@@ -266,22 +257,20 @@ class DomynLLMSwarm(BaseModel):
         else:
             python_interpreter = sys.executable
 
-        cmd = [
-            "srun",
-            f"--jobid={self.lb_jobid}",
-            f"--nodelist={self.lb_node}",
-            "--ntasks=1",
-            "--overlap",
-            "--export=ALL",  # Keep this to preserve the default env
-            f"--mem={self.cfg.driver.mem}",
-            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
-        ]
+        builder = (
+            SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
+            .with_env({
+                "ENDPOINT": self.endpoint,
+                "MODEL": self.model,
+                "JOB_CLASS": job_class,
+                "JOB_KWARGS": job_kwargs,
+            })
+        )
 
         if mail_user or self.cfg.mail_user:
             if mail_user:
                 self.cfg.mail_user = mail_user
-            cmd.append(f"--mail-user={self.cfg.mail_user}")
-            cmd.append("--mail-type=END,FAIL")
+            builder = builder.with_mail(self.cfg.mail_user)
 
         exe = [
             str(python_interpreter),
@@ -300,7 +289,7 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             exe.append(f"--limit={limit}")
 
-        cmd.extend(exe)
+        cmd = builder.build(exe)
 
         logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")
 

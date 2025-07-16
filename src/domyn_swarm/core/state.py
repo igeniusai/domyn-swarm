@@ -2,7 +2,12 @@
 import json
 import logging
 import time
-from domyn_swarm import DomynLLMSwarm, utils
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from domyn_swarm import DomynLLMSwarm
+
+from domyn_swarm import utils
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
