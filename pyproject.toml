@@ -3,7 +3,7 @@ name = "domyn-swarm"
 version = "0.10.0"
 description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes using simple configuration files"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "blake3>=1.0.5",
     "huggingface-hub>=0.32.6",
@@ -22,6 +22,14 @@ dependencies = [
 [dependency-groups]
 dev = [
     "commitizen>=4.8.3",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
+    "pytest-check>=2.5.3",
+    "pytest-cov>=6.2.1",
+    "pytest-icdiff>=0.9",
+    "pytest-mock>=3.14.1",
+    "pytest-sugar>=1.0.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.11.13",
 ]
 bench = [
@@ -49,3 +57,8 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 target-version = "py310"
+include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+

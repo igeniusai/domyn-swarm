@@ -1,19 +1,24 @@
-# domyn_swarm/run_job.py  (installed with your library)
+# domyn_swarm/jobs/run.py
 import argparse
+import asyncio
+import importlib
+import json
 import logging
 import os
-import json
-import importlib
-import pandas as pd
-import asyncio
-from domyn_swarm.helpers import compute_hash, parquet_hash, setup_logger
-from domyn_swarm.jobs import SwarmJob  # base class
-from pathlib import Path
+import sys
 import threading
-import numpy as np
-from typing import Type, Optional, Union
+from pathlib import Path
+from typing import Optional, Type, Union
 
-logger = setup_logger("domyn_swarm.run_job", level=logging.INFO)
+import numpy as np
+import pandas as pd
+
+from domyn_swarm.helpers.data import compute_hash, parquet_hash
+from domyn_swarm.helpers.io import load_dataframe, save_dataframe
+from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.jobs import SwarmJob  # base class
+
+logger = setup_logger("domyn_swarm.jobs.run", level=logging.INFO)
 
 
 def _load_cls(path: str) -> type[SwarmJob]:
@@ -54,7 +59,9 @@ def run_swarm_in_threads(
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    shards = np.array_split(df, num_threads)
+    shards = np.array_split(df.index, num_threads)
+    shards = [df.loc[idx].copy() for idx in shards]
+
     results = [None] * num_threads
     threads: list[threading.Thread] = []
 
@@ -82,7 +89,7 @@ def run_swarm_in_threads(
     return final_df
 
 
-def parse_args():
+def parse_args(cli_args=None):
     parser = argparse.ArgumentParser(description="Run a SwarmJob on a Parquet input.")
 
     parser.add_argument(
@@ -104,42 +111,44 @@ def parse_args():
         help="How many threads should be used when executing this job",
     )
     parser.add_argument("--limit", default=None, type=int, required=False)
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=Path(".checkpoints"),
+        help="Directory to store checkpoint files",
+    )
 
-    return parser.parse_args()
+    return parser.parse_args(cli_args)
 
 
-async def _amain():
-    args = parse_args()
-
+def build_job_from_args(args) -> tuple[Type[SwarmJob], dict]:
     cls_path = args.job_class or os.environ["JOB_CLASS"]
     model = args.model or os.environ["MODEL"]
-    in_path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
-    out_path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
     endpoint = args.endpoint or os.environ["ENDPOINT"]
-
     job_params = json.loads(args.job_kwargs or os.getenv("JOB_KWARGS", "{}"))
     kwargs = job_params.pop("kwargs", {})
 
-    logger.info(f"[bold yellow]Instantiating job {cls_path}")
-    JobCls = _load_cls(cls_path)
-    job = JobCls(endpoint=endpoint, model=model, **job_params, **kwargs)
+    job_cls = _load_cls(cls_path)
+    job_kwargs = {"endpoint": endpoint, "model": model, **job_params, **kwargs}
+    return job_cls, job_kwargs
+
+
+async def _amain(cli_args: list[str] | None = None):
+    args = parse_args(cli_args if cli_args is not None else sys.argv[1:])
+
+    in_path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
+    out_path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
+
+    job_cls, job_kwargs = build_job_from_args(args)
+    logger.info(
+        f"[bold yellow]Instantiating job {job_cls.__name__} with params: {job_kwargs}"
+    )
+    job = job_cls(**job_kwargs)
 
     logger.info(f"[bold yellow]Reading input dataset from {in_path}")
     tag = parquet_hash(in_path) + compute_hash(str(out_path))
 
-    # Read the input DataFrame based on the file format
-    match in_path.suffix.lower():
-        case ".parquet":
-            df_in: pd.DataFrame = pd.read_parquet(in_path)
-        case ".csv":
-            df_in: pd.DataFrame = pd.read_csv(in_path)
-        case ".jsonl":
-            df_in: pd.DataFrame = pd.read_json(in_path, orient="records", lines=True)
-        case _:
-            raise ValueError(f"Unsupported file format: {in_path.suffix.lower()}")
-
-    if args.limit:
-        df_in = df_in.head(args.limit)
+    df_in = load_dataframe(in_path, limit=args.limit)
 
     if args.nthreads <= 1:
         df_out: pd.DataFrame = await job.run(df_in, tag)
@@ -149,31 +158,20 @@ async def _amain():
         )
         df_out: pd.DataFrame = run_swarm_in_threads(
             df_in,
-            JobCls,
-            job_kwargs={"endpoint": endpoint, "model": model, **job_params, **kwargs},
+            job_cls,
+            job_kwargs=job_kwargs,
             tag=tag,
             num_threads=args.nthreads,
         )
 
     logger.info(f"[bold green]Saving output dataset to {out_path}")
-    os.makedirs(out_path.parent, exist_ok=True)
 
-    # Save the output DataFrame to the specified format
-    match out_path.suffix.lower():
-        case ".parquet":
-            df_out.to_parquet(out_path, index=False)
-        case ".csv":
-            df_out.to_csv(out_path, index=False)
-        case ".jsonl":
-            df_out.to_json(out_path, orient="records", lines=True)
-        case _:
-            raise ValueError(
-                f"Unsupported output file format: {out_path.suffix.lower()}"
-            )
+    save_dataframe(df_out, out_path)
 
 
-def main():
-    asyncio.run(_amain())
+def main(cli_args: list[str] | None = None):
+    args = parse_args(cli_args or sys.argv[1:])
+    asyncio.run(_amain(args))
 
 
 if __name__ == "__main__":

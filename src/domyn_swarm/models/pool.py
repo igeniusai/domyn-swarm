@@ -1,8 +1,8 @@
-from pydantic import BaseModel
 import yaml
+from pydantic import BaseModel
 
 from domyn_swarm import DomynLLMSwarm
-from domyn_swarm.helpers import to_path
+from domyn_swarm.helpers.io import to_path
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 from domyn_swarm.utils.click_env_path import ClickEnvPath
 

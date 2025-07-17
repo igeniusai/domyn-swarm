@@ -1,12 +1,13 @@
-from importlib import metadata
 import logging
 import subprocess
+from importlib import metadata
 from typing import Optional
+
+import typer
 from rich import print as rprint
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-import typer
+from rich.table import Table
 from typing_extensions import Annotated
 
 from domyn_swarm import (
@@ -15,7 +16,8 @@ from domyn_swarm import (
 )
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.cli.submit import submit_app
-from domyn_swarm.helpers import is_endpoint_healthy, setup_logger
+from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.helpers.reverse_proxy import is_endpoint_healthy
 from domyn_swarm.models.swarm import _load_swarm_config
 from domyn_swarm.slurm import get_job_status
 

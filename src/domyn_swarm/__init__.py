@@ -1,44 +1,30 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
-import logging
-from domyn_swarm import utils
 import importlib
 import json
-import os
+import logging
+import shlex
 import subprocess
 import sys
-import tempfile
-import time
-from typing import Any, Generator, Optional
-import jinja2
-import requests
-import typer
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from domyn_swarm.helpers import (
+from domyn_swarm import utils
+from domyn_swarm.helpers.data import (
     generate_swarm_name,
-    is_folder,
-    path_exists,
-    setup_logger,
-    to_path,
 )
+from domyn_swarm.helpers.io import to_path
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
-from pydantic import BaseModel, ValidationInfo, computed_field, field_validator, Field
-import shlex
-
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
-logger = setup_logger("domyn_swarm.models.swarm", level=logging.INFO)
+from .core.lb_health_checker import LBHealthChecker
+from .core.slurm_driver import SlurmDriver
+from .core.srun_builder import SrunCommandBuilder
+from .core.state import SwarmStateManager
 
-
-def is_job_running(job_id: str):
-    """Given job id, check if the job is in eunning state (needed to retrieve hostname from logs)"""
-    command = "squeue --me --states=R | awk '{print $1}' | tail -n +2"
-    my_running_jobs = subprocess.run(
-        command, shell=True, text=True, capture_output=True
-    ).stdout.splitlines()
-    return job_id in my_running_jobs
+logger = setup_logger(__name__, level=logging.INFO)
 
 
 class DomynLLMSwarm(BaseModel):
@@ -89,6 +75,11 @@ class DomynLLMSwarm(BaseModel):
         """
         self.cfg.model = value
 
+    def model_post_init(self, __context: Any) -> None:
+        self._slurm = SlurmDriver(self.cfg)
+        self._state_mgr = SwarmStateManager(self)
+        self._lb_checker = LBHealthChecker(self)
+
     def __enter__(self):
         self._submit_clusters_job()
         self._wait_for_lb_health()
@@ -100,64 +91,10 @@ class DomynLLMSwarm(BaseModel):
             self.cleanup()
 
     def _submit_replicas(self, job_name: str) -> int:
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
-            autoescape=False,
-            trim_blocks=True,
-            lstrip_blocks=True,
-        )
-        script_txt = env.get_template(self.cfg.template_path.name).render(
-            cfg=self.cfg,
-            job_name=job_name,
-            path_exists=path_exists,
-            is_folder=is_folder,
-        )
-
-        # write to temp file
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
-            fh.write(script_txt)
-            script_path = fh.name
-
-        # submit
-        os.makedirs(self.cfg.log_directory / job_name, exist_ok=True)
-        array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
-        out = subprocess.check_output(
-            ["sbatch", "--parsable", "--array", array_spec, script_path], text=True
-        ).strip()
-        job_id = out.split(";")[0]
-        # sbatch --parsable returns "<jobid>;<array_task_id>"
-
-        os.makedirs(self.cfg.home_directory / "swarms" / job_id, exist_ok=True)
-        return int(job_id)
+        return self._slurm.submit_replicas(job_name)
 
     def _submit_lb(self, job_name: str) -> int:
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
-            autoescape=False,
-            trim_blocks=True,
-            lstrip_blocks=True,
-        )
-        lb_script_txt = env.get_template("lb.sh.j2").render(
-            cfg=self.cfg, job_name=job_name, dep_jobid=self.jobid
-        )
-
-        # write to temp file
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
-            fh.write(lb_script_txt)
-            # submit
-        out = subprocess.check_output(
-            [
-                "sbatch",
-                "--parsable",
-                "--dependency",
-                f"after:{self.jobid}",
-                "--export",
-                f"DEP_JOBID={self.jobid}",
-                fh.name,
-            ],
-            text=True,
-        ).strip()
-        return int(out)
+        return self._slurm.submit_lb(job_name, self.jobid)
 
     def submit_script(self, script_path: utils.EnvPath, detach: bool = False):
         """
@@ -171,28 +108,19 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(f"Submitting user script {script_path} to job {self.jobid}")
 
-        cmd = [
-            "srun",
-            "--jobid",
-            str(self.lb_jobid),
-            f"--nodelist={self.lb_node}",
-            "--ntasks=1",
-            "--overlap",
-            f"--mem={self.cfg.driver.mem}",
-            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
-            f"--export=ALL,ENDPOINT={self.endpoint},MODEL={self.model}",
-            "--overlap",
-            "--ntasks=1",
-        ]
+        builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
+            {"ENDPOINT": self.endpoint, "MODEL": self.model}
+        )
+
         if self.cfg.mail_user:
-            cmd.append(f"--mail-user={self.cfg.mail_user}")
-            cmd.append("--mail-type=END,FAIL")
-        
-        exe = [
-            f"{self.cfg.venv_path / 'bin' / 'python'}",
-            str(script_path),
-        ]
-        cmd.extend(exe)
+            builder = builder.with_mail(self.cfg.mail_user)
+
+        cmd = builder.build(
+            [
+                str(self.cfg.venv_path / "bin" / "python"),
+                str(script_path),
+            ]
+        )
 
         if detach:
             proc = subprocess.Popen(
@@ -213,13 +141,10 @@ class DomynLLMSwarm(BaseModel):
             )
 
     def _persist(self):
-        state_file = utils.EnvPath(self.cfg.home_directory) / f"swarm_{self.jobid}.json"
-        state_file.write_text(self.model_dump_json(indent=2))
-        logger.info(f"State saved to {state_file}")
+        self._state_mgr.save()
 
     def _submit_clusters_job(self):
         job_name = self.name
-
         self.jobid = self._submit_replicas(job_name)
         logger.info(
             f"Submitted Slurm job {self.jobid} with {self.cfg.replicas} replicas"
@@ -229,26 +154,10 @@ class DomynLLMSwarm(BaseModel):
         self._persist()
 
     def _get_lb_node(self) -> str:
-        nodespec = subprocess.check_output(
-            ["squeue", "-j", str(self.lb_jobid), "-h", "-O", "NodeList:2048"],
-            text=True,
-        ).strip()
-        head_node = subprocess.check_output(
-            ["scontrol", "show", "hostnames", nodespec],
-            text=True,
-        ).splitlines()[0]
-        return head_node
+        return self._slurm.get_node_from_jobid(self.lb_jobid)
 
     def _get_head_node(self) -> str:
-        nodespec = subprocess.check_output(
-            ["squeue", "-j", str(self.jobid), "-h", "-O", "NodeList:2048"],
-            text=True,
-        ).strip()
-        head_node = subprocess.check_output(
-            ["scontrol", "show", "hostnames", nodespec],
-            text=True,
-        ).splitlines()[0]
-        return head_node
+        return self._slurm.get_node_from_jobid(self.jobid)
 
     def _wait_for_lb_health(self):
         """
@@ -257,99 +166,7 @@ class DomynLLMSwarm(BaseModel):
             • self.lb_node    – host running the LB container
             • self.endpoint   – LB URL (http://host:<lb_port>)
         """
-        if self.jobid is None or self.lb_jobid is None:
-            raise RuntimeError("Jobs not submitted")
-
-        lb_port = self.cfg.lb_port
-        poll = self.cfg.poll_interval
-
-        def _sacct_state(jid: int) -> str:
-            try:
-                out = subprocess.check_output(
-                    ["squeue", "-j", str(jid), "-h", "-o", "State"],
-                    text=True,
-                ).strip()
-                return out.split()[0] if out else "UNKNOWN"
-            except Exception:
-                return "UNKNOWN"
-
-        from rich.console import Console
-
-        console = Console()
-
-        try:
-            with console.status(
-                "[bold green]Waiting for LB and replicas to start..."
-            ) as status:
-                while True:
-                    rep_state = _sacct_state(self.jobid)
-                    lb_state = _sacct_state(self.lb_jobid)
-
-                    time.sleep(poll)  # give sacct some time to update
-                    if rep_state == "UNKNOWN" or lb_state == "UNKNOWN":
-                        status.update(
-                            f"[yellow][LLMSwarm] sacct returned UNKNOWN for job {self.jobid} or {self.lb_jobid}, retrying …"
-                        )
-                        time.sleep(poll)
-                        continue
-
-                    # 1) replicas must at least be RUNNING or COMPLETED
-                    if rep_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
-                        raise RuntimeError(f"replica array ended in {rep_state}")
-                    if rep_state == "PENDING":
-                        status.update("[yellow]Waiting for replicas to start …")
-                        time.sleep(poll)
-                        continue
-
-                    # 2) LB must reach RUNNING
-                    if lb_state in {"FAILED", "CANCELLED", "TIMEOUT"}:
-                        raise RuntimeError(f"LB job ended in {lb_state} state")
-                    if lb_state == "PENDING":
-                        status.update("[yellow]Waiting for LB job to start …")
-                        time.sleep(poll)
-                        continue
-
-                    # 3) once LB RUNNING, probe its HTTP endpoint
-                    if self.lb_node is None:
-                        try:
-                            self.lb_node = self._get_lb_node()
-                            status.update(
-                                f"[yellow]LB job running on {self.lb_node}, probing …"
-                            )
-                        except Exception:
-                            continue
-
-                    try:
-                        url = f"http://{self.lb_node}:{lb_port}/v1/models"
-                        res = requests.get(url, timeout=5)
-                        if res.status_code == 200:
-                            self.endpoint = f"http://{self.lb_node}:{lb_port}"
-                            console.print(
-                                f"[bold green][LLMSwarm] LB healthy → {self.endpoint}"
-                            )
-                            return
-                        status.update(
-                            f"[bold green]LB responded {res.status_code}, waiting …"
-                        )
-                    except requests.RequestException:
-                        status.update("[yellow]Waiting for LB health check…")
-
-                    time.sleep(poll)
-        except KeyboardInterrupt:
-            abort = typer.confirm(
-                "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-            )
-            if abort:
-                self.cleanup()
-                console.print("[LLMSwarm] Swarm allocation cancelled by user")
-                raise typer.Abort()
-            else:
-                status.update("[LLMSwarm] Continuing to wait for LB health …")
-        except RuntimeError as e:
-            console.print(f"[red1][LLMSwarm] Error: {e}")
-            console.print("[red1][LLMSwarm] Cancelling swarm allocation")
-            self.cleanup()
-            raise e
+        self._lb_checker.wait_for_lb()
 
     def submit_job(
         self,
@@ -369,7 +186,7 @@ class DomynLLMSwarm(BaseModel):
         The *job* object is converted to keyword arguments via
         :py:meth:`SwarmJob.to_kwargs`, transmitted to the head node
         (where ``SLURM_NODEID == 0``), reconstructed by
-        ``domyn_swarm.run_job``, and executed under ``srun``.
+        ``domyn_swarm.jobs.run``, and executed under ``srun``.
 
         Parameters
         ----------
@@ -412,7 +229,7 @@ class DomynLLMSwarm(BaseModel):
         The constructed command is logged with *rich* for transparency, e.g.::
 
             srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
-                python -m domyn_swarm.run_job --job-class=<module:Class> ...
+                python -m domyn_swarm.jobs.run --job-class=<module:Class> ...
 
         Examples
         --------
@@ -440,27 +257,24 @@ class DomynLLMSwarm(BaseModel):
         else:
             python_interpreter = sys.executable
 
-        cmd = [
-            "srun",
-            f"--jobid={self.lb_jobid}",
-            f"--nodelist={self.lb_node}",
-            "--ntasks=1",
-            "--overlap",
-            "--export=ALL",  # Keep this to preserve the default env
-            f"--mem={self.cfg.driver.mem}",
-            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
-        ]
+        builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
+            {
+                "ENDPOINT": self.endpoint,
+                "MODEL": self.model,
+                "JOB_CLASS": job_class,
+                "JOB_KWARGS": job_kwargs,
+            }
+        )
 
         if mail_user or self.cfg.mail_user:
             if mail_user:
                 self.cfg.mail_user = mail_user
-            cmd.append(f"--mail-user={self.cfg.mail_user}")
-            cmd.append("--mail-type=END,FAIL")
-        
+            builder = builder.with_mail(self.cfg.mail_user)
+
         exe = [
             str(python_interpreter),
             "-m",
-            "domyn_swarm.run_job",
+            "domyn_swarm.jobs.run",
             f"--job-class={job_class}",
             f"--model={self.model}",
             f"--input-parquet={input_path}",
@@ -473,8 +287,8 @@ class DomynLLMSwarm(BaseModel):
 
         if limit:
             exe.append(f"--limit={limit}")
-        
-        cmd.extend(exe)
+
+        cmd = builder.build(exe)
 
         logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")
 
@@ -506,27 +320,7 @@ class DomynLLMSwarm(BaseModel):
         """
         Load a swarm from a saved state file (swarm_*.json).
         """
-        if not state_file.is_file():
-            raise FileNotFoundError(f"State file not found: {state_file}")
-
-        with state_file.open("r") as fh:
-            state: dict = json.load(fh)
-
-        jobid = state.get("jobid")
-        lb_jobid = state.get("lb_jobid")
-        if jobid is None or lb_jobid is None:
-            raise ValueError("State file does not contain valid job IDs")
-
-        cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
-        return DomynLLMSwarm(
-            name=state.get("name", f"domyn-swarm-{int(time.time())}"),
-            cfg=cfg,
-            jobid=jobid,
-            lb_jobid=lb_jobid,
-            lb_node=state.get("lb_node"),
-            endpoint=state.get("endpoint"),
-            model=state.get("model"),
-        )
+        return SwarmStateManager.load(state_file)
 
     def _load_state(
         self,
@@ -570,7 +364,7 @@ def _start_swarm(
     """Common context-manager + reverse proxy logic."""
     with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
         if reverse_proxy:
-            from domyn_swarm.helpers import launch_reverse_proxy
+            from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
 
             launch_reverse_proxy(
                 cfg.nginx_template_path,
@@ -580,63 +374,3 @@ def _start_swarm(
                 int(swarm.endpoint.split(":")[2]),
                 cfg.ray_dashboard_port,
             )
-
-
-@contextmanager
-def create_swarm_pool(
-    *configs_or_swarms: list[DomynLLMSwarmConfig] | list[DomynLLMSwarm],
-    max_workers=None,
-) -> Generator[tuple[DomynLLMSwarm], Any, None]:
-    """
-    You can use this utility function like this:
-
-    ```
-    with create_swarm_pool(cfg1, cfg2, cfg3, max_workers=3) as (sw1, sw2, sw3):
-        sw1.submit_job()
-        sw2.submit_job()
-        sw3.submit_job()
-    ```
-
-    or
-
-    ```
-    with create_swarm_pool(*my_cfg_list, max_workers=5) as swarms:
-        for swarm in swarms:
-            swarm.submit_job()
-    ```
-
-    """
-    # 1) instantiate all the context‐manager objects
-    if configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarmConfig):
-        cms = [DomynLLMSwarm(cfg=config) for config in configs_or_swarms]
-    elif configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarm):
-        cms = configs_or_swarms
-    else:
-        raise ValueError(
-            "configs_or_swarms must be either a sequence of DomynLLMSwarmConfig or DomynLLMSwarm"
-        )
-
-    entered = []
-    try:
-        # 2) call each __enter__ in parallel
-        with ThreadPoolExecutor(max_workers=max_workers) as exe:
-            # submit each cm.__enter__(); collect futures keyed by cm
-            futures = {exe.submit(cm.__enter__): cm for cm in cms}
-            for future in as_completed(futures):
-                cm = futures[future]
-                res = future.result()  # will re‐raise if __enter__ failed
-                entered.append((cm, res))
-
-        # 3) yield the tuple of entered results in the original order
-        #    (filter out any that didn’t make it into 'entered' if one failed)
-        #    Note: if one __enter__ raised, we jump straight to finally, cleaning up
-        yield tuple(res for _, res in entered)
-
-    finally:
-        # 4) tear them all down, in reverse order of successful entry
-        #    pass None for exc_type, exc_val, tb if no exception
-        for cm, _ in reversed(entered):
-            try:
-                cm.__exit__(None, None, None)
-            except Exception:
-                pass

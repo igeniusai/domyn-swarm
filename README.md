@@ -71,7 +71,7 @@ if you want to add it as a dependency:
    Under the hood this:
 
    * reads `ENDPOINT=http://<lb-node>:9000`
-   * in a single `srun` on the Load Balancer node, invokes `domyn_swarm.run_job`
+   * in a single `srun` on the Load Balancer node, invokes `domyn_swarm.jobs.run`
    * streams prompts→answers in batches, retrying failures, checkpointing progress
 
 4. **Run a free-form Python script**
@@ -203,7 +203,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | ----------------------------- | -------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | **model**                     | `str`          | **required**                                 | HF model ID or local path. Passed verbatim to `vllm serve`; must resolve to a local directory or an offline Hugging Face model in `hf_home`. |                                                                   |
 | **hf\_home**                  | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | Shared Hugging Face cache mounted on all workers.                                                                                            |                                                                   |
-| **revision**                  | \`str          | null\`                                       | `null`                                                                                                                                       | Git tag/commit for the model (if using HF).                       |
+| **revision**                  | `str          \| null`                                       | `null`                                                                                                                                       | Git tag/commit for the model (if using HF).                       |
 | **replicas**                  | `int`          | `1`                                          | How many *independent* vLLM clusters to launch (useful for A/B tests).                                                                       |                                                                   |
 | **nodes**                     | `int`          | `4`                                          | Worker nodes per replica (one vLLM server per node).                                                                                         |                                                                   |
 | **gpus\_per\_node**           | `int`          | `4`                                          | GPUs allocated on each worker node.                                                                                                          |                                                                   |
@@ -211,12 +211,12 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **mem\_per\_cpu**             | `str`          | `"40G"`                                      | Memory per CPU core (SLURM syntax).                                                                                                          |                                                                   |
 | **partition**                 | `str`          | `"boost_usr_prod"`                           | SLURM partition to submit to.                                                                                                                |                                                                   |
 | **account**                   | `str`          | `"iGen_train"`                               | SLURM account / charge code.                                                                                                                 |                                                                   |
-| **vllm\_image**               | \`str          | pathlib.Path\`                               | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif`                                                                                   | Singularity image for vLLM workers.                               |
-| **nginx\_image**              | \`str          | pathlib.Path\`                               | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif`                                                                                   | Image running NGINX + Dask side-services.                         |
+| **vllm\_image**               | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif`                                                                                   | Singularity image for vLLM workers.                               |
+| **nginx\_image**              | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif`                                                                                   | Image running NGINX + Dask side-services.                         |
 | **lb\_wait**                  | `int`          | `1200`                                       | Seconds to wait for the load balancer to become healthy.                                                                                     |                                                                   |
 | **lb\_port**                  | `int`          | `9000`                                       | External port exposed by the NGINX load balancer.                                                                                            |                                                                   |
 | **home\_directory**           | `pathlib.Path` | `./.domyn_swarm/`                            | Root folder for swarm state (auto-generated inside CWD).                                                                                     |                                                                   |
-| **log\_directory**            | \`pathlib.Path | null\`                                       | `<home_directory>/logs`                                                                                                                      | Where SLURM stdout/stderr files are written.                      |
+| **log\_directory**            | `pathlib.Path \| null`                                       | `<home_directory>/logs`                                                                                                                      | Where SLURM stdout/stderr files are written.                      |
 | **max\_concurrent\_requests** | `int`          | `2000`                                       | Upper bound enforced by vLLM’s OpenAI gateway.                                                                                               |                                                                   |
 | **poll\_interval**            | `int`          | `10`                                         | Seconds between `sacct` polling cycles while waiting for jobs.                                                                               |                                                                   |
 | **template\_path**            | `pathlib.Path` | *(auto-filled)*                              | Internal path of the Jinja2 SLURM script template; no need to modify.                                                                        |                                                                   |
@@ -249,8 +249,8 @@ Below is an overview of every field, its purpose, and the default that will be u
 
 ## Python API (Programmatic usage)
 
->[!NOTE]
->This API is in constant evolution and you can expect breaking changes up to the final stable release
+> [!NOTE]
+> This API is in constant evolution and you can expect breaking changes up to the final stable release
 
 In the [examples/] folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: [examples/scripts/custom_main.py].
 
