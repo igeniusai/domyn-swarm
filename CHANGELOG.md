@@ -1,3 +1,19 @@
+## v0.11.0 (2025-07-17)
+
+### Feat
+
+- add enable_proxy_buffering option to driver config
+- add --mail-user flag to submit job command
+
+### Refactor
+
+- add srun_builder module
+- move state manager, slurm driver and lb health checker to their own modules in core package
+- :construction: start refactoring DomynSwarm core logic
+- :fire: remove unneeded LLMClient and related classes, keeping AsyncOpenAIClient
+- :construction: refactor helpers module into its own package
+- :construction: refactory jobs structure and its package
+
 ## v0.10.0 (2025-07-11)
 
 ### Feat
