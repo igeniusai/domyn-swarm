@@ -1,3 +1,9 @@
+## v0.11.1 (2025-07-18)
+
+### Fix
+
+- :bug: add error log for nginx and add lest_conn to load balancer config
+
 ## v0.11.0 (2025-07-17)
 
 ### Feat
