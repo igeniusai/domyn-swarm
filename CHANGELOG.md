@@ -1,3 +1,14 @@
+## v0.11.2 (2025-07-18)
+
+### Fix
+
+- fix unescaped variable in nginx config
+- add additional safeguards to timeouts in nginx config
+- remove nginx_error.log
+- :bug: fix issue with log folder not being created
+- fix tests
+- disable deletion of checkpoint files
+
 ## v0.11.1 (2025-07-18)
 
 ### Fix
