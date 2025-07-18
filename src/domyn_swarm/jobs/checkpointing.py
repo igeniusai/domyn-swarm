@@ -31,8 +31,4 @@ class CheckpointManager:
         self.done_df.to_parquet(self.path)
 
     def finalize(self) -> pd.DataFrame:
-        try:
-            os.remove(self.path)
-        except FileNotFoundError:
-            pass
         return self.done_df.sort_index()

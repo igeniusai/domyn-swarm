@@ -86,6 +86,14 @@ def run_swarm_in_threads(
     logger.info("[bold green]✅ All shards finished. Merging...[/bold green]")
 
     final_df = pd.concat(results).sort_index()
+
+    # TODO: Find a way to clean up per-shard checkpoints if needed
+    # This could be done by removing the individual shard files after merging
+    # for i in range(num_threads):
+    #     shard_path = checkpoint_dir / f"{job_cls.__class__.__name__}_{tag}_shard{i}.parquet"
+    #     if shard_path.exists():
+    #         os.remove(shard_path)
+    
     return final_df
 
 
