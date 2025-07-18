@@ -74,10 +74,10 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
     listen $PORT;
     location / {
       proxy_pass http://llm;
-      proxy_connect_timeout       3600;
-      proxy_send_timeout          3600;
-      proxy_read_timeout          3600;
-      send_timeout                3600;
+      proxy_connect_timeout       {{ cfg.driver.nginx_timeout }};
+      proxy_send_timeout          {{ cfg.driver.nginx_timeout }};
+      proxy_read_timeout          {{ cfg.driver.nginx_timeout }};
+      send_timeout                {{ cfg.driver.nginx_timeout }};
       proxy_set_header Connection "";
       sendfile on;
       tcp_nopush on;
