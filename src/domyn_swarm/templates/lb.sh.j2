@@ -66,7 +66,7 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
     echo "    least_conn;"
     for f in "${files[@]}"; do
         addr=$(<"$f")                    # faster cat
-        echo "    server $addr max_fails=3 fail_timeout=30s;"
+        echo "    server $addr max_fails=2 fail_timeout=10s;"
     done
     echo "  }"
     cat <<CONF
@@ -96,6 +96,15 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
       proxy_buffering off;
       proxy_request_buffering off;
       {% endif %}
+
+      proxy_next_upstream error timeout http_502 http_504;
+      proxy_next_upstream_tries 3;
+    }
+    location = /health {
+      proxy_pass http://llm/health;
+      proxy_connect_timeout 2s;
+      proxy_read_timeout 2s;
+      proxy_cache_bypass $http_upgrade;
     }
   }
 }

@@ -126,7 +126,9 @@ def parse_args(cli_args=None):
         help="Directory to store checkpoint files",
     )
 
-    return parser.parse_args(cli_args)
+    if not cli_args:
+        return parser.parse_args()
+    return parser.parse_args(args=cli_args)
 
 
 def build_job_from_args(args) -> tuple[Type[SwarmJob], dict]:
