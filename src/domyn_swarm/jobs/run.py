@@ -56,6 +56,10 @@ def run_swarm_in_threads(
     MAX_PARALLELISM = os.cpu_count()
     num_threads = num_threads or min(MAX_PARALLELISM, max(1, os.cpu_count() or 1))
 
+    logger.info(
+        f"[bold green]Running job in {num_threads} threads (max: {MAX_PARALLELISM})[/bold green]"
+    )
+
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -98,6 +102,9 @@ def run_swarm_in_threads(
 
 
 def parse_args(cli_args=None):
+    if isinstance(cli_args, argparse.Namespace):
+        return cli_args
+
     parser = argparse.ArgumentParser(description="Run a SwarmJob on a Parquet input.")
 
     parser.add_argument(
@@ -143,8 +150,8 @@ def build_job_from_args(args) -> tuple[Type[SwarmJob], dict]:
     return job_cls, job_kwargs
 
 
-async def _amain(cli_args: list[str] | None = None):
-    args = parse_args(cli_args if cli_args is not None else sys.argv[1:])
+async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
+    args = parse_args(cli_args)
 
     in_path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
     out_path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])

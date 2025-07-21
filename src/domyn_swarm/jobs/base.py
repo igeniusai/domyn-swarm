@@ -108,7 +108,7 @@ class SwarmJob(abc.ABC):
 
         async def flush(out_list, new_ids):
             manager.flush(out_list, new_ids, self.output_column_name, idx_map)
-            tqdm.write(f"[ckp] flushed {len(new_ids)} rows")
+            tqdm.write(f"[ckp] flushed {len(new_ids)} rows, new total: {len(manager.done_df)}")
 
         self.register_callback("on_batch_done", flush)
 

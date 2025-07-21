@@ -28,6 +28,8 @@ class SwarmStateManager:
 
     @classmethod
     def load(cls, state_file: utils.EnvPath) -> "DomynLLMSwarm":
+        from domyn_swarm import DomynLLMSwarm
+        
         if not state_file.is_file():
             raise FileNotFoundError(f"State file not found: {state_file}")
         with state_file.open("r") as fh:
