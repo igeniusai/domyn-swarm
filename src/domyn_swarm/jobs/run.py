@@ -97,7 +97,7 @@ def run_swarm_in_threads(
     #     shard_path = checkpoint_dir / f"{job_cls.__class__.__name__}_{tag}_shard{i}.parquet"
     #     if shard_path.exists():
     #         os.remove(shard_path)
-    
+
     return final_df
 
 

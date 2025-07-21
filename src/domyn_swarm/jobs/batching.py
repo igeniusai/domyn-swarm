@@ -46,9 +46,17 @@ class BatchExecutor:
         )(fn)
 
         total_progress_bar = tqdm(
-            total=len(items), desc="Processing all items in worker", leave=True, unit="item"
+            total=len(items),
+            desc="Processing all items in worker",
+            leave=True,
+            unit="item",
         )
-        pbar = tqdm(total=min(self.batch_size, len(items)), leave=True, desc=f"Processing batch", unit="item")
+        pbar = tqdm(
+            total=min(self.batch_size, len(items)),
+            leave=True,
+            desc=f"Processing batch",
+            unit="item",
+        )
 
         async def worker():
             nonlocal completed, pending_ids
@@ -71,10 +79,8 @@ class BatchExecutor:
                         total_progress_bar.update(len(pending_ids))
                         pending_ids = []
                         pbar.reset(total=min(queue.qsize(), self.batch_size))
-                        
 
                     pbar.update(1)
-                    
 
         await asyncio.gather(*(worker() for _ in range(self.parallel)))
         pbar.close()
