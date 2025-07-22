@@ -19,8 +19,11 @@ Sub-classes included:
 """
 
 import abc
+import asyncio
 import dataclasses
+import logging
 import os
+import threading
 from typing import Callable
 
 import pandas as pd
@@ -29,6 +32,10 @@ from tqdm import tqdm
 
 from .batching import BatchExecutor
 from .checkpointing import CheckpointManager
+from ..helpers.logger import setup_logger
+
+
+logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
 
 
 class SwarmJob(abc.ABC):
@@ -49,24 +56,66 @@ class SwarmJob(abc.ABC):
         provider: str = "openai",
         input_column_name: str = "messages",
         output_column_name: str | list = "result",
+        checkpoint_interval: int = 16,
+        # TODO: deprecated, remove in future versions
         batch_size: int = 16,
+        # TODO: deprecated, remove in future versions
         parallel: int = 2,
+        max_concurrency: int = 2,
         retries: int = 5,
         timeout: float = 600,
         client=None,
         client_kwargs: dict = None,
         **extra_kwargs,
     ):
+        """
+        Initialize the job with parameters and an optional LLM client.
+        
+        Parameters:
+            endpoint: Optional LLM endpoint URL (overrides `ENDPOINT` env var).
+            model: Model name to use (e.g., "gpt-4").
+            provider: LLM provider (default: "openai").
+            input_column_name: Name of the input column in the DataFrame.
+            output_column_name: Name of the output column(s) in the DataFrame. 
+            batch_size: Size of each batch for processing. (deprecated, use `checkpoint_interval`).
+            checkpoint_interval: Number of items to process before checkpointing.
+            parallel: Number of concurrent requests to process. (deprecated, use `max_concurrency`).
+            max_concurrency: Maximum number of concurrent requests to process.
+            retries: Number of retries for failed requests.
+            timeout: Request timeout in seconds.
+            client: Optional pre-initialized LLM client (e.g., `AsyncOpenAI`).
+            client_kwargs: Additional kwargs for the LLM client.
+            extra_kwargs: Additional parameters to pass to the job constructor.
+        """
         self.endpoint = endpoint or os.getenv("ENDPOINT")
         if not self.endpoint:
             raise RuntimeError("ENDPOINT environment variable is not set")
+
+        if not model:
+            raise ValueError("Model name must be specified")
+
+        if parallel is not None:
+            logger.warning(
+                "The `parallel` parameter is deprecated. Use `max_concurrent_requests` instead."
+            )
+            self.max_concurrency = parallel
+        
+        if batch_size is not None:
+            logger.warning(
+                "The `batch_size` parameter is deprecated. Use `checkpoint_interval` instead."
+            )
+            self.checkpoint_interval = batch_size
 
         self.model = model
         self.provider = provider
         self.input_column_name = input_column_name
         self.output_column_name = output_column_name
+        self.checkpoint_interval = checkpoint_interval
+        # TODO: deprecated, remove in future versions
         self.batch_size = batch_size
+        # TODO: deprecated, remove in future versions
         self.parallel = parallel
+        self.max_concurrency = max_concurrency
         self.retries = retries
         self.timeout = timeout
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
@@ -107,9 +156,10 @@ class SwarmJob(abc.ABC):
         idx_map = todo_df.index.to_numpy()
 
         async def flush(out_list, new_ids):
+            thread_name = threading.current_thread().name
             manager.flush(out_list, new_ids, self.output_column_name, idx_map)
             tqdm.write(
-                f"[ckp] flushed {len(new_ids)} rows, new total: {len(manager.done_df)}"
+                f"[{thread_name}] Checkpoint flushed {len(new_ids)} rows, new total: {len(manager.done_df)}"
             )
 
         self.register_callback("on_batch_done", flush)
@@ -128,7 +178,7 @@ class SwarmJob(abc.ABC):
 
         Supports retrying and invokes the 'on_batch_done' callback if registered.
         """
-        executor = BatchExecutor(self.parallel, self.batch_size, self.retries)
+        executor = BatchExecutor(self.max_concurrency, self.checkpoint_interval, self.retries)
         return await executor.run(
             seq, fn, on_batch_done=self.get_callback("on_batch_done")
         )

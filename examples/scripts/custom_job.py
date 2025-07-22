@@ -37,8 +37,8 @@ class MyCustomSwarmJob(SwarmJob):
         model="",
         input_column_name="messages",
         output_column_name="result",
-        batch_size=16,
-        parallel=2,
+        checkpoint_interval=16,
+        max_concurrency=2,
         retries=5,
         **extra_kwargs,
     ):
@@ -47,8 +47,8 @@ class MyCustomSwarmJob(SwarmJob):
             model=model,
             input_column_name=input_column_name,
             output_column_name=output_column_name,
-            batch_size=batch_size,
-            parallel=parallel,
+            checkpoint_interval=checkpoint_interval,
+            max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
         )

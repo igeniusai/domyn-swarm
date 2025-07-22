@@ -13,7 +13,7 @@ async def test_batch_executor_runs_sequentially():
         await asyncio.sleep(0.01)
         return x * 2
 
-    executor = BatchExecutor(parallel=2, batch_size=5, retries=2)
+    executor = BatchExecutor(max_concurrency=2, checkpoint_interval=5, retries=2)
     result = await executor.run(items, echo)
     assert result == [x * 2 for x in items]
 
@@ -29,7 +29,7 @@ async def test_batch_executor_callback_invoked():
     async def flush(out, ids):
         flushed.extend(ids)
 
-    executor = BatchExecutor(parallel=3, batch_size=3, retries=1)
+    executor = BatchExecutor(max_concurrency=3, checkpoint_interval=3, retries=1)
     await executor.run(items, fn, on_batch_done=flush)
 
     assert set(flushed) == set(range(6))

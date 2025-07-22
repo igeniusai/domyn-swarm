@@ -20,6 +20,9 @@ if you want to add it as a dependency:
 
 `uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git`
 
+or to install it globally:
+
+`uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git --python 3.12 domyn-swarm`
 
 ---
 
@@ -63,7 +66,7 @@ if you want to add it as a dependency:
 ```bash
    domyn-swarm submit job \
     --state swarm_16803892.json \
-    --job-kwargs '{"temperature":0.3,"batch_size":16,"parallel":8,"retries":2}' \
+    --job-kwargs '{"temperature":0.3,"checkpoint_interval":16,"max_concurrency":8,"retries":2}' \
     --input examples/data/chat_completion.parquet \
     --output results.parquet
 ```
@@ -158,7 +161,7 @@ Typed DataFrame → DataFrame jobs:
 domyn-swarm submit job \
   my_module:CustomCompletionJob \
   --state swarm_16803892.json \
-  --job-kwargs '{"temperature":0.2,"batch_size":16}' \
+  --job-kwargs '{"temperature":0.2,"checkpoint_interval":16}' \
   --input prompts.parquet \
   --output answers.parquet
 ```
@@ -167,8 +170,8 @@ domyn-swarm submit job \
 * **--input** / **--output** — Parquet files on shared filesystem
 * **--job-kwargs** — JSON for the job’s constructor
 * **--config** or **--state** (one only)  -  the definition or state of the cluster where the job will be submitted
-* **--batch-size** - batch size of the requests to be sent to be processed. Once a batch has finished processing, the checkpoint will be updated
-* **--parallel** - Number of concurrent requests to process
+* **--checkpoint-interval** - batch size of the requests to be sent to be processed. Once a batch has finished processing, the checkpoint will be updated
+* **--max-concurrency** - Number of concurrent requests to process
 * **--retries** - Number of retries for failed requests
 * **--num-threads** - How many threads should be used by the driver to run the job
 * **--limit** / **-l** - Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset
@@ -265,8 +268,8 @@ import random
 
 class MyCustomSwarmJob(SwarmJob):
 
-    def __init__(self, *, endpoint = None, model = "", input_column_name = "messages", output_column_name = "result", batch_size = 16, parallel = 2, retries = 5, **extra_kwargs):
-        super().__init__(endpoint=endpoint, model=model, input_column_name=input_column_name, output_column_name=output_column_name, batch_size=batch_size, parallel=parallel, retries=retries, **extra_kwargs)
+    def __init__(self, *, endpoint = None, model = "", input_column_name = "messages", output_column_name = "result", checkpoint_interval = 16, max_concurrency = 2, retries = 5, **extra_kwargs):
+        super().__init__(endpoint=endpoint, model=model, input_column_name=input_column_name, output_column_name=output_column_name, checkpoint_interval=checkpoint_interval, max_concurrency=max_concurrency, retries=retries, **extra_kwargs)
         self.output_column_name = ["completion", "score", "current_model"]
 
     async def transform(self, df: pd.DataFrame):
@@ -318,7 +321,7 @@ with DomynLLMSwarm(cfg=config) as swarm:
             endpoint=swarm.endpoint,
             model=swarm.model,
             # 16 concurrent requests to the LLM
-            parallel=16,            
+            max_concurrency=16,            
             # You can add custom keyword arguments, which you 
             # can reference in you transform implementation by calling
             # self.kwargs
