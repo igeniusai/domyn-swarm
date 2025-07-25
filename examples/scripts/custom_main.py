@@ -16,7 +16,7 @@ with DomynLLMSwarm(cfg=config, delete_on_exit=True) as swarm:
         endpoint=swarm.endpoint,
         model=swarm.model,
         # 16 concurrent requests to the LLM
-        parallel=16,
+        max_concurrency=16,
         # You can add custom keyword arguments, which you
         # can reference in you transform implementation by calling
         # self.kwargs

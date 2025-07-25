@@ -74,16 +74,30 @@ def submit_job(
         click_type=utils.ClickEnvPath(),
         help="swarm_*.json of a running swarm",
     ),
-    batch_size: int = typer.Option(
-        32,
+    # TODO: deprecated, remove in future versions
+    batch_size: int | None = typer.Option(
+        None,
         "--batch-size",
         "-b",
+        help="Batch size for processing input DataFrame (default: 32). Deprecated, use --checkpoint-interval instead.",
+    ),
+    checkpoint_interval: int = typer.Option(
+        32,
+        "--checkpoint-interval",
+        "-ci",
         help="Batch size for processing input DataFrame (default: 32)",
     ),
-    parallel: int = typer.Option(
-        32,
+    # TODO: deprecated, remove in future versions
+    parallel: int | None = typer.Option(
+        None,
         "--parallel",
         "-p",
+        help="Number of concurrent requests to process (default: 32). Deprecated, use --max-concurrent-requests instead.",
+    ),
+    max_concurrency: int = typer.Option(
+        32,
+        "--max-concurrency",
+        "-mc",
         help="Number of concurrent requests to process (default: 32)",
     ),
     retries: int = typer.Option(
@@ -126,6 +140,18 @@ def submit_job(
     if bool(config) == bool(state):
         logger.error("Either --config or --state must be provided, not both.")
         raise typer.Exit(1)
+    
+    if parallel is not None:
+        logger.warning(
+            "The --parallel option is deprecated. Use --max-concurrency instead."
+        )
+        max_concurrency = parallel
+    
+    if batch_size is not None:
+        logger.warning(
+            "The --batch-size option is deprecated. Use --checkpoint-interval instead."
+        )
+        checkpoint_interval = batch_size
 
     if config:
         cfg = _load_swarm_config(config)
@@ -135,8 +161,12 @@ def submit_job(
                 job_kwargs,
                 endpoint=swarm.endpoint,
                 model=swarm.model,
-                batch_size=batch_size,
-                parallel=parallel,
+                # TODO: deprecated, remove in future versions
+                batch_size=checkpoint_interval,
+                checkpoint_interval=checkpoint_interval,
+                # TODO: deprecated, remove in future versions
+                parallel=max_concurrency,
+                max_concurrency=max_concurrency,
                 retries=retries,
                 timeout=timeout,
                 input_column_name=input_column,
@@ -158,8 +188,12 @@ def submit_job(
             job_kwargs,
             endpoint=swarm.endpoint,
             model=swarm.model,
-            batch_size=batch_size,
-            parallel=parallel,
+            # TODO: deprecated, remove in future versions
+            batch_size=checkpoint_interval,
+            checkpoint_interval=checkpoint_interval,
+            # TODO: deprecated, remove in future versions
+            parallel=max_concurrency,
+            max_concurrency=max_concurrency,
             retries=retries,
             timeout=timeout,
             input_column_name=input_column,

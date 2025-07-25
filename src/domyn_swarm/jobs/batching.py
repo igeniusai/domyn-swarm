@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 from tqdm.asyncio import tqdm
@@ -14,9 +15,9 @@ class BatchExecutor:
     It supports retry logic and can execute callbacks after each batch.
     """
 
-    def __init__(self, parallel: int, batch_size: int, retries: int):
-        self.parallel = parallel
-        self.batch_size = batch_size
+    def __init__(self, max_concurrency: int, checkpoint_interval: int, retries: int):
+        self.max_concurrency = max_concurrency
+        self.checkpoint_interval = checkpoint_interval
         self.retries = retries
 
     async def run(self, items, fn, *, on_batch_done=None):
@@ -29,7 +30,7 @@ class BatchExecutor:
             on_batch_done: Optional callback to run after each batch is processed.
         """
         out = [None] * len(items)
-        sem = asyncio.Semaphore(self.parallel)
+        sem = asyncio.Semaphore(self.max_concurrency)
         queue = asyncio.Queue()
         for idx, item in enumerate(items):
             queue.put_nowait((idx, item))
@@ -45,17 +46,19 @@ class BatchExecutor:
             before_sleep=before_sleep_log(logger, logging.WARNING),
         )(fn)
 
+        thread_name = threading.current_thread().name
+
         total_progress_bar = tqdm(
             total=len(items),
-            desc="Processing all items in worker",
+            desc=f"[{thread_name}] Processing all items in worker",
             leave=True,
-            unit="item",
+            unit="sample",
         )
         pbar = tqdm(
-            total=min(self.batch_size, len(items)),
+            total=min(self.checkpoint_interval, len(items)),
             leave=True,
-            desc=f"Processing batch",
-            unit="item",
+            desc=f"[{thread_name}] Processing batch",
+            unit="sample",
         )
 
         async def worker():
@@ -71,17 +74,17 @@ class BatchExecutor:
                     completed += 1
                     pending_ids.append(idx)
 
-                    flush_now = completed % self.batch_size == 0 or completed == len(
+                    flush_now = completed % self.checkpoint_interval == 0 or completed == len(
                         items
                     )
                     if flush_now and on_batch_done:
                         await on_batch_done(out, pending_ids)
                         total_progress_bar.update(len(pending_ids))
                         pending_ids = []
-                        pbar.reset(total=min(queue.qsize(), self.batch_size))
+                        pbar.reset(total=min(queue.qsize(), self.checkpoint_interval))
 
                     pbar.update(1)
 
-        await asyncio.gather(*(worker() for _ in range(self.parallel)))
+        await asyncio.gather(*(worker() for _ in range(self.max_concurrency)))
         pbar.close()
         return out
