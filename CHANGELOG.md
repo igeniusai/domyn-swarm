@@ -1,3 +1,19 @@
+## v0.11.3 (2025-07-25)
+
+### Fix
+
+- add None defaults to deprecated parameters
+- fix issue with parse args and improve logging
+- add missing configuration key in DriverConfig model
+
+### Refactor
+
+- introduce checkpoint_interval and max_concurrency parameters to replace batch_size and parallel
+
+### Perf
+
+- add driver.nginx_timeout for load balancer config
+
 ## v0.11.2 (2025-07-18)
 
 ### Fix
