@@ -58,9 +58,9 @@ class SwarmJob(abc.ABC):
         output_column_name: str | list = "result",
         checkpoint_interval: int = 16,
         # TODO: deprecated, remove in future versions
-        batch_size: int = 16,
+        batch_size: int | None = None,
         # TODO: deprecated, remove in future versions
-        parallel: int = 2,
+        parallel: int | None = None,
         max_concurrency: int = 2,
         retries: int = 5,
         timeout: float = 600,

@@ -75,8 +75,8 @@ def submit_job(
         help="swarm_*.json of a running swarm",
     ),
     # TODO: deprecated, remove in future versions
-    batch_size: int = typer.Option(
-        32,
+    batch_size: int | None = typer.Option(
+        None,
         "--batch-size",
         "-b",
         help="Batch size for processing input DataFrame (default: 32). Deprecated, use --checkpoint-interval instead.",
@@ -88,8 +88,8 @@ def submit_job(
         help="Batch size for processing input DataFrame (default: 32)",
     ),
     # TODO: deprecated, remove in future versions
-    parallel: int = typer.Option(
-        32,
+    parallel: int | None = typer.Option(
+        None,
         "--parallel",
         "-p",
         help="Number of concurrent requests to process (default: 32). Deprecated, use --max-concurrent-requests instead.",
