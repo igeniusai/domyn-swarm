@@ -4,6 +4,7 @@ import yaml
 from typer.testing import CliRunner
 
 from domyn_swarm.cli.pool import pool_app
+from domyn_swarm.models.pool import SwarmPoolElement
 
 
 def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
@@ -12,25 +13,21 @@ def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         # Prepare files in current working dir
         pool_entries = [
-            ["swarm-a", "a.yaml"],
-            ["swarm-b", "b.yaml"],
+            SwarmPoolElement(name="swarm-a", config_path="a.yaml"),
+            SwarmPoolElement(name="swarm-b", config_path="b.yaml"),
         ]
         pool_path = tmp_path / pathlib.Path("pool.yaml")
 
-        for _, path in pool_entries:
-            (tmp_path / path).write_text("dummy_config: true\n")
+        for element in pool_entries:
+            (tmp_path / element.config_path).write_text("dummy_config: true\n")
 
-        pool_path.write_text(yaml.safe_dump({"pool": pool_entries}))
+        dumps = [element.model_dump() for element in pool_entries]
+        pool_path.write_text(yaml.safe_dump({"pool": dumps}))
 
         # Capture what gets passed to the context manager
         captured = {}
 
-        class DummySwarmPoolConfig:
-            @staticmethod
-            def model_validate(data):
-                assert hasattr(data, "read"), "Expected a file-like object"
-                loaded = yaml.safe_load(data.read())
-                return type("Validated", (), {"pool": loaded["pool"]})()
+        class DummySwarmPoolConfig: ...
 
         class DummySwarmConfig:
             @staticmethod
@@ -58,7 +55,12 @@ def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
             lambda file_obj: type(
                 "DummyPoolConfig",
                 (),
-                {"pool": [["swarm-a", "a.yaml"], ["swarm-b", "b.yaml"]]},
+                {
+                    "pool": [
+                        SwarmPoolElement(name="swarm-a", config_path="a.yaml"),
+                        SwarmPoolElement(name="swarm-b", config_path="b.yaml"),
+                    ]
+                },
             )(),
         )
         monkeypatch.setattr(
