@@ -92,7 +92,7 @@ function start_vllm_replica() {
   mkdir -p "$log_dir"
   echo "[replica $global_id] → $node port=$port"
   
-  srun -n1 -N1 --gres=gpu:{{ cfg.gpus_per_replica }} --overlap \
+  srun -n1 -N1 --gres=gpu:{{ cfg.gpus_per_replica }} {% if cfg.replicas_per_node > cfg.gpus_per_node %}--overlap{% endif %} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --contain "$VLLM_IMAGE" \
      vllm serve {{ cfg.model }} \

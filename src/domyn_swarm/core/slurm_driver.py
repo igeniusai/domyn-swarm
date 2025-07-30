@@ -53,7 +53,7 @@ class SlurmDriver:
             sbatch_cmd.extend(["--array", array_spec])
         sbatch_cmd.append(script_path)
 
-        print(f"Submitting job with command: {' '.join(sbatch_cmd)}")
+        logger.debug(f"Submitting job with command: {' '.join(sbatch_cmd)}")
 
         out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
