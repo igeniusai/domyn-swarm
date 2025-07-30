@@ -1,10 +1,11 @@
+from pathlib import Path
+
 import yaml
 from pydantic import BaseModel
 
 from domyn_swarm import DomynLLMSwarm
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
-from domyn_swarm.utils.click_env_path import ClickEnvPath
 
 
 class SwarmPoolElement(BaseModel):
@@ -20,7 +21,7 @@ class SwarmPool(BaseModel):
     swarms: list[DomynLLMSwarm]
 
     @classmethod
-    def from_config(cls, path: ClickEnvPath | str):
+    def from_config(cls, path: Path | str):
         path = to_path(path)
         pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(path.open()))
         return cls(

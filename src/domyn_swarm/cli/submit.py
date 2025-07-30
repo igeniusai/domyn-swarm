@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import List, Optional
 
 import typer
@@ -14,7 +15,7 @@ submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 
 @submit_app.command("script")
 def submit_script(
-    script_file: typer.FileText = typer.Argument(..., exists=True, readable=True),
+    script_file: Path = typer.Argument(..., exists=True, readable=True),
     config: Optional[typer.FileText] = typer.Option(
         None,
         "-c",
@@ -22,7 +23,7 @@ def submit_script(
         exists=True,
         help="YAML that defines/creates a new swarm",
     ),
-    state: Optional[utils.ClickEnvPath] = typer.Option(
+    state: Optional[Path] = typer.Option(
         None,
         "--state",
         exists=True,
@@ -42,6 +43,10 @@ def submit_script(
         cfg = _load_swarm_config(config)
         with DomynLLMSwarm(cfg=cfg) as swarm:
             swarm.submit_script(script_file, extra_args=args)
+    
+    elif state is None:
+        raise RuntimeError("State is null.")
+
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
         swarm.submit_script(script_file, extra_args=args)
@@ -53,10 +58,10 @@ def submit_job(
         default="domyn_swarm.jobs:ChatCompletionJob",
         help="Job class to run, in the form `module:ClassName`",
     ),
-    input: utils.ClickEnvPath = typer.Option(
+    input: Path = typer.Option(
         ..., "--input", exists=True, click_type=utils.ClickEnvPath()
     ),
-    output: utils.ClickEnvPath = typer.Option(
+    output: Path = typer.Option(
         ..., "--output", click_type=utils.ClickEnvPath()
     ),
     input_column: str = typer.Option("messages", "--input-column"),
@@ -67,7 +72,7 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    state: Optional[utils.ClickEnvPath] = typer.Option(
+    state: Optional[Path] = typer.Option(
         None,
         "--state",
         exists=True,
@@ -151,8 +156,11 @@ def submit_job(
                 detach=detach,
                 mail_user=mail_user,
             )
+    elif state is None:
+        raise RuntimeError("State is null.")
+    
     else:
-        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
+        swarm = DomynLLMSwarm.from_state(state)
         job = _load_job(
             job_class,
             job_kwargs,

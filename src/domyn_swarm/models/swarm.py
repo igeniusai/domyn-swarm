@@ -1,7 +1,6 @@
+import io
 import os
-from typing import Optional
 
-import typer
 import yaml
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from rich import print as rprint
@@ -41,7 +40,7 @@ class DomynLLMSwarmConfig(BaseModel):
         default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
     )
 
-    log_directory: Optional[utils.EnvPath] = Field(
+    log_directory: utils.EnvPath = Field(
         default_factory=lambda data: data["home_directory"] / "logs"
     )
 
@@ -73,7 +72,7 @@ class DomynLLMSwarmConfig(BaseModel):
     # mail notification -------------------------------------------------------
     mail_user: str | None = None  # Enable email notifications if set
 
-    driver: DriverConfig | None = DriverConfig()
+    driver: DriverConfig = Field(default_factory=DriverConfig)
 
     def model_post_init(self, context):
         os.makedirs(self.log_directory, exist_ok=True)
@@ -81,9 +80,9 @@ class DomynLLMSwarmConfig(BaseModel):
         return super().model_post_init(context)
 
     @classmethod
-    def read(cls, path: str | utils.EnvPath) -> "DomynLLMSwarmConfig":
-        path = to_path(path)
-        return _load_swarm_config(path.open())
+    def read(cls, path: str) -> "DomynLLMSwarmConfig":
+        config_path = to_path(path)
+        return _load_swarm_config(config_path.open())
 
     @field_validator("model", mode="after")
     @classmethod
@@ -99,7 +98,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
 
 def _load_swarm_config(
-    config_file: typer.FileText, *, replicas: int | None = None
+    config_file: io.TextIOWrapper, *, replicas: int | None = None
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)

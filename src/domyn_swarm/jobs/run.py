@@ -54,7 +54,8 @@ def run_swarm_in_threads(
     """
 
     MAX_PARALLELISM = os.cpu_count()
-    num_threads = num_threads or min(MAX_PARALLELISM, max(1, os.cpu_count() or 1))
+    if num_threads is None:
+        num_threads = MAX_PARALLELISM if MAX_PARALLELISM is not None else 1
 
     logger.info(
         f"[bold green]Running job in {num_threads} threads (max: {MAX_PARALLELISM})[/bold green]"
@@ -66,7 +67,8 @@ def run_swarm_in_threads(
     shards = np.array_split(df.index, num_threads)
     shards = [df.loc[idx].copy() for idx in shards]
 
-    results = [None] * num_threads
+    # TODO: Potentially dangerous
+    results: list[pd.DataFrame] = [pd.DataFrame()] * num_threads
     threads: list[threading.Thread] = []
 
     def thread_worker(i: int, shard_df: pd.DataFrame):
@@ -153,7 +155,7 @@ def build_job_from_args(args) -> tuple[Type[SwarmJob], dict]:
 async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     args = parse_args(cli_args)
 
-    in_path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
+    in_path: Path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
     out_path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
 
     job_cls, job_kwargs = build_job_from_args(args)

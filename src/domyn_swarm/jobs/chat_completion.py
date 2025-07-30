@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+from openai.types.chat import ChatCompletionMessageParam
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 
 from domyn_swarm.helpers.data import (
@@ -65,7 +66,7 @@ class ChatCompletionJob(SwarmJob):
 
         df = df.copy()
 
-        async def _call(messages: list[dict]) -> str:
+        async def _call(messages: list[ChatCompletionMessageParam]) -> str | None:
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model, messages=messages, extra_body=self.kwargs
             )
@@ -99,7 +100,7 @@ class MultiChatCompletionJob(SwarmJob):
 
         df = df.copy()
 
-        async def _call(messages) -> list[str]:
+        async def _call(messages: list[ChatCompletionMessageParam]) -> list[Any]:
             """Return *n* completions for one prompt."""
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model,
@@ -151,7 +152,7 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
     async def transform(self, df: pd.DataFrame):
         df = df.copy()
 
-        async def _call(messages) -> dict:
+        async def _call(messages: list[ChatCompletionMessageParam]) -> tuple[str | None, float, float]:
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -211,14 +212,14 @@ class MultiTurnChatCompletionJob(SwarmJob):
         )
 
     async def _run_multi_turn(
-        self, messages: List[Dict[str, Any]]
+        self, messages: List[ChatCompletionMessageParam]
     ) -> List[Dict[str, Any]]:
         # Find indices of user or tool messages
         user_idxs = [i for i, m in enumerate(messages) if m["role"] in {"user", "tool"}]
         if not user_idxs:
             raise ValueError("Input must contain at least one 'user' or 'tool' message")
 
-        running: List[Dict[str, Any]] = []
+        running: List[ChatCompletionMessageParam] = []
 
         # Zip together slice starts and ends
         idx = 0
