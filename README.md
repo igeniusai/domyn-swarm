@@ -34,13 +34,8 @@ or to install it globally:
    ```yaml
    # config.yaml
    model: "mistralai/Mistral-7B-Instruct"
-   nodes: 4
-   gpus_per_node: 4
-   cpus_per_task: 12
-   mem_per_cpu: "11G"
+   gpus_per_replica: 16
    replicas: 2
-   home_directory: ".domyn_swarm/"
-   venv_path: ".venv"
    ```
 
 > [!NOTE] 
