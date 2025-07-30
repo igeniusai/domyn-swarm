@@ -12,12 +12,12 @@
 
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
-#SBATCH --partition={{ cfg.partition }}          # e.g. boost_usr_prod
-#SBATCH --nodes={{ cfg.nodes }}              # head  +  workers
+#SBATCH --partition={{ cfg.partition }}      
+#SBATCH --nodes={{ cfg.nodes }}              
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
-#SBATCH --mem-per-cpu={{ cfg.mem_per_cpu }}
+#SBATCH --mem=0 # 0 means no memory limit
 #SBATCH --time={{ cfg.time_limit }}          # e.g. 1-00:00:00 (1 day)
 {% if cfg.exclude_nodes %}
 #SBATCH --exclude={{ cfg.exclude_nodes }}  # e.g. node[1-3] (optional)
@@ -39,16 +39,23 @@ module load cuda/12.3
 ###############################################################################
 export VLLM_IMAGE="{{ cfg.vllm_image }}"
 export HF_HOME="{{ cfg.hf_home }}"
+export REPLICAS={{ cfg.replicas }}
+export GPUS_PER_REPLICA={{ cfg.gpus_per_replica }}
+export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
 export HF_HUB_OFFLINE=1
 
+export TOTAL_GPUS=$(( SLURM_JOB_NUM_NODES * {{ cfg.gpus_per_node }} ))
+export REQUIRED_GPUS=$(( REPLICAS * GPUS_PER_REPLICA ))
 export PYTHONNOUSERSITE=1
 
 # Ray related settings
 export RAY_CGRAPH_get_timeout=1200
 
 
-REPL_ID=${SLURM_ARRAY_TASK_ID}
-export LOG_DIR={{ cfg.log_directory }}/${SLURM_ARRAY_JOB_ID}/${REPL_ID}
+REPL_ID=${SLURM_ARRAY_TASK_ID:-0}
+REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
+GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
+export LOG_DIR={{ cfg.log_directory }}/${REPL_JOB_ID}/${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -71,47 +78,112 @@ MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
 
 export VLLM_USE_V1=0
-###############################################################################
-#  (2)  LAUNCH ONE WORKER ON EVERY OTHER NODE
-###############################################################################
-if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
 
-    # NCCL related settings
-    export NCCL_DEBUG=WARN
-    # export NCCL_OOB_NET_ENABLE=1
-    # export NCCL_OOB_NET_IFNAME="mlx5"
-    export NCCL_SOCKET_IFNAME=ib
-    export NCCL_IB_HCA="mlx5"
-    export NCCL_ASYNC_ERROR_HANDLING=1
-    export TORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.6,max_split_size_mb:512
-    export NCCL_IB_SL=1
-    export NCCL_IB_CUDA_SUPPORT=1
-    export NCCL_IB_GDR_LEVEL=SYS
-    export NCCL_P2P_LEVEL=NVL
-    export NCCL_CUMEM_ENABLE=1
+{% if not cfg.requires_ray %}
+echo "[single-node] Running colocated replicas..."
 
-    # These variables will disable infiniband
-    # export NCCL_IB_DISABLE=1
-    # export NCCL_P2P_DISABLE=1
+cuda_slices=( {% for dev in cuda_visible_devices %}"{{ dev }}" {% endfor %} )
+declare -a global_ids=()
+declare -a ports=()
+declare -a hosts=()
+for ((i=0; i<REPLICAS_PER_NODE; i++)); do
+    GLOBAL_ID=$(( GLOBAL_BASE + i ))
+    VLLM_PORT=$(( {{ cfg.vllm_port }} + GLOBAL_ID ))
 
-    echo "[head] starting Singularity instance ($HEAD_NODE)..."
+    global_ids+=("$GLOBAL_ID")
+    ports+=("$VLLM_PORT")
+    hosts+=("$HEAD_NODE")
 
-    echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env
-    singularity instance start --bind $MOUNTS --writable-tmpfs --env-file {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env --nv --contain "$VLLM_IMAGE" "$INSTANCE_TAG" \
+    LOG_DIR_I="$LOG_DIR/replica_$GLOBAL_ID"
+    mkdir -p "$LOG_DIR_I"
+    
+    echo "[replica $GLOBAL_ID] → ${HEAD_NODE} port=$VLLM_PORT"
+
+    srun -n1 -N1 --gres=gpu:{{cfg.gpus_per_replica}} --overlap --cpus-per-task={{ cfg.cpus_per_task }} singularity exec --bind $MOUNTS --nv --contain "$VLLM_IMAGE" \
+        vllm serve {{ cfg.model }} \
+        {% if 'tensor-parallel-size' not in cfg.vllm_args %}
+        --tensor-parallel-size {{ cfg.gpus_per_replica }} \
+        {% endif %}
+        {{ cfg.vllm_args }} \
+        --port $VLLM_PORT \
+        >> "$LOG_DIR_I/vllm.log" 2>&1 &
+done
+
+trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
+
+{% raw %}
+echo "[head] checking vLLM readiness for ${#global_ids[@]} replicas..."
+for ((j = 0; j < ${#global_ids[@]}; j++)); do
+{% endraw %}
+  id=${global_ids[$j]}
+  port=${ports[$j]}
+  host=${hosts[$j]}
+  endpoint="$host:$port"
+
+  echo "[head] waiting for $endpoint ..."
+  while :; do
+    resp=$(curl -sf -w '\n%{http_code}' "http://$endpoint/v1/models" || true)
+    body=${resp%$'\n'*}
+    code=${resp##*$'\n'}
+
+
+    if [[ $code == 200 ]]; then
+      echo "[head] $endpoint is READY ✅"
+      HEAD_FILE="{{ cfg.home_directory }}/swarms/${REPL_JOB_ID}/${id}.head"
+      echo "$endpoint" > "$HEAD_FILE"
+      break
+    fi
+
+    echo "[head] $endpoint not ready (code=$code), retrying..."
+    sleep 5
+  done
+done
+
+while true; do
+    sleep 60
+done
+
+
+{% else %}
+echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
+# NCCL related settings
+export NCCL_DEBUG=WARN
+# export NCCL_OOB_NET_ENABLE=1
+# export NCCL_OOB_NET_IFNAME="mlx5"
+export NCCL_SOCKET_IFNAME=ib
+export NCCL_IB_HCA="mlx5"
+export NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.6,max_split_size_mb:512
+export NCCL_IB_SL=1
+export NCCL_IB_CUDA_SUPPORT=1
+export NCCL_IB_GDR_LEVEL=SYS
+export NCCL_P2P_LEVEL=NVL
+export NCCL_CUMEM_ENABLE=1
+
+# These variables will disable infiniband
+# export NCCL_IB_DISABLE=1
+# export NCCL_P2P_DISABLE=1
+
+echo "[head] starting Singularity instance ($HEAD_NODE)..."
+
+echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env
+singularity instance start --bind $MOUNTS --writable-tmpfs --env-file {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env --nv --contain "$VLLM_IMAGE" "$INSTANCE_TAG" \
             --disable-usage-stats --head --block --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port=8265
 
-    # ---- wait until Ray head is healthy ----------------------------------------
-    echo "[head] waiting for Ray to come up ..."
-    until singularity exec instance://"$INSTANCE_TAG" ray status &>/dev/null; do
-          singularity exec instance://"$INSTANCE_TAG" env | grep VLLM_HOST_IP
-          sleep 2
-    done
-    echo "[head] Ray OK"
+# ---- wait until Ray head is healthy ----------------------------------------
+echo "[head] waiting for Ray to come up ..."
+until singularity exec instance://"$INSTANCE_TAG" ray status &>/dev/null; do
+        singularity exec instance://"$INSTANCE_TAG" env | grep VLLM_HOST_IP
+        sleep 2
+done
+echo "[head] Ray OK"
 
-    COMMA_SEPARATED_WORKERS=$(IFS=,; echo "${NODES[*]:1}")
-    echo "[workers] launching Ray workers on $((SLURM_JOB_NUM_NODES-1)) nodes ($COMMA_SEPARATED_WORKERS)..."
-    srun --ntasks=$((SLURM_JOB_NUM_NODES-1)) \
+COMMA_SEPARATED_WORKERS=$(IFS=,; echo "${NODES[*]:1}")
+echo "[workers] launching Ray workers on $((SLURM_JOB_NUM_NODES-1)) nodes ($COMMA_SEPARATED_WORKERS)..."
+srun --ntasks=$((SLURM_JOB_NUM_NODES-1)) \
          --nodelist=$COMMA_SEPARATED_WORKERS \
+         --nodes=$((SLURM_JOB_NUM_NODES-1)) \
+         --ntasks-per-node=1 \
          --exclusive \
          --error="$LOG_DIR/worker_%t.err" \
          --output="$LOG_DIR/worker_%t.out" \
@@ -124,13 +196,13 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
                               --address='"$HEAD_NODE"':'"$HEAD_PORT"' \
                               --block
           ' &
-    WORKER_STEP_PID=$!
+WORKER_STEP_PID=$!
 
-    echo "[workers] waiting for workers to start ..."
-    sleep 60 # give workers time to start
+echo "[workers] waiting for workers to start ..."
+sleep 60 # give workers time to start
 
-    echo "[head] starting vLLM REST server ..."
-    singularity exec --bind $MOUNTS --contain --nv --env VLLM_USE_PRECOMPILED=1 instance://"$INSTANCE_TAG" \
+echo "[head] starting vLLM REST server ..."
+singularity exec --bind $MOUNTS --contain --nv --env VLLM_USE_PRECOMPILED=1 instance://"$INSTANCE_TAG" \
             vllm serve {{ cfg.model }} \
             --tensor-parallel-size {{ cfg.gpus_per_node }} \
             --distributed-executor-backend ray \
@@ -138,17 +210,8 @@ if (( ${SLURM_JOB_NUM_NODES} > 1 )); then
             --port $REST_PORT \
             >> "$LOG_DIR/vllm_head.log" 2>&1 &
 
-    echo "[head] checking Ray status ..."
-    singularity exec instance://"$INSTANCE_TAG" ray status 
-else 
-    export CUDA_LAUNCH_BLOCKING=1
-    singularity exec --bind $MOUNTS --writable-tmpfs --nv --contain "$VLLM_IMAGE" \
-            vllm serve {{ cfg.model }} \
-            --tensor-parallel-size {{ cfg.gpus_per_node }} \
-            {{ cfg.vllm_args | default('') }} \
-            --port $REST_PORT \
-            >> "$LOG_DIR/vllm_head.log" 2>&1 &
-fi
+echo "[head] checking Ray status ..."
+singularity exec instance://"$INSTANCE_TAG" ray status 
 
 
 # ---- start vLLM service inside the same instance ---------------------------
@@ -185,3 +248,4 @@ while true; do
     sleep 60
 done
 singularity instance stop "$INSTANCE_TAG" || true
+{% endif %}

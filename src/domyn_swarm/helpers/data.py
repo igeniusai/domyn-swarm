@@ -106,3 +106,23 @@ def generate_swarm_name() -> str:
     return f"""domyn-swarm-{int(time.time())}-{
         "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     }"""
+
+def get_device_slices(gpus_per_node: int, gpus_per_replica: int) -> list[str]:
+    """
+    Generate a list of device slices for the given number of GPUs per node
+    and GPUs per replica.
+    Each slice is a comma-separated string of GPU indices.
+    """
+    slices = []
+    for i in range(0, gpus_per_node, gpus_per_replica):
+        dev_ids = list(range(i, i + gpus_per_replica))
+        if dev_ids[-1] >= gpus_per_node:
+            dev_ids = [x for x in dev_ids if x < gpus_per_node]
+            if dev_ids:
+                # If we have a partial slice, we still want to add it
+                # but we don't want to break the loop
+                slices.append(",".join(str(x) for x in dev_ids))
+            break
+
+        slices.append(",".join(str(x) for x in dev_ids))
+    return slices

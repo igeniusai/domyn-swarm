@@ -1,9 +1,11 @@
+import math
 import os
-from typing import Optional
+from typing import Any, Optional, Self
+import warnings
 
 import typer
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator, model_validator
 from rich import print as rprint
 
 from domyn_swarm import utils
@@ -20,10 +22,32 @@ class DomynLLMSwarmConfig(BaseModel):
 
     # resources ---------------------------------------------------------------
     replicas: int = 1  # number of cluster replicas (vLLM servers)
-    nodes: int = 4  # number of *worker* nodes on each replica (vLLM)
-    gpus_per_node: int = 4
-    cpus_per_task: int = 8
-    mem_per_cpu: str = "40G"
+    gpus_per_replica: int = 4  # number of GPUs per replica (vLLM)
+
+    gpus_per_node: int = Field(
+        description="Number of GPUs per node (vLLM)",
+        default=4,
+        ge=1,
+        le=4,
+    )
+    replicas_per_node: int | None = Field(
+        description="Number of model replicas per node (vLLM)",
+        default=None
+    )
+    nodes: int | None = Field(
+        description="Number of nodes to use for the swarm (vLLM)",
+        default=None
+    )
+    cpus_per_task: int | None = Field(
+        description="Number of CPUs per task (vLLM)",
+        ge=1,
+        default=None,
+    )
+    requires_ray: bool | None = Field(
+        description="Whether to use Ray for distributed execution",
+        default=None,
+    )
+    mem_per_cpu: str | None = None
     partition: str = "boost_usr_prod"
     account: str = "iGen_train"
 
@@ -96,15 +120,63 @@ class DomynLLMSwarmConfig(BaseModel):
                 f"[yellow]Huggingface model[/yellow] [bold green]{v}[/bold green] [yellow]will be used, make sure that[/yellow] [bold cyan]HF_HOME[/bold cyan] [yellow]is specified correctly and the model is available in[/yellow] {hf_home}/hub"
             )
         return v
+    
+    @model_validator(mode="before")
+    @classmethod
+    def validate_resource_allocations(cls, data: Any) -> Self:
+        """Validate and auto-compute all derived resource allocation fields."""
+        replicas = data.get("replicas", 1)
+        gpus_per_replica = data.get("gpus_per_replica", 4)
+        gpus_per_node = data.get("gpus_per_node", 4)
+        replicas_per_node = data.get("replicas_per_node")
 
+        # Replicas per node
+        if not replicas_per_node:
+            if gpus_per_replica <= gpus_per_node:
+                replicas_per_node = gpus_per_node // gpus_per_replica
+            else:
+                replicas_per_node = None
+
+        # Nodes
+        if replicas_per_node:
+            nodes = math.ceil(replicas / replicas_per_node)
+        else:
+            nodes = math.ceil((replicas * gpus_per_replica) / gpus_per_node)
+
+        if nodes < 1:
+            raise ValueError("Number of nodes must be >= 1")
+
+        # CPUs per task
+        cpus_per_task = data.get("cpus_per_task")
+        if cpus_per_task is None:
+            if replicas_per_node:
+                cpus_per_task = max(1, 32 // replicas_per_node)
+            else:
+                cpus_per_task = 32
+
+        # Requires Ray?
+        requires_ray = gpus_per_replica > gpus_per_node and nodes > 1
+
+        # Fill computed fields
+        data["replicas_per_node"] = replicas_per_node
+        data["nodes"] = nodes
+        data["cpus_per_task"] = cpus_per_task
+        data["requires_ray"] = requires_ray
+
+        return data
+
+    
 
 def _load_swarm_config(
     config_file: typer.FileText, *, replicas: int | None = None
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)
+    print(cfg_dict)
     cfg = DomynLLMSwarmConfig(**cfg_dict)
     # override default only if user passed something truthy
     if replicas:
         cfg.replicas = replicas
     return cfg
+
+# hf download epfml/FineWeb2-HQ --repo-type dataset --local-dir $WORK/datasets/fineweb-2-hq --max-workers 16
