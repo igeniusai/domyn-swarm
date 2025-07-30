@@ -97,7 +97,7 @@ function start_vllm_replica() {
      singularity exec --bind $MOUNTS --nv --contain "$VLLM_IMAGE" \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.vllm_args %}
-     --tensor-parallel-size {{ cfg.gpus_per_replica }} \
+     --tensor-parallel-size {{ min(cfg.gpus_per_replica, cfg.gpus_per_node) }} \
      {% endif %}
      {{ cfg.vllm_args }} \
      --port $port \
@@ -232,7 +232,9 @@ function start_vllm_server() {
   singularity exec --bind $MOUNTS --contain --nv --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
            vllm serve {{ cfg.model }} \
-           --tensor-parallel-size {{ cfg.gpus_per_node }} \
+           {% if 'tensor-parallel-size' not in cfg.vllm_args %}
+           --tensor-parallel-size {{ min(cfg.gpus_per_replica, cfg.gpus_per_node) }} \
+           {% endif %}
            --distributed-executor-backend ray \
            {{ cfg.vllm_args | default('') }} \
            --port $REST_PORT \
