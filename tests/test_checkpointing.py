@@ -1,5 +1,3 @@
-import os
-
 import pandas as pd
 
 from domyn_swarm.jobs.checkpointing import CheckpointManager

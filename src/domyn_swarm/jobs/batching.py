@@ -74,8 +74,9 @@ class BatchExecutor:
                     completed += 1
                     pending_ids.append(idx)
 
-                    flush_now = completed % self.checkpoint_interval == 0 or completed == len(
-                        items
+                    flush_now = (
+                        completed % self.checkpoint_interval == 0
+                        or completed == len(items)
                     )
                     if flush_now and on_batch_done:
                         await on_batch_done(out, pending_ids)

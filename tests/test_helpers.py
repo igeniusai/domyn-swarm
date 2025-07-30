@@ -286,11 +286,12 @@ def test_perplexity_metrics_identical_logprobs():
     assert math.isclose(perp, expected)
     assert math.isclose(bottom_perp, expected)
 
+
 def test_get_devices_slices():
     gpus_per_node = 8
     gpus_per_replica = 2
     slices = get_device_slices(gpus_per_node, gpus_per_replica)
-    
+
     expected_slices = ["0,1", "2,3", "4,5", "6,7"]
     assert slices == expected_slices
 

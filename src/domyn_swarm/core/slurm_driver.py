@@ -48,7 +48,7 @@ class SlurmDriver:
             array_spec = f"0-{self.cfg.nodes - 1}%{self.cfg.nodes}"
             sbatch_cmd.append("--nodes=1")
             sbatch_cmd.append(f"--ntasks-per-node={self.cfg.replicas_per_node}")
-        
+
         if array_spec is not None:
             sbatch_cmd.extend(["--array", array_spec])
         sbatch_cmd.append(script_path)

@@ -1,11 +1,16 @@
 import math
 import os
 from typing import Any, Optional, Self
-import warnings
 
 import typer
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from rich import print as rprint
 
 from domyn_swarm import utils
@@ -31,12 +36,10 @@ class DomynLLMSwarmConfig(BaseModel):
         le=4,
     )
     replicas_per_node: int | None = Field(
-        description="Number of model replicas per node (vLLM)",
-        default=None
+        description="Number of model replicas per node (vLLM)", default=None
     )
     nodes: int | None = Field(
-        description="Number of nodes to use for the swarm (vLLM)",
-        default=None
+        description="Number of nodes to use for the swarm (vLLM)", default=None
     )
     cpus_per_task: int | None = Field(
         description="Number of CPUs per task (vLLM)",
@@ -120,7 +123,7 @@ class DomynLLMSwarmConfig(BaseModel):
                 f"[yellow]Huggingface model[/yellow] [bold green]{v}[/bold green] [yellow]will be used, make sure that[/yellow] [bold cyan]HF_HOME[/bold cyan] [yellow]is specified correctly and the model is available in[/yellow] {hf_home}/hub"
             )
         return v
-    
+
     @model_validator(mode="before")
     @classmethod
     def validate_resource_allocations(cls, data: Any) -> Self:
@@ -165,7 +168,6 @@ class DomynLLMSwarmConfig(BaseModel):
 
         return data
 
-    
 
 def _load_swarm_config(
     config_file: typer.FileText, *, replicas: int | None = None
@@ -178,5 +180,6 @@ def _load_swarm_config(
     if replicas:
         cfg.replicas = replicas
     return cfg
+
 
 # hf download epfml/FineWeb2-HQ --repo-type dataset --local-dir $WORK/datasets/fineweb-2-hq --max-workers 16

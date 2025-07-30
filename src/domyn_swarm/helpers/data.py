@@ -107,6 +107,7 @@ def generate_swarm_name() -> str:
         "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     }"""
 
+
 def get_device_slices(gpus_per_node: int, gpus_per_replica: int) -> list[str]:
     """
     Generate a list of device slices for the given number of GPUs per node
