@@ -44,7 +44,7 @@ class SlurmDriver:
         array_spec = None
         if self.cfg.requires_ray:
             array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
-        elif self.cfg.nodes > 1 and self.cfg.replicas > 1:
+        elif self.cfg.nodes >= 1 and self.cfg.replicas > 1:
             array_spec = f"0-{self.cfg.nodes - 1}%{self.cfg.nodes}"
             sbatch_cmd.append("--nodes=1")
             sbatch_cmd.append(f"--ntasks-per-node={self.cfg.replicas_per_node}")
@@ -53,7 +53,7 @@ class SlurmDriver:
             sbatch_cmd.extend(["--array", array_spec])
         sbatch_cmd.append(script_path)
 
-        logger.debug(f"Submitting job with command: {' '.join(sbatch_cmd)}")
+        logger.info(f"Submitting job with command: {' '.join(sbatch_cmd)}")
 
         out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
