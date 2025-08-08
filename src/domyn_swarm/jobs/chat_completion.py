@@ -258,93 +258,13 @@ class MultiTurnChatCompletionJob(SwarmJob):
             # update the index skipping assistant message
             idx = i + 2
         return running
-
-
-class TranslationJob(SwarmJob):
-    """
-    For each row's `messages` (a list of dicts), replay the conversation
-    turn by turn, replacing the system/user/tool messages with the assistant's translation.
-    The translation system prompt is assumed to be the first message in the list 
-    and is prepended to each query.
-
-    - Input  column: `messages`
-    - Output column: `results`
-    """
-
-    def __init__(
-        self,
-        *,
-        endpoint: str | None = None,
-        model: str = "",
-        input_column_name: str = "messages",
-        output_column_name: str = "results",
-        batch_size: int = 16,
-        checkpoint_interval: int = 16,
-        parallel: int = 2,
-        max_concurrency: int = 2,
-        retries: int = 5,
-        **extra_kwargs: Any,
-    ):
-        super().__init__(
-            endpoint=endpoint,
-            model=model,
-            input_column_name=input_column_name,
-            output_column_name=output_column_name,
-            batch_size=batch_size,
-            checkpoint_interval=checkpoint_interval,
-            parallel=parallel,
-            max_concurrency=max_concurrency,
-            retries=retries,
-            **extra_kwargs,
-        )
-
-    async def transform(self, df: pd.DataFrame):
-        # Copy input
-        df = df.copy()
-
-        await self.batched(
-            df[self.input_column_name].tolist(),
-            self._run_translation,
-        )
-
-    async def _run_translation(
-        self, messages: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-
-        running: List[Dict[str, Any]] = []
-
-        for i in range(1, len(messages)):
-
-            query = [
-                messages[0],
-                {
-                    "role": "user",
-                    "content": messages[i]["content"],
-                },
-            ]
-
-            resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=query, extra_body=self.kwargs
-            )
-            choice = resp.choices[0]
-
-            # append the assistant's response to the messages
-            response_dict = {
-                "role": messages[i]["role"],
-                "content": choice.message.content,
-            }
-            if hasattr(choice.message, "reasoning_content"):
-                response_dict["reasoning_content"] = choice.message.reasoning_content
-            running.append(response_dict)
-
-        return running
     
 
-class TranslationJob(SwarmJob):
+class MultiTurnTranslationJob(SwarmJob):
     """
     For each row's `messages` (a list of dicts), replay the conversation
-    turn by turn, replacing the system/user/tool messages with the assistant's translation.
-    The translation system prompt is assumed to be the first message in the list 
+    turn by turn, replacing the messages with the assistant's translation.
+    The translation system prompt is assumed to be the first message in the list
     and is prepended to each query.
 
     - Input  column: `messages`
@@ -395,9 +315,9 @@ class TranslationJob(SwarmJob):
 
         for i in range(1, len(messages)):
 
-            # skip assistant messages, only translate system/user/tool messages
-            if messages[i]["role"] == "assistant":
-                continue
+            # # skip assistant messages, only translate system/user/tool messages
+            # if messages[i]["role"] == "assistant":
+            #     continue
 
             query = [
                 messages[0],
