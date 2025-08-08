@@ -6,7 +6,7 @@ from .chat_completion import (
     MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
     PerplexityMixin,
-    TranslationJob,
+    MultiTurnTranslationJob,
 )  # noqa: F401
 
 __all__ = [
@@ -17,5 +17,5 @@ __all__ = [
     "ChatCompletionPerplexityJob",
     "MultiTurnChatCompletionJob",
     "SwarmJob",
-    "TranslationJob",
+    "MultiTurnTranslationJob",
 ]
