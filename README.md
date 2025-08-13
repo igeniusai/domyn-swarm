@@ -376,6 +376,13 @@ You can find more examples in [examples/api](examples/api)
  If you get an error like this `("Error code: 404 - {'object': 'error', 'message': 'The model ``deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`` does not exist.', 'type': 'NotFoundError', 'param': None, 'code': 404}")`
  make sure you've downloaded the model locally so that vLLM can serve it. If the model is on HuggingFace, you can download it using `HF_HOME=$FAST/hf_shared_cache huggingface-cli download ORG/MODEL_NAME --repo-type model`, and you configure the hf_home value in the configuration file appropriately.
 
+* **502 Bad Gateway Error**
+  A possible reason why this happens is that the nginx http requests time out before one of the model replicas is able to return a response. In such a case, a possible fix is to increase the timeout time by including the following in your YAML config:
+  ```yaml
+  driver:
+     nginx_timeout: "8h"
+  ```
+
 ---
 
 Happy swarming!
