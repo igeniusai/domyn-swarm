@@ -1,3 +1,17 @@
+## v0.12.0 (2025-08-19)
+
+### Feat
+
+- :zap: implement replicas sharing nodes to optimize resource usage
+
+### Fix
+
+- remove typing import not compatible with python 3.10
+- fix edge case where multiple vllms wouldn't allocate on the same node
+- fix issue with usage of min in jinja2 template
+- fix how tensor-parallel-size is set when running vllm serve
+- fix issue where gpus weren't allocated directly with --overlap flag
+
 ## v0.11.3 (2025-07-25)
 
 ### Fix
