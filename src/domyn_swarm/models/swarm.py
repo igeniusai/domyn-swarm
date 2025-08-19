@@ -1,6 +1,6 @@
 import math
 import os
-from typing import Any, Optional, Self
+from typing import Any, Optional
 
 import typer
 import yaml
@@ -126,7 +126,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_resource_allocations(cls, data: Any) -> Self:
+    def validate_resource_allocations(cls, data: Any) -> "DomynLLMSwarmConfig":
         """Validate and auto-compute all derived resource allocation fields."""
         replicas = data.get("replicas", 1)
         gpus_per_replica = data.get("gpus_per_replica", 4)
@@ -179,6 +179,3 @@ def _load_swarm_config(
     if replicas:
         cfg.replicas = replicas
     return cfg
-
-
-# hf download epfml/FineWeb2-HQ --repo-type dataset --local-dir $WORK/datasets/fineweb-2-hq --max-workers 16
