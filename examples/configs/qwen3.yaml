@@ -1,7 +1,6 @@
 model: Qwen/Qwen3-235B-A22B
 revision: main
-nodes: 6
-gpus_per_node: 4
+gpus_per_replica: 24
 replicas: 1
 vllm_args: "--block-size 32 --enable-expert-parallel --enable-reasoning --reasoning-parser deepseek_r1 --pipeline-parallel-size 6  --dtype bfloat16 --gpu-memory-utilization 0.9 --max-model-len 38912 --max-num-seqs 128"
 lb_wait: 3600

@@ -1,9 +1,7 @@
 model: Qwen/Qwen3-32B
 revision: main
-nodes: 1
-gpus_per_node: 4
+gpus_per_replica: 4
 replicas: 4
-cpus_per_task: 12
 lb_wait: 1800
 hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
 lb_port: 9003

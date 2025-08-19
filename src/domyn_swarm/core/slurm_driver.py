@@ -4,8 +4,12 @@ import tempfile
 
 import jinja2
 
+from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+
+logger = setup_logger(__name__)
 
 
 class SlurmDriver:
@@ -26,6 +30,9 @@ class SlurmDriver:
             job_name=job_name,
             path_exists=path_exists,
             is_folder=is_folder,
+            cuda_visible_devices=get_device_slices(
+                self.cfg.gpus_per_node, self.cfg.gpus_per_replica
+            ),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
@@ -33,10 +40,22 @@ class SlurmDriver:
             script_path = fh.name
 
         os.makedirs(self.cfg.log_directory / job_name, exist_ok=True)
-        array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
-        out = subprocess.check_output(
-            ["sbatch", "--parsable", "--array", array_spec, script_path], text=True
-        ).strip()
+        sbatch_cmd = ["sbatch", "--parsable"]
+        array_spec = None
+        if self.cfg.requires_ray:
+            array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
+        elif self.cfg.nodes >= 1 and self.cfg.replicas > 1:
+            array_spec = f"0-{self.cfg.nodes - 1}%{self.cfg.nodes}"
+            sbatch_cmd.append("--nodes=1")
+            sbatch_cmd.append(f"--ntasks-per-node={self.cfg.replicas_per_node}")
+
+        if array_spec is not None:
+            sbatch_cmd.extend(["--array", array_spec])
+        sbatch_cmd.append(script_path)
+
+        logger.info(f"Submitting job with command: {' '.join(sbatch_cmd)}")
+
+        out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
 
         os.makedirs(self.cfg.home_directory / "swarms" / job_id, exist_ok=True)

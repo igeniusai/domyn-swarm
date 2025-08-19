@@ -9,6 +9,7 @@ import pytest
 from domyn_swarm.helpers.data import (
     compute_perplexity,
     compute_perplexity_metrics,
+    get_device_slices,
     parquet_hash,
 )
 from domyn_swarm.helpers.reverse_proxy import (
@@ -284,3 +285,24 @@ def test_perplexity_metrics_identical_logprobs():
     expected = math.exp(2.0)
     assert math.isclose(perp, expected)
     assert math.isclose(bottom_perp, expected)
+
+
+def test_get_devices_slices():
+    gpus_per_node = 8
+    gpus_per_replica = 2
+    slices = get_device_slices(gpus_per_node, gpus_per_replica)
+
+    expected_slices = ["0,1", "2,3", "4,5", "6,7"]
+    assert slices == expected_slices
+
+    # Test with gpus_per_node not divisible by gpus_per_replica
+    gpus_per_node = 9
+    slices = get_device_slices(gpus_per_node, gpus_per_replica)
+    expected_slices = ["0,1", "2,3", "4,5", "6,7", "8"]
+    assert slices == expected_slices
+
+    gpus_per_node = 4
+    gpus_per_replica = 4
+    slices = get_device_slices(gpus_per_node, gpus_per_replica)
+    expected_slices = ["0,1,2,3"]
+    assert slices == expected_slices

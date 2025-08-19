@@ -140,13 +140,13 @@ def submit_job(
     if bool(config) == bool(state):
         logger.error("Either --config or --state must be provided, not both.")
         raise typer.Exit(1)
-    
+
     if parallel is not None:
         logger.warning(
             "The --parallel option is deprecated. Use --max-concurrency instead."
         )
         max_concurrency = parallel
-    
+
     if batch_size is not None:
         logger.warning(
             "The --batch-size option is deprecated. Use --checkpoint-interval instead."

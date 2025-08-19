@@ -19,7 +19,6 @@ Sub-classes included:
 """
 
 import abc
-import asyncio
 import dataclasses
 import logging
 import os
@@ -30,10 +29,9 @@ import pandas as pd
 from openai import AsyncOpenAI
 from tqdm import tqdm
 
+from ..helpers.logger import setup_logger
 from .batching import BatchExecutor
 from .checkpointing import CheckpointManager
-from ..helpers.logger import setup_logger
-
 
 logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
 
@@ -70,13 +68,13 @@ class SwarmJob(abc.ABC):
     ):
         """
         Initialize the job with parameters and an optional LLM client.
-        
+
         Parameters:
             endpoint: Optional LLM endpoint URL (overrides `ENDPOINT` env var).
             model: Model name to use (e.g., "gpt-4").
             provider: LLM provider (default: "openai").
             input_column_name: Name of the input column in the DataFrame.
-            output_column_name: Name of the output column(s) in the DataFrame. 
+            output_column_name: Name of the output column(s) in the DataFrame.
             batch_size: Size of each batch for processing. (deprecated, use `checkpoint_interval`).
             checkpoint_interval: Number of items to process before checkpointing.
             parallel: Number of concurrent requests to process. (deprecated, use `max_concurrency`).
@@ -99,7 +97,7 @@ class SwarmJob(abc.ABC):
                 "The `parallel` parameter is deprecated. Use `max_concurrent_requests` instead."
             )
             self.max_concurrency = parallel
-        
+
         if batch_size is not None:
             logger.warning(
                 "The `batch_size` parameter is deprecated. Use `checkpoint_interval` instead."
@@ -178,7 +176,9 @@ class SwarmJob(abc.ABC):
 
         Supports retrying and invokes the 'on_batch_done' callback if registered.
         """
-        executor = BatchExecutor(self.max_concurrency, self.checkpoint_interval, self.retries)
+        executor = BatchExecutor(
+            self.max_concurrency, self.checkpoint_interval, self.retries
+        )
         return await executor.run(
             seq, fn, on_batch_done=self.get_callback("on_batch_done")
         )

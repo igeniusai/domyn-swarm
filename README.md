@@ -34,13 +34,8 @@ or to install it globally:
    ```yaml
    # config.yaml
    model: "mistralai/Mistral-7B-Instruct"
-   nodes: 4
-   gpus_per_node: 4
-   cpus_per_task: 12
-   mem_per_cpu: "11G"
+   gpus_per_replica: 16
    replicas: 2
-   home_directory: ".domyn_swarm/"
-   venv_path: ".venv"
    ```
 
 > [!NOTE] 
@@ -208,10 +203,12 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **hf\_home**                  | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | Shared Hugging Face cache mounted on all workers.                                                                                            |                                                                   |
 | **revision**                  | `str          \| null`                                       | `null`                                                                                                                                       | Git tag/commit for the model (if using HF).                       |
 | **replicas**                  | `int`          | `1`                                          | How many *independent* vLLM clusters to launch (useful for A/B tests).                                                                       |                                                                   |
-| **nodes**                     | `int`          | `4`                                          | Worker nodes per replica (one vLLM server per node).                                                                                         |                                                                   |
+| **nodes**                     | `int`          | `math.ceil(replicas / replicas_per_node)` or `math.ceil((replicas * gpus_per_replica) / gpus_per_node)` for multi-gpu multi-node clusters                                          | Worker nodes per replica (one vLLM server per node).                                                                                         |                                                                   |
 | **gpus\_per\_node**           | `int`          | `4`                                          | GPUs allocated on each worker node.                                                                                                          |                                                                   |
-| **cpus\_per\_task**           | `int`          | `8`                                          | vCPUs reserved per SLURM task.                                                                                                               |                                                                   |
-| **mem\_per\_cpu**             | `str`          | `"40G"`                                      | Memory per CPU core (SLURM syntax).                                                                                                          |                                                                   |
+| **cpus\_per\_task**           | `int`          | `32 // replicas_per_node` or `32` for multi-gpu multi-node clusters                                   | vCPUs reserved per SLURM task.                                                                                                               |
+| **replicas\_per\_node**       | `int`          | `gpus_per_node // gpus_per_replica` if `gpus_per_replica` <= `gpus_per_node` else `None` | How many model instances can share the same node (you usually won't need to set this unless you want multiple replicas per GPU, e.g. 2 replicas for each gpu) |
+
+                                                                   |
 | **partition**                 | `str`          | `"boost_usr_prod"`                           | SLURM partition to submit to.                                                                                                                |                                                                   |
 | **account**                   | `str`          | `"iGen_train"`                               | SLURM account / charge code.                                                                                                                 |                                                                   |
 | **vllm\_image**               | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif`                                                                                   | Singularity image for vLLM workers.                               |
@@ -234,12 +231,13 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **node\_list**                | `str          \| null`                                       | `null`                                                                                                                                       | Explicit node list, e.g. `"node[005-008]"`.                       |
 | **driver**                    | `DriverConfig` | *see below*                                  | Resource overrides for the lightweight “driver” job that orchestrates the swarm.                                                             |                                                                   |
 | **mail_user**                 | `str` | `null` | Send Slurm END,FAIL signal notification about the resources deployed by domyn-swarm (job and cluster) | myemail@gmail.com |
+| **requires_ray**              | `bool` | `null` | Set automatically to enforce the usage of Ray + vLLM for multi-node multi-gpu clusters |
 
 #### Nested: `DriverConfig`
 
 | Field                  | Type  | Default      | Purpose                                                         |
 | ---------------------- | ----- | ------------ | --------------------------------------------------------------- |
-| **cpus\_per\_task**    | `int` | `2`          | vCPUs for the driver process (launches and monitors the swarm). |
+| **cpus\_per\_task**    | `int` | `32`          | vCPUs for the driver process (launches and monitors the swarm). |
 | **mem**                | `str` | `"16GB"`     | Physical memory for the driver job.                             |
 | **threads\_per\_core** | `int` | `1`          | SMT threads to request per physical core.                       |
 | **wall\_time**         | `str` | `"24:00:00"` | SLURM time limit for the driver job.                            |
