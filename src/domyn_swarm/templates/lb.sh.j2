@@ -1,6 +1,9 @@
 #!/bin/bash
 #SBATCH --account=iGen_train
-#SBATCH --mail-user=federico.dambrosio@igenius.ai
+{% if cfg.mail_user %}
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user={{ cfg.mail_user }}
+{% endif %}
 #SBATCH --qos=qos_llm_min
 
 #SBATCH --exclusive
@@ -69,6 +72,20 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
         echo "    server $addr max_fails=2 fail_timeout=10s;"
     done
     echo "  }"
+
+    {% if cfg.requires_ray %}
+    ray_host=$(sed -n '1s/:.*//p' "$HOST_DIR/${DEP_JOBID}/0.head")
+    echo "  upstream ray {"
+    echo "    server $ray_host:{{ cfg.ray_dashboard_port }};"
+    echo "    keepalive 8;"
+    echo "  }"
+
+    echo "  upstream ray_control {"
+    echo "    server $ray_host:{{ cfg.ray_port }};"
+    echo "    keepalive 8;"
+    echo "  }"
+    {% endif %}
+
     cat <<CONF
   server {
     listen $PORT;
@@ -106,6 +123,18 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
       proxy_read_timeout 2s;
       proxy_cache_bypass \$http_upgrade;
     }
+    {% if cfg.requires_ray %}
+    location ^~ /ray/ {
+      proxy_pass              http://ray/;
+      proxy_read_timeout      300s;
+      proxy_connect_timeout   60s;
+      proxy_set_header Host   \$host;
+      proxy_set_header X-Real-IP \$remote_addr;
+    }
+    location = /ray/dashboard {
+      return 301 /ray/dashboard/;
+    }
+    {% endif %}
   }
 }
 CONF

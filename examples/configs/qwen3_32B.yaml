@@ -6,7 +6,6 @@ lb_wait: 1800
 hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
 lb_port: 9003
 vllm_args: "--reasoning-parser deepseek_r1 --pipeline-parallel-size 1 --gpu-memory-utilization 0.95 --max-num-seqs 256 --max-model-len 16384"
-vllm_image: /leonardo_work/iGen_train/fdambro1/images/vllm_0.9.2.sif
 driver:
   mem: "16GB"
   cpus_per_task: 4

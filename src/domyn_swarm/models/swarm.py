@@ -56,7 +56,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
     # container images --------------------------------------------------------
     vllm_image: str | utils.EnvPath = utils.EnvPath(
-        "/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif"
+        "/leonardo_work/iGen_train/fdambro1/images/vllm_0.10.1.1.sif"
     )
     nginx_image: str | utils.EnvPath = utils.EnvPath(
         "/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif"
@@ -158,7 +158,7 @@ class DomynLLMSwarmConfig(BaseModel):
                 cpus_per_task = 32
 
         # Requires Ray?
-        requires_ray = gpus_per_replica > gpus_per_node and nodes > 1
+        requires_ray = gpus_per_replica >= gpus_per_node and nodes > 1
 
         # Fill computed fields
         data["replicas_per_node"] = replicas_per_node
