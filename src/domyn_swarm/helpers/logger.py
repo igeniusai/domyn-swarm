@@ -5,7 +5,7 @@ from rich.logging import RichHandler
 
 
 def setup_logger(
-    name: str = "app", level=logging.INFO, console: Console = None
+    name: str = "app", level=logging.INFO, console: Console | None = None
 ) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)

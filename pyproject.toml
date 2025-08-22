@@ -23,6 +23,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "commitizen>=4.8.3",
+    "pyright>=1.1.404",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
     "pytest-check>=2.5.3",
@@ -63,3 +64,21 @@ include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
 [tool.ruff.lint]
 extend-select = ["I"]
 
+
+[tool.pyright]
+include = ["src"]
+exclude = [
+    "**/__pycache__",
+    "src/typestubs",
+    # Unfixable at the moment
+    "src/domyn_swarm/jobs/chat_completion.py",
+    "src/domyn_swarm/utils/env_path.py",
+]
+ignore = ["tests"]
+defineConstant = { DEBUG = true }
+stubPath = "src/stubs"
+
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+
+pythonPlatform = "Linux"

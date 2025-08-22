@@ -151,7 +151,7 @@ def launch_reverse_proxy(
         launch_nginx_singularity(
             sif_path=image_path,
             conf_path=conf_path,
-            html_path=temp_dir,
+            html_path=html_path,
         )
     user = run_command("whoami").strip()
     login_node_suffix = get_login_node_suffix()

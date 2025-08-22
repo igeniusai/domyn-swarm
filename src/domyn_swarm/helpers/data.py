@@ -1,8 +1,9 @@
 import hashlib
 import math
 import mmap
-import os
+import sys
 import time
+from pathlib import Path
 from typing import List, Tuple
 
 from openai.types.chat.chat_completion import Choice
@@ -11,7 +12,7 @@ from domyn_swarm import utils
 
 
 def parquet_hash(
-    path: str | utils.EnvPath,
+    path: Path,
     algorithm: str = "blake2b",
     *,
     block_size: int = 128 << 20,  # 128 MiB windows if we have to chunk
@@ -20,7 +21,7 @@ def parquet_hash(
 
     Parameters
     ----------
-    path : str | Path
+    path : Path
         Location of the Parquet file.
     algorithm : str, default "blake2b"
         Any algo accepted by ``hashlib.new`` (e.g. "blake2b", "sha256", "md5").
@@ -36,13 +37,13 @@ def parquet_hash(
     str
         Hexadecimal digest of the file contents.
     """
-    path: utils.EnvPath = utils.EnvPath(path)
+    env_path: utils.EnvPath = utils.EnvPath(path)
     h = hashlib.new(algorithm)
 
-    file_size = path.stat().st_size
-    with path.open("rb", buffering=0) as f:
+    file_size = env_path.stat().st_size
+    with env_path.open("rb", buffering=0) as f:
         # On 64-bit Pythons (or “small” files) we can map the whole thing.
-        if os.sys.maxsize > 2**32 or file_size < 2**31:
+        if sys.maxsize > 2**32 or file_size < 2**31:
             with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
                 h.update(mm)  # zero-copy→kernel pages it in lazily
         else:

@@ -31,34 +31,41 @@ class LBHealthChecker:
         Wait for the load balancer and replicas to start.
         This method will block until the LB is healthy or a timeout occurs."""
         console = Console()
-        try:
-            with console.status(
-                "[bold green]Waiting for LB and replicas to start..."
-            ) as status:
+        with console.status(
+            "[bold green]Waiting for LB and replicas to start..."
+        ) as status:
+            try:
                 self._wait_for_jobs_to_start(status)
                 self._resolve_lb_node(status)
                 self._wait_for_http_ready(status, console)
-        except KeyboardInterrupt:
-            abort = typer.confirm(
-                "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-            )
-            if abort:
+            except KeyboardInterrupt:
+                abort = typer.confirm(
+                    "[LLMSwarm] KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
+                )
+                if abort:
+                    self.swarm.cleanup()
+                    console.print("[LLMSwarm] Swarm allocation cancelled by user")
+                    raise typer.Abort()
+                else:
+                    status.update("[LLMSwarm] Continuing to wait for LB health …")
+            
+            except RuntimeError as e:
+                console.print(f"[red1][LLMSwarm] Error: {e}")
+                console.print("[red1][LLMSwarm] Cancelling swarm allocation")
                 self.swarm.cleanup()
-                console.print("[LLMSwarm] Swarm allocation cancelled by user")
-                raise typer.Abort()
-            else:
-                status.update("[LLMSwarm] Continuing to wait for LB health …")
-        except RuntimeError as e:
-            console.print(f"[red1][LLMSwarm] Error: {e}")
-            console.print("[red1][LLMSwarm] Cancelling swarm allocation")
-            self.swarm.cleanup()
-            raise e
+                raise e
 
     def _wait_for_jobs_to_start(self, status: Status):
         """
         Wait for the replica array and LB jobs to start.
         This method will block until both jobs are in a RUNNING state or an error occurs.
         """
+        if self.swarm.jobid is None:
+            raise RuntimeError("Job ID is null.")
+        
+        if self.swarm.lb_jobid is None:
+            raise RuntimeError("LB Job ID is null.")
+
         lb_state = rep_state = None
         while True:
             rep_state = self._sacct_state(self.swarm.jobid)

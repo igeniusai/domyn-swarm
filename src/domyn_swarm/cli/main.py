@@ -135,6 +135,13 @@ def check_status(
     lb_status = (
         "HEALTHY" if is_endpoint_healthy(f"{endpoint}/v1/models") else "UNHEALTHY"
     )
+
+    if load_balancer_jobid is None:
+        raise RuntimeError("Job ID is null.")
+
+    if array_jobid is None:
+        raise RuntimeError("Job ID array is null.")
+
     lb_job_status = get_job_status(load_balancer_jobid)
     array_job_status = get_job_status(array_jobid)
 

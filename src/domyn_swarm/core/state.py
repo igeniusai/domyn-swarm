@@ -2,6 +2,7 @@
 import json
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ class SwarmStateManager:
         logger.info(f"State saved to {state_file}")
 
     @classmethod
-    def load(cls, state_file: utils.EnvPath) -> "DomynLLMSwarm":
+    def load(cls, state_file: Path) -> "DomynLLMSwarm":
         from domyn_swarm import DomynLLMSwarm
 
         if not state_file.is_file():
@@ -40,13 +41,14 @@ class SwarmStateManager:
         if jobid is None or lb_jobid is None:
             raise ValueError("State file does not contain valid job IDs")
 
-        cfg = DomynLLMSwarmConfig(**state.get("cfg", {}))
-        return DomynLLMSwarm(
+        cfg = DomynLLMSwarmConfig.model_validate(state["cfg"])
+        swarm = DomynLLMSwarm(
             name=state.get("name", f"domyn-swarm-{int(time.time())}"),
             cfg=cfg,
             jobid=jobid,
             lb_jobid=lb_jobid,
             lb_node=state.get("lb_node"),
             endpoint=state.get("endpoint"),
-            model=state.get("model"),
         )
+    
+        return swarm

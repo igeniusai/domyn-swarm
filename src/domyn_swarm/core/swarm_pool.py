@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from domyn_swarm import DomynLLMSwarm
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
@@ -8,7 +8,8 @@ from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 @contextmanager
 def create_swarm_pool(
-    *configs_or_swarms: list[DomynLLMSwarmConfig] | list["DomynLLMSwarm"],
+    *configs_or_swarms: "DomynLLMSwarmConfig | DomynLLMSwarm",
+    config_or_swarm_list: list[DomynLLMSwarmConfig] | list[DomynLLMSwarm] | None = None,
     max_workers=None,
 ) -> Generator[tuple["DomynLLMSwarm"], Any, None]:
     """
@@ -32,10 +33,12 @@ def create_swarm_pool(
     """
 
     # 1) instantiate all the context‐manager objects
+    # Casting required by pyright to understand the type
     if configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarmConfig):
-        cms = [DomynLLMSwarm(cfg=config) for config in configs_or_swarms]
+        configs = cast(list[DomynLLMSwarmConfig], configs_or_swarms)
+        cms = [DomynLLMSwarm(cfg=config) for config in configs]
     elif configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarm):
-        cms = configs_or_swarms
+        cms = cast(list[DomynLLMSwarm], configs_or_swarms)
     else:
         raise ValueError(
             "configs_or_swarms must be either a sequence of DomynLLMSwarmConfig or DomynLLMSwarm"
