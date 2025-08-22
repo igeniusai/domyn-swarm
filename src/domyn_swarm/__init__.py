@@ -4,6 +4,7 @@ import logging
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator
@@ -94,13 +95,32 @@ class DomynLLMSwarm(BaseModel):
         return self._slurm.submit_replicas(job_name)
 
     def _submit_lb(self, job_name: str) -> int:
+        assert self.jobid is not None
         return self._slurm.submit_lb(job_name, self.jobid)
 
-    def submit_script(self, script_path: utils.EnvPath, detach: bool = False):
+    def submit_script(
+        self,
+        script_path: Path,
+        detach: bool = False,
+        extra_args: list[str] | None = None,
+    ):
         """
         Submit a user script to the swarm allocation.
         The script will be run on the head node (SLURM_NODEID 0).
         """
+
+        if self.lb_jobid is None:
+            raise RuntimeError("LB Job ID is null.")
+
+        if self.lb_node is None:
+            raise RuntimeError("LB Node is null.")
+        
+        if self.endpoint is None:
+            raise RuntimeError("Endpoint is null.")
+        
+        if self.cfg.venv_path is None:
+            raise RuntimeError("Venv path is None.")
+
         if self.jobid is None:
             raise RuntimeError("No job submitted yet")
         if not script_path.is_file():
@@ -115,10 +135,12 @@ class DomynLLMSwarm(BaseModel):
         if self.cfg.mail_user:
             builder = builder.with_mail(self.cfg.mail_user)
 
+        extra = [] if extra_args is None else extra_args
         cmd = builder.build(
             [
                 str(self.cfg.venv_path / "bin" / "python"),
                 str(script_path),
+                *extra,
             ]
         )
 
@@ -144,6 +166,12 @@ class DomynLLMSwarm(BaseModel):
         self._state_mgr.save()
 
     def _submit_clusters_job(self):
+        if self.name is None:
+            raise RuntimeError("Name is null.")
+        
+        if self.lb_jobid is None:
+            raise RuntimeError("LB Job ID is null.")
+
         job_name = self.name
         self.jobid = self._submit_replicas(job_name)
         logger.info(
@@ -154,9 +182,15 @@ class DomynLLMSwarm(BaseModel):
         self._persist()
 
     def _get_lb_node(self) -> str:
+        if self.lb_jobid is None:
+            raise RuntimeError("LB Job ID is null.")
+        
         return self._slurm.get_node_from_jobid(self.lb_jobid)
 
     def _get_head_node(self) -> str:
+        if self.jobid is None:
+            raise RuntimeError("Job ID is null.")
+
         return self._slurm.get_node_from_jobid(self.jobid)
 
     def _wait_for_lb_health(self):
@@ -172,8 +206,8 @@ class DomynLLMSwarm(BaseModel):
         self,
         job: SwarmJob,
         *,
-        input_path: utils.EnvPath | str,
-        output_path: utils.EnvPath | str,
+        input_path: Path,
+        output_path: Path,
         num_threads: int = 1,
         detach: bool = False,
         limit: int | None = None,
@@ -240,14 +274,20 @@ class DomynLLMSwarm(BaseModel):
         ...     num_threads=4
         ... )
         """
-        input_path: utils.EnvPath = to_path(input_path)
-        output_path: utils.EnvPath = to_path(output_path)
+        input_parquet = to_path(input_path)
+        output_parquet = to_path(output_path)
 
         if self.jobid is None or self.endpoint is None:
             raise RuntimeError("Swarm not ready")
 
-        if not input_path.is_file():
-            raise FileNotFoundError(input_path)
+        if self.lb_jobid is None:
+            raise RuntimeError("LB Job ID is null.")
+
+        if self.lb_node is None:
+            raise RuntimeError("LB Node is null.")
+
+        if not input_parquet.is_file():
+            raise FileNotFoundError(input_parquet)
 
         job_class = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
         job_kwargs = json.dumps(job.to_kwargs())
@@ -266,9 +306,9 @@ class DomynLLMSwarm(BaseModel):
             }
         )
 
-        if mail_user or self.cfg.mail_user:
-            if mail_user:
-                self.cfg.mail_user = mail_user
+        if mail_user is not None:
+            self.cfg.mail_user = mail_user
+        if self.cfg.mail_user is not None:
             builder = builder.with_mail(self.cfg.mail_user)
 
         exe = [
@@ -277,8 +317,8 @@ class DomynLLMSwarm(BaseModel):
             "domyn_swarm.jobs.run",
             f"--job-class={job_class}",
             f"--model={self.model}",
-            f"--input-parquet={input_path}",
-            f"--output-parquet={output_path}",
+            f"--input-parquet={input_parquet}",
+            f"--output-parquet={output_parquet}",
             f"--endpoint={self.endpoint}",
             f"--nthreads={num_threads}",
             "--job-kwargs",
@@ -316,7 +356,7 @@ class DomynLLMSwarm(BaseModel):
             subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
     @classmethod
-    def from_state(cls, state_file: utils.EnvPath) -> "DomynLLMSwarm":
+    def from_state(cls, state_file: Path) -> "DomynLLMSwarm":
         """
         Load a swarm from a saved state file (swarm_*.json).
         """
@@ -365,6 +405,16 @@ def _start_swarm(
     with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
         if reverse_proxy:
             from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
+
+            # TODO check this
+            if not isinstance(cfg.nginx_image, utils.EnvPath):
+                raise RuntimeError("Nginx image is not an env path.")
+            
+            if swarm.lb_node is None:
+                raise RuntimeError("LB Node is null.")
+
+            if swarm.endpoint is None:
+                raise RuntimeError("Endpoint is null.")
 
             launch_reverse_proxy(
                 cfg.nginx_template_path,

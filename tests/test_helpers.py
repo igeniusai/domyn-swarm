@@ -176,7 +176,7 @@ def test_launch_reverse_proxy(mock_launch_reverse_proxy, tmp_path, capsys):
     called = mock_launch_reverse_proxy["called_launch"]
     assert called.get("called") is True
     assert "nginx.conf" in called["conf_path"].name
-    assert "index.html" in [f.name for f in called["html_path"].rglob("*")]
+    assert "index.html" in called["html_path"].name
 
 
 def test_parquet_hash_blake2b(parquet_file):

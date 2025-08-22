@@ -19,7 +19,7 @@ def test_submit_script_no_such_file(tmp_path):
     result = runner.invoke(submit_app, ["script", "non_existent_script.py"])
 
     assert result.exit_code != 0
-    assert "No such file or directory" in extract_rich_text(result.stderr)
+    assert "Invalid value for 'SCRIPT_FILE'" in extract_rich_text(result.stderr)
 
 
 def test_submit_job_mutual_exclusion(tmp_path):

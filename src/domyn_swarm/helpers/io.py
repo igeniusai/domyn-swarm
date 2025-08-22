@@ -35,7 +35,7 @@ def save_dataframe(df: pd.DataFrame, path: Path):
             raise ValueError(f"Unsupported output file format: {path.suffix.lower()}")
 
 
-def to_path(path: utils.EnvPath | str) -> utils.EnvPath:
+def to_path(path: Path | str) -> Path:
     """
     Return the path given a string
     """

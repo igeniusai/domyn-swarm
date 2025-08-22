@@ -63,7 +63,7 @@ class SwarmJob(abc.ABC):
         retries: int = 5,
         timeout: float = 600,
         client=None,
-        client_kwargs: dict = None,
+        client_kwargs: dict | None = None,
         **extra_kwargs,
     ):
         """
