@@ -169,9 +169,6 @@ class DomynLLMSwarm(BaseModel):
         if self.name is None:
             raise RuntimeError("Name is null.")
         
-        if self.lb_jobid is None:
-            raise RuntimeError("LB Job ID is null.")
-
         job_name = self.name
         self.jobid = self._submit_replicas(job_name)
         logger.info(
