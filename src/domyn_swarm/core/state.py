@@ -50,5 +50,5 @@ class SwarmStateManager:
             lb_node=state.get("lb_node"),
             endpoint=state.get("endpoint"),
         )
-    
+
         return swarm

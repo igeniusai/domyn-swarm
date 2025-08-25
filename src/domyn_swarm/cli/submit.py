@@ -43,7 +43,7 @@ def submit_script(
         cfg = _load_swarm_config(config)
         with DomynLLMSwarm(cfg=cfg) as swarm:
             swarm.submit_script(script_file, extra_args=args)
-    
+
     elif state is None:
         raise RuntimeError("State is null.")
 
@@ -61,9 +61,7 @@ def submit_job(
     input: Path = typer.Option(
         ..., "--input", exists=True, click_type=utils.ClickEnvPath()
     ),
-    output: Path = typer.Option(
-        ..., "--output", click_type=utils.ClickEnvPath()
-    ),
+    output: Path = typer.Option(..., "--output", click_type=utils.ClickEnvPath()),
     input_column: str = typer.Option("messages", "--input-column"),
     output_column: str = typer.Option("results", "--output-column"),
     job_kwargs: str = typer.Option(
@@ -188,7 +186,7 @@ def submit_job(
             )
     elif state is None:
         raise RuntimeError("State is null.")
-    
+
     else:
         swarm = DomynLLMSwarm.from_state(state)
         job = _load_job(

@@ -24,9 +24,11 @@ e.g:
 PYTHONPATH=. python examples/scripts/custom_main.py
 """
 
-from domyn_swarm.jobs import SwarmJob
-import pandas as pd
 import random
+
+import pandas as pd
+
+from domyn_swarm.jobs import SwarmJob
 
 
 class MyCustomSwarmJob(SwarmJob):

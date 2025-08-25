@@ -5,8 +5,9 @@ Create a tiny Parquet dataset with one column ('messages') for quick LLM testing
 Run:  python save_llm_test_messages.py
 """
 
-import sys
 import subprocess
+import sys
+
 import pandas as pd
 
 
