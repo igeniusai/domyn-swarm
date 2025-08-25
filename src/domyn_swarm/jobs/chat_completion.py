@@ -162,7 +162,9 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
     async def transform(self, df: pd.DataFrame):
         df = df.copy()
 
-        async def _call(messages: list[ChatCompletionMessageParam]) -> tuple[str | None, float, float]:
+        async def _call(
+            messages: list[ChatCompletionMessageParam],
+        ) -> tuple[str | None, float, float]:
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,

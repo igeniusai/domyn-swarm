@@ -1,7 +1,5 @@
-
-
 import os
-from time import sleep
+
 from domyn_swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.swarm_pool import create_swarm_pool
 from domyn_swarm.jobs import ChatCompletionJob
@@ -22,12 +20,13 @@ def wait_for_children(pids):
             # Handles cases where the PID no longer exists, permissions issues, etc.
             print(f"Could not wait for PID {pid}: {err}")
 
+
 # For simplicity, we use the same configuration for both swarms.
 # In practice, you can use different configurations for each swarm.
 # This example assumes you have a valid configuration file at the specified path.
 configs = [
     DomynLLMSwarmConfig.read("examples/configs/deepseek_r1_distill.yaml"),
-    DomynLLMSwarmConfig.read("examples/configs/deepseek_r1_distill.yaml")
+    DomynLLMSwarmConfig.read("examples/configs/deepseek_r1_distill.yaml"),
 ]
 pids = []
 with create_swarm_pool(*configs) as swarms:
@@ -44,11 +43,11 @@ with create_swarm_pool(*configs) as swarms:
         # The job will run in the background, and we can collect the PIDs to wait
         # for their completion later.
         pid = swarm.submit_job(
-            job, 
+            job,
             input_path="examples/data/chat_completion.parquet",
             output_path=f"results_{index}.parquet",
             num_threads=2,
-            detach=True
+            detach=True,
         )
         pids.append(pid)
 

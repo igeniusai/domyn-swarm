@@ -38,7 +38,7 @@ or to install it globally:
    replicas: 2
    ```
 
-> [!NOTE] 
+> [!NOTE]
 > `model` can be either an HF model or a path to a directory with a model compatible with vllm. If using an HF id, make sure that the model is saved locally in your `HF_HOME`
 
    You can find more examples in the [examples/configs](examples/configs) folder
@@ -278,15 +278,15 @@ class MyCustomSwarmJob(SwarmJob):
         async def _call(prompt: str) -> str:
             from openai.types.completion import Completion
 
-            # Default client is pointing to the endpoint deployed by domyn-swarm and defined in the 
+            # Default client is pointing to the endpoint deployed by domyn-swarm and defined in the
             # domyn-swarm config
             resp: Completion = await self.client.completions.create(
                 model=self.model, prompt=prompt, **self.kwargs
             )
-            temperature = self.kwargs["temperature"] 
+            temperature = self.kwargs["temperature"]
 
             return resp.choices[0].text, random.random(), self.model + f"_{temperature}"
-        
+
         await self.batched(df["messages"].tolist(), _call)
 ```
 
@@ -319,8 +319,8 @@ with DomynLLMSwarm(cfg=config) as swarm:
             endpoint=swarm.endpoint,
             model=swarm.model,
             # 16 concurrent requests to the LLM
-            max_concurrency=16,            
-            # You can add custom keyword arguments, which you 
+            max_concurrency=16,  
+            # You can add custom keyword arguments, which you
             # can reference in you transform implementation by calling
             # self.kwargs
             temperature=0.2

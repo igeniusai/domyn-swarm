@@ -114,10 +114,10 @@ class DomynLLMSwarm(BaseModel):
 
         if self.lb_node is None:
             raise RuntimeError("LB Node is null.")
-        
+
         if self.endpoint is None:
             raise RuntimeError("Endpoint is null.")
-        
+
         if self.cfg.venv_path is None:
             raise RuntimeError("Venv path is None.")
 
@@ -168,7 +168,7 @@ class DomynLLMSwarm(BaseModel):
     def _submit_clusters_job(self):
         if self.name is None:
             raise RuntimeError("Name is null.")
-        
+
         job_name = self.name
         self.jobid = self._submit_replicas(job_name)
         logger.info(
@@ -181,7 +181,7 @@ class DomynLLMSwarm(BaseModel):
     def _get_lb_node(self) -> str:
         if self.lb_jobid is None:
             raise RuntimeError("LB Job ID is null.")
-        
+
         return self._slurm.get_node_from_jobid(self.lb_jobid)
 
     def _get_head_node(self) -> str:
@@ -406,7 +406,7 @@ def _start_swarm(
             # TODO check this
             if not isinstance(cfg.nginx_image, utils.EnvPath):
                 raise RuntimeError("Nginx image is not an env path.")
-            
+
             if swarm.lb_node is None:
                 raise RuntimeError("LB Node is null.")
 
