@@ -51,6 +51,39 @@ async def test_chat_completion_job(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_chat_completion_job_parse_reasoning(monkeypatch, tmp_path):
+    df = pd.DataFrame({"messages": [[{"role": "user", "content": "Hi"}]]})
+    mock_choice_reasoning = type(
+        "Choice",
+        (),
+        {
+            "message": type(
+                "Msg",
+                (),
+                {"content": "Mocked answer", "reasoning_content": "Because I am a bot"},
+            )()
+        },
+    )
+    mock_resp_reasoning = AsyncMock()
+    mock_resp_reasoning.choices = [mock_choice_reasoning]
+
+    job_reasoning = ChatCompletionJob(model="gpt-4", parse_reasoning=True)
+    job_reasoning.client = AsyncMock()
+    job_reasoning.client.chat.completions.create = AsyncMock(
+        return_value=mock_resp_reasoning
+    )
+
+    assert job_reasoning.output_column_name == ["result", "reasoning_content"]
+    results_reasoning = await job_reasoning.run(
+        df, tag="test", checkpoint_dir=tmp_path / "checkpoints"
+    )
+    print(results_reasoning)
+    assert len(results_reasoning) == 1
+    assert results_reasoning["result"][0] == "Mocked answer"
+    assert results_reasoning["reasoning_content"][0] == "Because I am a bot"
+
+
+@pytest.mark.asyncio
 async def test_multi_chat_completion_job(monkeypatch, tmp_path):
     df = pd.DataFrame({"messages": [[{"role": "user", "content": "Hi"}]]})
 

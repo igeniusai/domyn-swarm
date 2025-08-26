@@ -67,16 +67,32 @@ class ChatCompletionJob(SwarmJob):
     Output DF gets `answer`.
     """
 
+    def __init__(self, *, parse_reasoning: bool | None = None, **kwargs):
+        explicit = parse_reasoning
+        super().__init__(**kwargs)
+        from_extras = bool(self.kwargs.pop("parse_reasoning", False))
+        self.parse_reasoning = explicit if explicit is not None else from_extras
+        self.output_column_name = (
+            ["result", "reasoning_content"] if self.parse_reasoning else "result"
+        )
+
     async def transform(self, df: pd.DataFrame):
         from openai.types.chat import ChatCompletion
 
         df = df.copy()
 
-        async def _call(messages: list[ChatCompletionMessageParam]) -> str | None:
+        async def _call(
+            messages: list[ChatCompletionMessageParam],
+        ) -> str | None | Tuple[str | None, str | None]:
             resp: ChatCompletion = await self.client.chat.completions.create(
                 model=self.model, messages=messages, extra_body=self.kwargs
             )
-            return resp.choices[0].message.content
+
+            choice: Choice = resp.choices[0]
+            if self.parse_reasoning:
+                reasoning_content = getattr(choice.message, "reasoning_content", None)
+                return choice.message.content, reasoning_content
+            return choice.message.content
 
         await self.batched(
             [messages for messages in df[self.input_column_name].tolist()], _call
