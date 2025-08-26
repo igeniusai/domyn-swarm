@@ -1,3 +1,9 @@
+## v0.13.1 (2025-08-26)
+
+### Refactor
+
+- add parse_reasoning parameter to ChatCompletionJob
+
 ## v0.13.0 (2025-08-26)
 
 ### Feat
