@@ -29,7 +29,7 @@
 set -euo pipefail
 
 module purge
-module load cuda/12.2
+module load cuda/12.6
 
 ###############################################################################
 #  ENVIRONMENT VARIABLES
@@ -44,7 +44,10 @@ export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
 export HF_HUB_OFFLINE=1
 export PYTHONNOUSERSITE=1
 export RAY_CGRAPH_get_timeout=1200
-export VLLM_USE_V1=0
+export VLLM_USE_V1=1
+export VLLM_USE_FLASHINFER_SAMPLER=1
+export TORCH_CUDA_ARCH_LIST="8.0"
+
 
 # Calculated variables
 export TOTAL_GPUS=$(( SLURM_JOB_NUM_NODES * {{ cfg.gpus_per_node }} ))
@@ -72,7 +75,7 @@ REST_PORT="{{ cfg.vllm_port }}"
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
 
 # Mount configuration
-export MOUNTS="$HF_HOME:$HF_HOME,/sys,/dev/infiniband,/etc/libibverbs.d,/leonardo/prod/spack/5.2"
+export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME"
 {% if is_folder(cfg.model) and path_exists(cfg.model) %}
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
@@ -94,7 +97,7 @@ function start_vllm_replica() {
 
   srun -n1 -N1 --gres=gpu:{{ cfg.gpus_per_replica }} {% if cfg.replicas_per_node > cfg.gpus_per_node %}--overlap{% endif %} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
-     singularity exec --bind $MOUNTS --nv --contain "$VLLM_IMAGE" \
+     singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.vllm_args %}
      --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min  }} \
@@ -186,11 +189,11 @@ function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
   echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env
 
-  singularity instance start --bind $MOUNTS --writable-tmpfs \
+  singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
                 --env-file {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env \
-                --nv --contain "$VLLM_IMAGE" "$INSTANCE_TAG" \
+                --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
                 --disable-usage-stats --head --block \
-                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port=8265
+                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.ray_dashboard_port }} --include-dashboard=true
 }
 
 function wait_for_ray_ready() {
@@ -216,7 +219,7 @@ function start_ray_workers() {
      bash -c '
        export SINGULARITYENV_VLLM_HOST_IP=$(hostname -I | awk "{print \$1}")
        echo "VLLM_HOST_IP is $SINGULARITYENV_VLLM_HOST_IP"
-       singularity exec --bind '"$MOUNTS"' --nv --contain \
+       singularity exec --bind '"$MOUNTS"' --nv --contain --writable-tmpfs \
          '"$VLLM_IMAGE"' \
          ray start --disable-usage-stats \
                --address='"$HEAD_NODE"':'"$HEAD_PORT"' \
@@ -229,7 +232,7 @@ function start_ray_workers() {
 
 function start_vllm_server() {
   echo "[head] starting vLLM REST server ..."
-  singularity exec --bind $MOUNTS --contain --nv --env VLLM_USE_PRECOMPILED=1 \
+  singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
            vllm serve {{ cfg.model }} \
            {% if 'tensor-parallel-size' not in cfg.vllm_args %}
