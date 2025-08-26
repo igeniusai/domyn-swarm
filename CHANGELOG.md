@@ -1,3 +1,24 @@
+## v0.13.0 (2025-08-26)
+
+### Feat
+
+- execute hooks during the ci pipeline
+- add pre-commit hooks
+- add preliminary ci pipeline
+- update cuda, vllm version and add ray dashboard
+
+### Fix
+
+- remove --contain flag to vllm instance deployment
+- switch to python 3.12 in the ci pipeline
+- reformat project with ruff
+- Delete unused import
+- simplify test to ease ci
+- move ci file into the workflow dir to trigger the pipeline
+- remove unneeded None guard
+- fix obsolete tests
+- enforce pyright type checking
+
 ## v0.12.0 (2025-08-19)
 
 ### Feat
