@@ -48,7 +48,7 @@ class LBHealthChecker:
                     raise typer.Abort()
                 else:
                     status.update("[LLMSwarm] Continuing to wait for LB health …")
-            
+
             except RuntimeError as e:
                 console.print(f"[red1][LLMSwarm] Error: {e}")
                 console.print("[red1][LLMSwarm] Cancelling swarm allocation")
@@ -62,7 +62,7 @@ class LBHealthChecker:
         """
         if self.swarm.jobid is None:
             raise RuntimeError("Job ID is null.")
-        
+
         if self.swarm.lb_jobid is None:
             raise RuntimeError("LB Job ID is null.")
 

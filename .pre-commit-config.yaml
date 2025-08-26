@@ -1,0 +1,37 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+
+      - id: check-json
+
+      - id: end-of-file-fixer
+        exclude: \.svg$|docs.*
+
+      - id: mixed-line-ending
+        exclude: docs.*
+
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+
+      - id: check-added-large-files
+        args: ["--maxkb=2000"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.10
+    hooks:
+      - id: ruff
+        name: ruff-fix
+        args: [--fix, --select, I]
+
+      - id: ruff-format
+
+      - id: ruff
+        name: ruff-lint
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.404
+    hooks:
+    - id: pyright

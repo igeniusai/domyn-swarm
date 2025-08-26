@@ -10,8 +10,8 @@
 #SBATCH --qos=qos_llm_min
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
-#SBATCH --partition={{ cfg.partition }}      
-#SBATCH --nodes={{ cfg.nodes }}              
+#SBATCH --partition={{ cfg.partition }}
+#SBATCH --nodes={{ cfg.nodes }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
@@ -91,10 +91,10 @@ function start_vllm_replica() {
   local port=$2
   local node=$3
   local log_dir="$LOG_DIR/replica_$global_id"
-  
+
   mkdir -p "$log_dir"
   echo "[replica $global_id] → $node port=$port"
-  
+
   srun -n1 -N1 --gres=gpu:{{ cfg.gpus_per_replica }} {% if cfg.replicas_per_node > cfg.gpus_per_node %}--overlap{% endif %} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs "$VLLM_IMAGE" \
@@ -110,20 +110,20 @@ function start_vllm_replica() {
 function wait_for_vllm_ready() {
   local endpoint=$1
   local replica_id=$2
-  
+
   echo "[head] waiting for $endpoint ..."
   while :; do
     resp=$(curl -sf -w '\n%{http_code}' "http://$endpoint/v1/models" || true)
     body=${resp%$'\n'*}
     code=${resp##*$'\n'}
-    
+
     if [[ $code == 200 ]]; then
       echo "[head] $endpoint is READY ✅"
       local head_file="{{ cfg.home_directory }}/swarms/${REPL_JOB_ID}/${replica_id}.head"
       echo "$endpoint" > "$head_file"
       break
     fi
-    
+
     echo "[head] $endpoint not ready (code=$code), retrying..."
     sleep 5
   done
@@ -137,11 +137,11 @@ declare -a hosts=()
 for ((i=0; i<REPLICAS_PER_NODE; i++)); do
   GLOBAL_ID=$(( GLOBAL_BASE + i ))
   VLLM_PORT=$(( {{ cfg.vllm_port }} + GLOBAL_ID ))
-  
+
   global_ids+=("$GLOBAL_ID")
   ports+=("$VLLM_PORT")
   hosts+=("$HEAD_NODE")
-  
+
   start_vllm_replica "$GLOBAL_ID" "$VLLM_PORT" "$HEAD_NODE"
 done
 
@@ -154,7 +154,7 @@ for ((j = 0; j < ${#global_ids[@]}; j++)); do
   port=${ports[$j]}
   host=${hosts[$j]}
   endpoint="$host:$port"
-  
+
   wait_for_vllm_ready "$endpoint" "$id"
 done
 
@@ -208,7 +208,7 @@ function wait_for_ray_ready() {
 function start_ray_workers() {
   local comma_separated_workers=$(IFS=,; echo "${NODES[*]:1}")
   echo "[workers] launching Ray workers on $((SLURM_JOB_NUM_NODES-1)) nodes ($comma_separated_workers)..."
-  
+
   srun --ntasks=$((SLURM_JOB_NUM_NODES-1)) \
      --nodelist=$comma_separated_workers \
      --nodes=$((SLURM_JOB_NUM_NODES-1)) \
@@ -225,7 +225,7 @@ function start_ray_workers() {
                --address='"$HEAD_NODE"':'"$HEAD_PORT"' \
                --block
      ' &
-  
+
   echo "[workers] waiting for workers to start ..."
   sleep 60
 }
@@ -250,16 +250,16 @@ function wait_for_vllm_server_ready() {
     resp=$(curl -sf -w '\n%{http_code}' "http://$HEAD_NODE:$REST_PORT/v1/models" || true)
     body=${resp%$'\n'*}
     code=${resp##*$'\n'}
-    
+
     if [[ $code == 200 ]]; then
       echo "[head] vLLM is READY (HTTP 200)"
       break
     fi
-    
+
     echo "[head] waiting for vLLM (code=$code)…"
     sleep 5
   done
-  
+
   echo "[head] REST ready → http://$HEAD_NODE:$REST_PORT"
   local head_file="{{ cfg.home_directory }}/swarms/${SLURM_ARRAY_JOB_ID}/${REPL_ID}.head"
   echo "$HEAD_NODE:$REST_PORT" > "$head_file"

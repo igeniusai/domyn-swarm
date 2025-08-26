@@ -102,13 +102,13 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
       keepalive_timeout 65;
       {% if cfg.driver.enable_proxy_buffering %}
       # ───── Proxy Response Buffering ─────
-      proxy_buffer_size 64k;               
-      proxy_buffers 16 512k;               
-      proxy_busy_buffers_size 1m;          
+      proxy_buffer_size 64k;
+      proxy_buffers 16 512k;
+      proxy_busy_buffers_size 1m;
       proxy_max_temp_file_size 0;
       # ───── Client Request Buffering ─────
-      client_max_body_size 50m;         
-      client_body_buffer_size 1m;       
+      client_max_body_size 50m;
+      client_body_buffer_size 1m;
       {% else %}
       proxy_buffering off;
       proxy_request_buffering off;

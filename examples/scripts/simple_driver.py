@@ -17,11 +17,12 @@ in your user environment—Python packages are visible inside the container
 because `$HOME` is **not** mounted.
 """
 
-import os
 import json
-import time
+import os
 import pathlib
 import sys
+import time
+
 import requests
 
 endpoint = os.environ.get("ENDPOINT")  # injected by llm_swarm.lb

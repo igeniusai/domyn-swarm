@@ -1,7 +1,9 @@
 from pathlib import Path
+
+from rich import print as rprint
+
 from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
 from examples.scripts.custom_job import MyCustomSwarmJob
-from rich import print as rprint
 
 config_path = Path("examples/configs/deepseek_r1_distill.yaml")
 input_path = Path("examples/data/completion.parquet")

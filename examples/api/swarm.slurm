@@ -20,4 +20,3 @@ source .venv/bin/activate
 # Make sure to adjust the path to your script accordingly.
 # If you have a specific Python environment, activate it before running the script.
 python -u /leonardo_scratch/fast/iGen_train/fdambro1/domyn-swarm/swarm_launch.py
-

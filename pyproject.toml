@@ -74,7 +74,7 @@ exclude = [
     "src/domyn_swarm/jobs/chat_completion.py",
     "src/domyn_swarm/utils/env_path.py",
 ]
-ignore = ["tests"]
+ignore = ["tests", "examples"]
 defineConstant = { DEBUG = true }
 stubPath = "src/stubs"
 
@@ -82,3 +82,5 @@ reportMissingImports = "error"
 reportMissingTypeStubs = false
 
 pythonPlatform = "Linux"
+venvPath = "."
+venv = ".venv"
