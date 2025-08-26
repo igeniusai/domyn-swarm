@@ -97,7 +97,7 @@ function start_vllm_replica() {
 
   srun -n1 -N1 --gres=gpu:{{ cfg.gpus_per_replica }} {% if cfg.replicas_per_node > cfg.gpus_per_node %}--overlap{% endif %} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
-     singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs "$VLLM_IMAGE" \
+     singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.vllm_args %}
      --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min  }} \
@@ -188,7 +188,7 @@ export NCCL_CUMEM_ENABLE=1
 function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
   echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env
-  
+
   singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
                 --env-file {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env \
                 --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
