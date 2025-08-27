@@ -20,10 +20,11 @@ Sub-classes included:
 
 import abc
 import dataclasses
+import inspect
 import logging
 import os
 import threading
-from typing import Callable
+from typing import Any, Awaitable, Callable
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -204,3 +205,36 @@ class SwarmJob(abc.ABC):
             if isinstance(v, (str, int, float, bool, list, dict, type(None)))
             and k not in {"endpoint", "model", "client", "_callbacks"}
         }
+
+    async def _call_unit(self, item: Any) -> Any:
+        """
+        Bridge: run `transform_items` on a single element and return the single result.
+        Ensures the contract (len(out) == 1).
+        """
+        out = self.transform_items([item])
+        if inspect.isawaitable(out):
+            out = await out
+        if not isinstance(out, list) or len(out) != 1:
+            raise RuntimeError(
+                "transform_items(items) must return a list of the same length as `items`."
+            )
+        return out[0]
+
+    async def transform_items(self, items: list[Any]) -> list[Any]:
+        """Pure transform: items -> results (same order). No I/O or checkpointing."""
+        raise NotImplementedError("Sub-classes must implement `transform_items`.")
+
+    async def transform_streaming(
+        self,
+        items: list[Any],
+        *,
+        on_flush: Callable[[list[int], list[Any]], Awaitable[None]],
+        checkpoint_every: int,
+    ):
+        # Wrap your existing BatchExecutor (fixed per earlier comments)
+        executor = BatchExecutor(self.max_concurrency, checkpoint_every, self.retries)
+        return await executor.run(
+            items,
+            self._call_unit,
+            on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+        )

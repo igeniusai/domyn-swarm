@@ -39,6 +39,9 @@ bench = [
     "datasets>=3.6.0",
     "vllm>=0.9.1",
 ]
+lepton = [
+    "leptonai>=0.26.2",
+]
 
 [project.scripts]
 domyn-swarm = "domyn_swarm.cli:app"

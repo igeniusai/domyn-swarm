@@ -197,7 +197,7 @@ class DomynLLMSwarm(BaseModel):
             • self.lb_node    – host running the LB container
             • self.endpoint   – LB URL (http://host:<lb_port>)
         """
-        self._lb_checker.wait_for_lb()
+        self._lb_checker.wait_for_lb(self.cfg.lb_wait)
 
     def submit_job(
         self,

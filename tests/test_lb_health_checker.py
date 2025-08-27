@@ -11,18 +11,33 @@ class DummyStatus:
         pass
 
 
-@patch("domyn_swarm.core.lb_health_checker.requests.get")
 @patch("domyn_swarm.core.lb_health_checker.subprocess.check_output")
-def test_lb_healthy(mock_check_output, mock_requests, dummy_swarm_lb_health_checker):
+def test_lb_healthy(mock_check_output, dummy_swarm_lb_health_checker):
     dummy_swarm_lb_health_checker._get_lb_node.return_value = "dummy-node"
     checker = LBHealthChecker(dummy_swarm_lb_health_checker)
 
     mock_check_output.return_value = "RUNNING\n"
-    mock_requests.return_value.status_code = 200
 
-    # patch sleep to speed up test
-    with patch("domyn_swarm.core.lb_health_checker.time.sleep"):
-        checker.wait_for_lb()
+    # Fake HTTP and a fake clock so we don't sleep for real
+    http = MagicMock()
+    http.return_value.status_code = 200
+    t = {"v": 0.0}
+
+    def now():
+        return t["v"]
+
+    def fake_sleep(dt):
+        t["v"] += dt
+
+    # Inject new defaults so internal call to _wait_for_http_ready uses our fakes
+    old_kw = LBHealthChecker._wait_for_http_ready.__kwdefaults__ or {}
+    new_kw = {**old_kw, "http_get": http, "now": now, "sleep": fake_sleep}
+
+    with (
+        patch.object(LBHealthChecker._wait_for_http_ready, "__kwdefaults__", new_kw),
+        patch("domyn_swarm.core.lb_health_checker.time.sleep", return_value=None),
+    ):
+        checker.wait_for_lb(1)  # must be > 0 so a probe actually runs
 
     assert dummy_swarm_lb_health_checker.endpoint == "http://dummy-node:8080"
 
@@ -57,10 +72,15 @@ def test_http_ready_sets_endpoint(dummy_swarm_lb_health_checker):
 
     mock_response = MagicMock()
     mock_response.status_code = 200
-    with patch(
-        "domyn_swarm.core.lb_health_checker.requests.get", return_value=mock_response
-    ):
-        checker._wait_for_http_ready(DummyStatus(), MagicMock())
+
+    # Inject http_get and a no-op sleep; use timeout > 0 to allow one probe
+    checker._wait_for_http_ready(
+        DummyStatus(),
+        MagicMock(),
+        1,
+        http_get=lambda url, timeout: mock_response,
+        sleep=lambda _: None,
+    )
 
     assert dummy_swarm_lb_health_checker.endpoint == "http://mock-node:8080"
 
@@ -70,15 +90,17 @@ def test_http_fails_but_does_not_crash(dummy_swarm_lb_health_checker):
     dummy_swarm_lb_health_checker.lb_node = "mock-node"
     dummy_swarm_lb_health_checker.cfg.lb_port = 8080
 
-    with (
-        patch(
-            "domyn_swarm.core.lb_health_checker.requests.get",
-            side_effect=requests.RequestException("fail"),
-        ),
-        patch(
-            "domyn_swarm.core.lb_health_checker.time.sleep",
-            side_effect=RuntimeError("break loop"),
-        ),
-    ):
-        with pytest.raises(RuntimeError, match="break loop"):
-            checker._wait_for_http_ready(DummyStatus(), MagicMock())
+    def failing_get(url, timeout):
+        raise requests.RequestException("fail")
+
+    def raising_sleep(_):
+        raise RuntimeError("break loop")
+
+    with pytest.raises(RuntimeError, match="break loop"):
+        checker._wait_for_http_ready(
+            DummyStatus(),
+            MagicMock(),
+            1,  # > 0 so loop runs and hits our raising sleep
+            http_get=failing_get,
+            sleep=raising_sleep,
+        )
