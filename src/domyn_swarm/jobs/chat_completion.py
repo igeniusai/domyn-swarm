@@ -277,7 +277,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
             # update the index skipping assistant message
             idx = i + 2
         return running
-    
+
 
 class MultiTurnTranslationJob(SwarmJob):
     """
@@ -329,11 +329,9 @@ class MultiTurnTranslationJob(SwarmJob):
     async def _run_translation(
         self, messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-
         running: List[Dict[str, Any]] = []
 
         for i in range(1, len(messages)):
-
             # # skip assistant messages, only translate system/user/tool messages
             # if messages[i]["role"] == "assistant":
             #     continue

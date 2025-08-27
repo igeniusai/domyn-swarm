@@ -5,8 +5,8 @@ from .chat_completion import (
     CompletionJob,
     MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
-    PerplexityMixin,
     MultiTurnTranslationJob,
+    PerplexityMixin,
 )  # noqa: F401
 
 __all__ = [
