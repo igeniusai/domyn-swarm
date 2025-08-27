@@ -84,11 +84,10 @@ def submit_job(
         "-b",
         help="Batch size for processing input DataFrame (default: 32). Deprecated, use --checkpoint-interval instead.",
     ),
-    checkpoint_dir: Path | None = typer.Option(
+    checkpoint_dir: Path = typer.Option(
         ".checkpoints/",
         "--checkpoint-dir",
         "-cd",
-        exists=True,
         help="Directory to store checkpoints (default: .checkpoint/, no checkpoints)",
     ),
     checkpoint_interval: int = typer.Option(
@@ -173,7 +172,6 @@ def submit_job(
                 model=swarm.model,
                 # TODO: deprecated, remove in future versions
                 batch_size=checkpoint_interval,
-                checkpoint_dir=checkpoint_dir,
                 checkpoint_interval=checkpoint_interval,
                 # TODO: deprecated, remove in future versions
                 parallel=max_concurrency,
@@ -191,6 +189,7 @@ def submit_job(
                 limit=limit,
                 detach=detach,
                 mail_user=mail_user,
+                checkpoint_dir=checkpoint_dir,
             )
     elif state is None:
         raise RuntimeError("State is null.")
@@ -204,7 +203,6 @@ def submit_job(
             model=swarm.model,
             # TODO: deprecated, remove in future versions
             batch_size=checkpoint_interval,
-            checkpoint_dir=checkpoint_dir,
             checkpoint_interval=checkpoint_interval,
             # TODO: deprecated, remove in future versions
             parallel=max_concurrency,
@@ -222,4 +220,5 @@ def submit_job(
             limit=limit,
             detach=detach,
             mail_user=mail_user,
+            checkpoint_dir=checkpoint_dir,
         )

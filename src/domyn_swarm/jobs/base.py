@@ -110,7 +110,6 @@ class SwarmJob(abc.ABC):
         self.provider = provider
         self.input_column_name = input_column_name
         self.output_column_name = output_column_name
-        self.checkpoint_dir: Path = Path(checkpoint_dir)
         self.checkpoint_interval = checkpoint_interval
         # TODO: deprecated, remove in future versions
         self.batch_size = batch_size
@@ -144,13 +143,14 @@ class SwarmJob(abc.ABC):
         self,
         df: pd.DataFrame,
         tag: str,
-        checkpoint_dir: str = ".checkpoints",
+        checkpoint_dir: str | Path = ".checkpoints",
     ) -> pd.DataFrame:
         """
         Run the job end-to-end with checkpointing support.
         """
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        path = self.checkpoint_dir / f"{self.__class__.__name__}_{tag}.parquet"
+        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        path = checkpoint_dir / f"{self.__class__.__name__}_{tag}.parquet"
         manager = CheckpointManager(path, df)
 
         todo_df = manager.filter_todo()

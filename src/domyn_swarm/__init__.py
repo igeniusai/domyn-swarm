@@ -209,6 +209,7 @@ class DomynLLMSwarm(BaseModel):
         detach: bool = False,
         limit: int | None = None,
         mail_user: Optional[str] = None,
+        checkpoint_dir: str | Path = ".checkpoints",
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -318,7 +319,7 @@ class DomynLLMSwarm(BaseModel):
             f"--output-parquet={output_parquet}",
             f"--endpoint={self.endpoint}",
             f"--nthreads={num_threads}",
-            f"--checkpoint-dir={job.checkpoint_dir}",
+            f"--checkpoint-dir={checkpoint_dir}",
             "--job-kwargs",
             job_kwargs,
         ]
