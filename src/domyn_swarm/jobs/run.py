@@ -74,9 +74,7 @@ def run_swarm_in_threads(
     def thread_worker(i: int, shard_df: pd.DataFrame):
         async def runner():
             job = job_cls(**job_kwargs)
-            result = await job.run(
-                shard_df, tag=f"{tag}_shard{i}", checkpoint_dir=str(checkpoint_dir)
-            )
+            result = await job.run(shard_df, tag=f"{tag}_shard{i}")
             results[i] = result
 
         asyncio.run(runner())
@@ -170,7 +168,9 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     df_in = load_dataframe(in_path, limit=args.limit)
 
     if args.nthreads <= 1:
-        df_out: pd.DataFrame = await job.run(df_in, tag)
+        df_out: pd.DataFrame = await job.run(
+            df_in, tag, checkpoint_dir=args.checkpoint_dir
+        )
     else:
         logger.info(
             f"[bold green]Running job in multithreaded mode (num_threads={args.nthreads})"
@@ -181,6 +181,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
             job_kwargs=job_kwargs,
             tag=tag,
             num_threads=args.nthreads,
+            checkpoint_dir=args.checkpoint_dir,
         )
 
     logger.info(f"[bold green]Saving output dataset to {out_path}")

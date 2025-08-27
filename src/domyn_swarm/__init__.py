@@ -318,6 +318,7 @@ class DomynLLMSwarm(BaseModel):
             f"--output-parquet={output_parquet}",
             f"--endpoint={self.endpoint}",
             f"--nthreads={num_threads}",
+            f"--checkpoint-dir={job.checkpoint_dir}",
             "--job-kwargs",
             job_kwargs,
         ]
