@@ -23,6 +23,7 @@ import dataclasses
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import Callable
 
 import pandas as pd
@@ -54,6 +55,7 @@ class SwarmJob(abc.ABC):
         provider: str = "openai",
         input_column_name: str = "messages",
         output_column_name: str | list = "result",
+        checkpoint_dir: Path | str = ".checkpoints/",
         checkpoint_interval: int = 16,
         # TODO: deprecated, remove in future versions
         batch_size: int | None = None,
@@ -141,13 +143,14 @@ class SwarmJob(abc.ABC):
         self,
         df: pd.DataFrame,
         tag: str,
-        checkpoint_dir: str = ".checkpoints",
+        checkpoint_dir: str | Path = ".checkpoints",
     ) -> pd.DataFrame:
         """
         Run the job end-to-end with checkpointing support.
         """
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        path = os.path.join(checkpoint_dir, f"{self.__class__.__name__}_{tag}.parquet")
+        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        path = checkpoint_dir / f"{self.__class__.__name__}_{tag}.parquet"
         manager = CheckpointManager(path, df)
 
         todo_df = manager.filter_todo()

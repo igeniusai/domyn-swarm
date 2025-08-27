@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 
 import pandas as pd
 
@@ -8,10 +8,10 @@ class CheckpointManager:
     Saves intermediate results to a specified path and allows recovery of
     unfinished jobs by filtering out already processed rows."""
 
-    def __init__(self, path: str, df: pd.DataFrame):
-        self.path = path
+    def __init__(self, path: Path | str, df: pd.DataFrame):
+        self.path = Path(path)
         self.df = df
-        self.done_df = pd.read_parquet(path) if os.path.exists(path) else pd.DataFrame()
+        self.done_df = pd.read_parquet(path) if self.path.exists() else pd.DataFrame()
         self.done_idx = set(self.done_df.index)
 
     def filter_todo(self) -> pd.DataFrame:

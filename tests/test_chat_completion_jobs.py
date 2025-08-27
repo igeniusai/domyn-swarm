@@ -75,7 +75,7 @@ async def test_chat_completion_job_parse_reasoning(monkeypatch, tmp_path):
 
     assert job_reasoning.output_column_name == ["result", "reasoning_content"]
     results_reasoning = await job_reasoning.run(
-        df, tag="test", checkpoint_dir=tmp_path / "checkpoints"
+        df, tag="test-reasoning", checkpoint_dir=tmp_path / "checkpoints"
     )
     print(results_reasoning)
     assert len(results_reasoning) == 1
