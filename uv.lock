@@ -581,6 +581,7 @@ version = "0.13.1"
 source = { editable = "." }
 dependencies = [
     { name = "blake3" },
+    { name = "fsspec" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "openai" },
@@ -621,6 +622,7 @@ lepton = [
 [package.metadata]
 requires-dist = [
     { name = "blake3", specifier = ">=1.0.5" },
+    { name = "fsspec", specifier = ">=2025.3.0" },
     { name = "huggingface-hub", specifier = ">=0.32.6" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "openai", specifier = ">=1.88.0" },
