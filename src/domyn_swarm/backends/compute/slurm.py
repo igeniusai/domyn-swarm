@@ -1,14 +1,18 @@
 import shlex
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
+
+from rich import print as rprint
+from rich.syntax import Syntax
 
 from domyn_swarm.core.srun_builder import SrunCommandBuilder  # your file/module
+from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 from domyn_swarm.platform.protocols import ComputeBackend, JobHandle, JobStatus
 
 
 @dataclass
-class SlurmCompute(ComputeBackend):  # type: ignore[misc]
+class SlurmComputeBackend(ComputeBackend):  # type: ignore[misc]
     """Compute backend using `srun` inside the LB allocation.
 
     Notes
@@ -19,8 +23,7 @@ class SlurmCompute(ComputeBackend):  # type: ignore[misc]
       `wait()` will join that process.
     """
 
-    # TODO: refine type of cfg
-    cfg: Any
+    cfg: DomynLLMSwarmConfig
     lb_jobid: int
     lb_node: str
 
@@ -40,6 +43,18 @@ class SlurmCompute(ComputeBackend):  # type: ignore[misc]
         if env:
             builder = builder.with_env(dict(env))
         cmd = builder.build([*map(str, command)])
+
+        full_cmd = shlex.join(cmd)
+
+        syntax = Syntax(
+            full_cmd,
+            "bash",
+            line_numbers=False,
+            word_wrap=True,
+            indent_guides=True,
+            padding=1,
+        )
+        rprint(syntax)
 
         if detach:
             proc = subprocess.Popen(

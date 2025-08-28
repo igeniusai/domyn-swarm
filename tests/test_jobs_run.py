@@ -63,7 +63,7 @@ def test_build_job_from_args(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_swarm_in_threads():
     df = pd.DataFrame({"col": [1, 2, 3, 4]})
-    out_df = run_swarm_in_threads(
+    out_df = await run_swarm_in_threads(
         df,
         DummySwarmJob,
         job_kwargs={},

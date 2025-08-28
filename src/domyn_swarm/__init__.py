@@ -1,17 +1,16 @@
 import importlib
 import json
 import logging
-import shlex
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator
-from rich import print as rprint
-from rich.syntax import Syntax
 
 from domyn_swarm import utils
+from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
+from domyn_swarm.backends.serving.slurm import SlurmServingBackend
 from domyn_swarm.helpers.data import (
     generate_swarm_name,
 )
@@ -40,7 +39,7 @@ class DomynLLMSwarm(BaseModel):
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    name: Optional[str] = Field(default_factory=generate_swarm_name)
+    name: str | None = Field(default_factory=generate_swarm_name)
     cfg: DomynLLMSwarmConfig
     jobid: Optional[int] = None  # Slurm job id, set after job submission
     lb_jobid: Optional[int] = None  # LB job id, set after job submission
@@ -76,20 +75,70 @@ class DomynLLMSwarm(BaseModel):
         """
         self.cfg.model = value
 
+    def _ensure_ready(self):
+        if not all([self.jobid, self.lb_jobid, self.lb_node, self.endpoint]):
+            raise RuntimeError(
+                f"Swarm not ready (jobid/lb_jobid/lb_node/endpoint): {self.jobid}/{self.lb_jobid}/{self.lb_node}/{self.endpoint}"
+            )
+
     def model_post_init(self, __context: Any) -> None:
         self._slurm = SlurmDriver(self.cfg)
         self._state_mgr = SwarmStateManager(self)
         self._lb_checker = LBHealthChecker(self)
+        self._serving = SlurmServingBackend(
+            driver=self._slurm, lb_checker=self._lb_checker, cfg=self.cfg
+        )
+
+    # def __enter__(self):
+    #     self._submit_clusters_job()
+    #     self._wait_for_lb_health()
+    #     self._persist()
+    #     return self  # nothing else to expose in Mode B
 
     def __enter__(self):
-        self._submit_clusters_job()
-        self._wait_for_lb_health()
+        # allocate endpoint
+        spec = {
+            "replicas": self.cfg.replicas,
+            "gpus_per_replica": self.cfg.gpus_per_replica,
+        }
+        if not self.name:
+            raise RuntimeError("Name is null.")
+
+        handle = self._serving.create_or_update(self.name, spec)
+
+        self.jobid = handle.meta.get("jobid")
+        self.lb_jobid = handle.meta.get("lb_jobid")
+
+        handle = self._serving.wait_ready(handle, timeout_s=self.cfg.lb_wait)
+        self._serving_handle = handle
+
+        # fill BC fields from handle.meta
+        self.endpoint = handle.url
+        self.lb_node = handle.meta.get("lb_node")
+        self.jobid = handle.meta.get("jobid")
+        self.lb_jobid = handle.meta.get("lb_jobid")
+
+        if not self.lb_jobid:
+            raise RuntimeError("LB Job ID is null.")
+
+        if not self.lb_node:
+            raise RuntimeError("LB Job ID is null.")
+
+        # compute backend now knows where to run
+        self._compute = SlurmComputeBackend(
+            cfg=self.cfg, lb_jobid=self.lb_jobid, lb_node=self.lb_node
+        )
+
         self._persist()
-        return self  # nothing else to expose in Mode B
+        return self
 
     def __exit__(self, exc_type, exc, tb):
-        if self.delete_on_exit:
-            self.cleanup()
+        if self.delete_on_exit and self._serving_handle:
+            self._serving.delete(self._serving_handle)
+
+    # def __exit__(self, exc_type, exc, tb):
+    #     if self.delete_on_exit:
+    #         self.cleanup()
 
     def _submit_replicas(self, job_name: str) -> int:
         return self._slurm.submit_replicas(job_name)
@@ -190,15 +239,6 @@ class DomynLLMSwarm(BaseModel):
 
         return self._slurm.get_node_from_jobid(self.jobid)
 
-    def _wait_for_lb_health(self):
-        """
-        Block until *both* the replica-array **and** the Nginx load-balancer
-        are up and the LB answers HTTP on /v1/models.  Sets
-            • self.lb_node    – host running the LB container
-            • self.endpoint   – LB URL (http://host:<lb_port>)
-        """
-        self._lb_checker.wait_for_lb(self.cfg.lb_wait)
-
     def submit_job(
         self,
         job: SwarmJob,
@@ -271,6 +311,7 @@ class DomynLLMSwarm(BaseModel):
         ...     num_threads=4
         ... )
         """
+        self._ensure_ready()
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)
 
@@ -294,19 +335,8 @@ class DomynLLMSwarm(BaseModel):
         else:
             python_interpreter = sys.executable
 
-        builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
-            {
-                "ENDPOINT": self.endpoint,
-                "MODEL": self.model,
-                "JOB_CLASS": job_class,
-                "JOB_KWARGS": job_kwargs,
-            }
-        )
-
         if mail_user is not None:
             self.cfg.mail_user = mail_user
-        if self.cfg.mail_user is not None:
-            builder = builder.with_mail(self.cfg.mail_user)
 
         exe = [
             str(python_interpreter),
@@ -325,32 +355,23 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             exe.append(f"--limit={limit}")
 
-        cmd = builder.build(exe)
+        env = {
+            "ENDPOINT": self.endpoint,
+            "MODEL": self.model,
+            "JOB_CLASS": job_class,
+            "JOB_KWARGS": job_kwargs,
+        }
 
         logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")
 
-        full_cmd = shlex.join(cmd)
-        syntax = Syntax(
-            full_cmd,
-            "bash",
-            line_numbers=False,
-            word_wrap=True,
-            indent_guides=True,
-            padding=1,
+        job_handle = self._compute.submit(
+            name=f"{self.name}-job", image=None, command=exe, env=env
         )
-        rprint(syntax)
-        if detach:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-                start_new_session=True,
-                close_fds=True,
-            )
-            logger.info(f"Detached process with PID {proc.pid}")
-            return proc.pid
-        else:
-            subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
+
+        if job_handle is None:
+            raise RuntimeError("Failed to submit job to compute backend.")
+
+        return job_handle.meta.get("pid") if detach else None
 
     @classmethod
     def from_state(cls, state_file: Path) -> "DomynLLMSwarm":

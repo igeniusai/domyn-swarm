@@ -7,6 +7,8 @@ import typer
 from rich.console import Console
 from rich.status import Status
 
+from domyn_swarm.platform.protocols import ServingHandle
+
 if TYPE_CHECKING:
     from domyn_swarm import DomynLLMSwarm
 
@@ -30,7 +32,7 @@ class LBHealthChecker:
         except Exception:
             return "UNKNOWN"
 
-    def wait_for_lb(self, timeout_s: int) -> str | None:
+    def wait_for_lb(self, handle: ServingHandle, timeout_s: int) -> str | None:
         """
         Wait for the load balancer and replicas to start.
         This method will block until the LB is healthy or a timeout occurs."""

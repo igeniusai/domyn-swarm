@@ -1,7 +1,7 @@
 import io
 import math
 import os
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import (
@@ -101,6 +101,8 @@ class DomynLLMSwarmConfig(BaseModel):
     mail_user: str | None = None  # Enable email notifications if set
 
     driver: DriverConfig = Field(default_factory=DriverConfig)
+
+    platform: Literal["slurm", "azureml", "lepton"] = "slurm"
 
     def model_post_init(self, context):
         os.makedirs(self.log_directory, exist_ok=True)

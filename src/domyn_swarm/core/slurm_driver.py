@@ -97,8 +97,29 @@ class SlurmDriver:
             ["squeue", "-j", str(jobid), "-h", "-O", "NodeList:2048"],
             text=True,
         ).strip()
-        head_node = subprocess.check_output(
+        nodes = subprocess.check_output(
             ["scontrol", "show", "hostnames", nodespec],
             text=True,
-        ).splitlines()[0]
+        ).splitlines()
+
+        if not nodes:
+            raise RuntimeError(f"Could not find nodes for job ID {jobid}")
+        head_node = nodes[0]
+        logger.info(f"Job ID {jobid} is running on head node {head_node}")
+
         return head_node
+
+    def get_job_state(self, jobid: int) -> str:
+        """Return Slurm job state (e.g., RUNNING, PENDING, FAILED, CANCELLED, TIMEOUT, UNKNOWN)."""
+        try:
+            out = subprocess.check_output(
+                ["squeue", "-j", str(jobid), "-h", "-o", "%T"], text=True
+            ).strip()
+            if out:
+                state = out.split()[0]
+                if state == "State":
+                    return "UNKNOWN"
+                return state
+            return "UNKNOWN"
+        except Exception:
+            return "UNKNOWN"

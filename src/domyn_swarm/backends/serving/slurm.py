@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from typing import Optional
 
+from domyn_swarm.backends.serving.slurm_readiness import SlurmReadiness
 from domyn_swarm.core.lb_health_checker import LBHealthChecker
 from domyn_swarm.core.slurm_driver import SlurmDriver
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
@@ -7,7 +9,7 @@ from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
 
 
 @dataclass
-class SlurmServing(ServingBackend):  # type: ignore[misc]
+class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
     """Adapt your existing Slurm flow into the ServingBackend protocol.
 
     * create_or_update -> submit replicas + LB job
@@ -24,18 +26,17 @@ class SlurmServing(ServingBackend):  # type: ignore[misc]
     driver: SlurmDriver
     lb_checker: LBHealthChecker
     cfg: DomynLLMSwarmConfig
+    readiness: Optional[SlurmReadiness] = None
 
     def create_or_update(self, name: str, spec: dict) -> ServingHandle:
         jobid = self.driver.submit_replicas(name)
         lb_jobid = self.driver.submit_lb(name, jobid)
-        lb_node = self.driver.get_node_from_jobid(lb_jobid)
         return ServingHandle(
             id=str(lb_jobid),
             url="",  # filled in wait_ready()
             meta={
                 "jobid": jobid,
                 "lb_jobid": lb_jobid,
-                "lb_node": lb_node,
                 "port": self.cfg.lb_port,
                 "name": name,
             },
@@ -43,11 +44,19 @@ class SlurmServing(ServingBackend):  # type: ignore[misc]
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
         # Delegate to your health checker which sets endpoint when LB is alive
-        endpoint = self.lb_checker.wait_for_lb(timeout_s)
-        if endpoint is None:
-            raise RuntimeError("Failed to get endpoint from LBHealthChecker")
-        handle.url = endpoint
-        return handle
+        probe = self.readiness or SlurmReadiness(
+            driver=self.driver,
+            lb_port=self.cfg.lb_port,
+            poll_interval_s=self.cfg.poll_interval,
+        )
+        return probe.wait_ready(handle, timeout_s)
+
+        # endpoint = self.lb_checker.wait_for_lb(handle, timeout_s)
+        # if endpoint is None:
+        #     raise RuntimeError("Failed to get endpoint from LBHealthChecker")
+        # handle.meta["lb_node"] = self.lb_checker.swarm.lb_node
+        # handle.url = endpoint
+        # return handle
 
     def delete(self, handle: ServingHandle) -> None:
         import subprocess
