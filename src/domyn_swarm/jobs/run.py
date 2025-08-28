@@ -95,7 +95,7 @@ async def run_swarm_in_threads(
         async def runner():
             job = job_cls(**job_kwargs)
             result = await job.run(
-                shard_df, tag=f"{tag}_shard{i}", checkpoint_dir=str(checkpoint_dir)
+                shard_df, tag=f"{tag}_shard{i}", checkpoint_dir=checkpoint_dir
             )
             results[i] = result
 

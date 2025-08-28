@@ -75,7 +75,7 @@ def submit_job(
         "--state",
         exists=True,
         click_type=utils.ClickEnvPath(),
-        help="swarm_*.json of a running swarm",
+        help="Path toswarm_*.json of a running swarm",
     ),
     # TODO: deprecated, remove in future versions
     batch_size: int | None = typer.Option(
@@ -83,6 +83,12 @@ def submit_job(
         "--batch-size",
         "-b",
         help="Batch size for processing input DataFrame (default: 32). Deprecated, use --checkpoint-interval instead.",
+    ),
+    checkpoint_dir: Path = typer.Option(
+        ".checkpoints/",
+        "--checkpoint-dir",
+        "-cd",
+        help="Directory to store checkpoints (default: .checkpoint/, no checkpoints)",
     ),
     checkpoint_interval: int = typer.Option(
         32,
@@ -183,6 +189,7 @@ def submit_job(
                 limit=limit,
                 detach=detach,
                 mail_user=mail_user,
+                checkpoint_dir=checkpoint_dir,
             )
     elif state is None:
         raise RuntimeError("State is null.")
@@ -213,4 +220,5 @@ def submit_job(
             limit=limit,
             detach=detach,
             mail_user=mail_user,
+            checkpoint_dir=checkpoint_dir,
         )
