@@ -108,6 +108,7 @@ class DomynLLMSwarm(BaseModel):
 
         self.jobid = handle.meta.get("jobid")
         self.lb_jobid = handle.meta.get("lb_jobid")
+        self._persist()
 
         handle = self._serving.wait_ready(handle, timeout_s=self.cfg.lb_wait)
         self._serving_handle = handle
