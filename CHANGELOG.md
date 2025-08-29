@@ -1,3 +1,19 @@
+## v0.14.0 (2025-08-29)
+
+### Feat
+
+- **cli**: add --checkpoint-dir to CLI
+
+### Fix
+
+- revert vllm_use_v1 to 0
+- fix issue with checkpoint dir not being propagated correctly
+- **tests**: fix tests for chat completion job
+
+### Refactor
+
+- fix pre-commit hooks execution
+
 ## v0.13.1 (2025-08-26)
 
 ### Refactor
