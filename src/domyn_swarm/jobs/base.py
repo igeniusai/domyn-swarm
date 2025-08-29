@@ -48,6 +48,8 @@ class SwarmJob(abc.ABC):
     - Uses a pluggable LLM client (OpenAI, etc.) via a factory.
     """
 
+    api_version: int = 1
+
     def __init__(
         self,
         *,

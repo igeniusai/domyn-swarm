@@ -55,7 +55,7 @@ class JobHandle:
 
 @runtime_checkable
 class ServingBackend(Protocol):
-    """Create/update/delete a serving endpoint (NOT a cluster).
+    """Create/update/delete a serving endpoint.
 
     This represents the "Create an endpoint" half of the user's target model.
     """

@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from domyn_swarm.backends.serving.slurm_readiness import SlurmReadiness
-from domyn_swarm.core.lb_health_checker import LBHealthChecker
 from domyn_swarm.core.slurm_driver import SlurmDriver
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
@@ -24,7 +23,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
     """
 
     driver: SlurmDriver
-    lb_checker: LBHealthChecker
     cfg: DomynLLMSwarmConfig
     readiness: Optional[SlurmReadiness] = None
 
@@ -50,13 +48,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             poll_interval_s=self.cfg.poll_interval,
         )
         return probe.wait_ready(handle, timeout_s)
-
-        # endpoint = self.lb_checker.wait_for_lb(handle, timeout_s)
-        # if endpoint is None:
-        #     raise RuntimeError("Failed to get endpoint from LBHealthChecker")
-        # handle.meta["lb_node"] = self.lb_checker.swarm.lb_node
-        # handle.url = endpoint
-        # return handle
 
     def delete(self, handle: ServingHandle) -> None:
         import subprocess

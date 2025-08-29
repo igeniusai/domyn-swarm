@@ -77,13 +77,6 @@ def submit_job(
         click_type=utils.ClickEnvPath(),
         help="Path toswarm_*.json of a running swarm",
     ),
-    # TODO: deprecated, remove in future versions
-    batch_size: int | None = typer.Option(
-        None,
-        "--batch-size",
-        "-b",
-        help="Batch size for processing input DataFrame (default: 32). Deprecated, use --checkpoint-interval instead.",
-    ),
     checkpoint_dir: Path = typer.Option(
         ".checkpoints/",
         "--checkpoint-dir",
@@ -95,13 +88,6 @@ def submit_job(
         "--checkpoint-interval",
         "-ci",
         help="Batch size for processing input DataFrame (default: 32)",
-    ),
-    # TODO: deprecated, remove in future versions
-    parallel: int | None = typer.Option(
-        None,
-        "--parallel",
-        "-p",
-        help="Number of concurrent requests to process (default: 32). Deprecated, use --max-concurrent-requests instead.",
     ),
     max_concurrency: int = typer.Option(
         32,
@@ -150,47 +136,46 @@ def submit_job(
         logger.error("Either --config or --state must be provided, not both.")
         raise typer.Exit(1)
 
-    if parallel is not None:
-        logger.warning(
-            "The --parallel option is deprecated. Use --max-concurrency instead."
-        )
-        max_concurrency = parallel
-
-    if batch_size is not None:
-        logger.warning(
-            "The --batch-size option is deprecated. Use --checkpoint-interval instead."
-        )
-        checkpoint_interval = batch_size
-
     if config:
         cfg = _load_swarm_config(config)
-        with DomynLLMSwarm(cfg=cfg) as swarm:
-            job = _load_job(
-                job_class,
-                job_kwargs,
-                endpoint=swarm.endpoint,
-                model=swarm.model,
-                # TODO: deprecated, remove in future versions
-                batch_size=checkpoint_interval,
-                checkpoint_interval=checkpoint_interval,
-                # TODO: deprecated, remove in future versions
-                parallel=max_concurrency,
-                max_concurrency=max_concurrency,
-                retries=retries,
-                timeout=timeout,
-                input_column_name=input_column,
-                output_column_name=output_column,
+        swarm_ctx = DomynLLMSwarm(cfg=cfg)
+        try:
+            with swarm_ctx as swarm:
+                job = _load_job(
+                    job_class,
+                    job_kwargs,
+                    endpoint=swarm.endpoint,
+                    model=swarm.model,
+                    checkpoint_interval=checkpoint_interval,
+                    max_concurrency=max_concurrency,
+                    retries=retries,
+                    timeout=timeout,
+                    input_column_name=input_column,
+                    output_column_name=output_column,
+                )
+                swarm.submit_job(
+                    job,
+                    input_path=input,
+                    output_path=output,
+                    num_threads=num_threads,
+                    limit=limit,
+                    detach=detach,
+                    mail_user=mail_user,
+                    checkpoint_dir=checkpoint_dir,
+                )
+        except KeyboardInterrupt:
+            abort = typer.confirm(
+                "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
             )
-            swarm.submit_job(
-                job,
-                input_path=input,
-                output_path=output,
-                num_threads=num_threads,
-                limit=limit,
-                detach=detach,
-                mail_user=mail_user,
-                checkpoint_dir=checkpoint_dir,
-            )
+            if abort:
+                try:
+                    swarm_ctx.cleanup()
+                except Exception:
+                    pass
+                typer.echo("Swarm allocation cancelled by user")
+                raise typer.Abort()
+            else:
+                typer.echo("Continuing to wait for job to complete …")
     elif state is None:
         raise RuntimeError("State is null.")
 
@@ -201,11 +186,7 @@ def submit_job(
             job_kwargs,
             endpoint=swarm.endpoint,
             model=swarm.model,
-            # TODO: deprecated, remove in future versions
-            batch_size=checkpoint_interval,
             checkpoint_interval=checkpoint_interval,
-            # TODO: deprecated, remove in future versions
-            parallel=max_concurrency,
             max_concurrency=max_concurrency,
             retries=retries,
             timeout=timeout,

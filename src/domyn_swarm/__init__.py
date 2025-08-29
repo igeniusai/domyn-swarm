@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_val
 from domyn_swarm import utils
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.backends.serving.slurm import SlurmServingBackend
+from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.data import (
     generate_swarm_name,
 )
@@ -19,7 +20,6 @@ from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
-from .core.lb_health_checker import LBHealthChecker
 from .core.slurm_driver import SlurmDriver
 from .core.srun_builder import SrunCommandBuilder
 from .core.state import SwarmStateManager
@@ -84,10 +84,8 @@ class DomynLLMSwarm(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         self._slurm = SlurmDriver(self.cfg)
         self._state_mgr = SwarmStateManager(self)
-        self._lb_checker = LBHealthChecker(self)
-        self._serving = SlurmServingBackend(
-            driver=self._slurm, lb_checker=self._lb_checker, cfg=self.cfg
-        )
+        self._serving = SlurmServingBackend(driver=self._slurm, cfg=self.cfg)
+        self._deployment = Deployment(serving=self._serving)
 
     # def __enter__(self):
     #     self._submit_clusters_job()
@@ -104,20 +102,15 @@ class DomynLLMSwarm(BaseModel):
         if not self.name:
             raise RuntimeError("Name is null.")
 
-        handle = self._serving.create_or_update(self.name, spec)
-
-        self.jobid = handle.meta.get("jobid")
-        self.lb_jobid = handle.meta.get("lb_jobid")
-        self._persist()
-
-        handle = self._serving.wait_ready(handle, timeout_s=self.cfg.lb_wait)
+        handle = self._deployment.up(self.name, spec, timeout_s=self.cfg.lb_wait)
         self._serving_handle = handle
 
-        # fill BC fields from handle.meta
-        self.endpoint = handle.url
-        self.lb_node = handle.meta.get("lb_node")
         self.jobid = handle.meta.get("jobid")
         self.lb_jobid = handle.meta.get("lb_jobid")
+        self.endpoint = handle.url
+        self.lb_node = handle.meta.get("lb_node")
+
+        self._persist()
 
         if not self.lb_jobid:
             raise RuntimeError("LB Job ID is null.")
@@ -126,7 +119,7 @@ class DomynLLMSwarm(BaseModel):
             raise RuntimeError("LB Job ID is null.")
 
         # compute backend now knows where to run
-        self._compute = SlurmComputeBackend(
+        self._deployment.compute = SlurmComputeBackend(
             cfg=self.cfg, lb_jobid=self.lb_jobid, lb_node=self.lb_node
         )
 
@@ -134,8 +127,8 @@ class DomynLLMSwarm(BaseModel):
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        if self.delete_on_exit and self._serving_handle:
-            self._serving.delete(self._serving_handle)
+        if self.delete_on_exit:
+            self.cleanup()
 
     # def __exit__(self, exc_type, exc, tb):
     #     if self.delete_on_exit:
@@ -214,19 +207,6 @@ class DomynLLMSwarm(BaseModel):
 
     def _persist(self):
         self._state_mgr.save()
-
-    def _submit_clusters_job(self):
-        if self.name is None:
-            raise RuntimeError("Name is null.")
-
-        job_name = self.name
-        self.jobid = self._submit_replicas(job_name)
-        logger.info(
-            f"Submitted Slurm job {self.jobid} with {self.cfg.replicas} replicas"
-        )
-        self.lb_jobid = self._submit_lb(job_name)
-        logger.info(f"Submitted LB job for {self.lb_jobid}")
-        self._persist()
 
     def _get_lb_node(self) -> str:
         if self.lb_jobid is None:
@@ -367,7 +347,7 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(f"Submitting job {job.__class__.__name__} to swarm {self.jobid}:")
 
-        job_handle = self._compute.submit(
+        job_handle = self._deployment.run(
             name=f"{self.name}-job", image=None, command=exe, env=env
         )
 
@@ -404,8 +384,9 @@ class DomynLLMSwarm(BaseModel):
         return self
 
     def cleanup(self):
-        subprocess.run(["scancel", str(self.jobid)], check=False)
-        subprocess.run(["scancel", str(self.lb_jobid)], check=False)
+        if self._deployment and self._serving_handle:
+            self._deployment.down(self._serving_handle)
+        # preserve your logs + flag
         logger.info(f"scancel {self.jobid} and {self.lb_jobid} requested")
         self._cleaned = True
 

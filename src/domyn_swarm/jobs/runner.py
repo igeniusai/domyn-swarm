@@ -60,10 +60,11 @@ class JobRunner:
         items = todo[input_col].tolist()
 
         async def _on_flush(local_indices: list[int], local_outputs: list[Any]):
+            batch_ids = [ids[i] for i in local_indices]
             await self.store.flush(
                 FlushBatch(
-                    ids=[ids[i] for i in local_indices],
-                    rows=[local_outputs[i] for i in local_indices],
+                    ids=batch_ids,
+                    rows=local_outputs,
                 ),
                 output_cols=output_cols,
             )

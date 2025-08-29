@@ -1,5 +1,6 @@
 import asyncio
-from typing import Any, Callable, List, Optional
+import warnings
+from typing import Any, Callable, List, Optional, Type
 
 import numpy as np
 import pandas as pd
@@ -10,11 +11,38 @@ from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
 
 
 def _has_new_api(job: SwarmJob) -> bool:
-    return hasattr(job, "transform_streaming") and callable(job.transform_streaming)
+    return resolve_job_api(job) == "new"
 
 
 def _has_old_api(job: SwarmJob) -> bool:
-    return hasattr(job, "run") and callable(job.run)
+    return resolve_job_api(job) == "old"
+
+
+def _is_overridden(obj: object, method: str, base: Type) -> bool:
+    """
+    True iff `method` is implemented by `type(obj)` (or an intermediate base),
+    not by `base` itself.
+    """
+    cls = type(obj)
+    for c in cls.mro():
+        if method in c.__dict__:
+            return c is not base  # first definition found is not the base → overridden
+    return False  # method not found at all (shouldn't happen here)
+
+
+def resolve_job_api(job: SwarmJob) -> str:
+    if getattr(type(job), "api_version", 1) >= 2:
+        return "new"
+    # fallback to override-based inference for older subclasses
+    if _is_overridden(job, "transform_items", SwarmJob) or _is_overridden(
+        job, "transform_streaming", SwarmJob
+    ):
+        return "new"
+    if _is_overridden(job, "transform", SwarmJob) or _is_overridden(
+        job, "run", SwarmJob
+    ):
+        return "old"
+    return "old"
 
 
 async def run_job_unified(
@@ -59,6 +87,11 @@ async def run_job_unified(
         raise TypeError(
             "Job must implement either the new streaming API or legacy run(df, ...) API"
         )
+
+    warnings.warn(
+        "Using legacy job API (run/transform). Consider upgrading to the new streaming API (transform_items/transform_streaming).",
+        DeprecationWarning,
+    )
 
     if nshards <= 1:
         return await job_probe.run(df, tag=tag or "run", checkpoint_dir=checkpoint_dir)

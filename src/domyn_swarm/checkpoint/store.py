@@ -55,6 +55,7 @@ class ParquetShardStore(CheckpointStore):
                 "Install fsspec and relevant filesystem extras (s3fs, gcsfs, adlfs, ...) to use ParquetShardStore"
             )
         self.fs, _ = fsspec.core.url_to_fs(self.dir_uri)
+        self.fs.mkdirs(self.dir_uri, exist_ok=True)
         self.id_col = "_row_id"
         self.done_ids: set[Any] = set()
 

@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
+
 if TYPE_CHECKING:
     from domyn_swarm import DomynLLMSwarm
 
@@ -38,6 +40,7 @@ class SwarmStateManager:
 
         jobid = state.get("jobid")
         lb_jobid = state.get("lb_jobid")
+        lb_node = state.get("lb_node")
         if jobid is None or lb_jobid is None:
             raise ValueError("State file does not contain valid job IDs")
 
@@ -47,8 +50,11 @@ class SwarmStateManager:
             cfg=cfg,
             jobid=jobid,
             lb_jobid=lb_jobid,
-            lb_node=state.get("lb_node"),
+            lb_node=lb_node,
             endpoint=state.get("endpoint"),
+        )
+        swarm._deployment.compute = SlurmComputeBackend(
+            cfg=cfg, lb_jobid=lb_jobid, lb_node=lb_node
         )
 
         return swarm

@@ -25,13 +25,15 @@ class Deployment:
     """
 
     serving: ServingBackend
-    compute: ComputeBackend
+    compute: ComputeBackend = None  # type: ignore[assignment]
 
     _handle: Optional[ServingHandle] = None
 
     def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
+        """Create and wait for a serving endpoint to be ready."""
         handle = self.serving.create_or_update(name, serving_spec)
         handle = self.serving.wait_ready(handle, timeout_s)
+        self._handle = handle
         return handle
 
     def run(
@@ -46,6 +48,7 @@ class Deployment:
         nshards: Optional[int] = None,
         shard_id: Optional[int] = None,
     ) -> JobHandle:
+        """Submit a job to the compute backend that targets the serving endpoint."""
         return self.compute.submit(
             name=name,
             image=image,
@@ -58,6 +61,7 @@ class Deployment:
         )
 
     def down(self, handle: ServingHandle) -> None:
+        """Delete the serving endpoint."""
         self.serving.delete(handle)
 
     # --- Context manager sugar ------------------------------------------------

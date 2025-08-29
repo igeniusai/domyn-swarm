@@ -38,9 +38,7 @@ class CompletionJob(SwarmJob):
             model=model,
             input_column_name=input_column_name,
             output_column_name=output_column_name,
-            batch_size=batch_size,
             checkpoint_interval=checkpoint_interval,
-            parallel=parallel,
             max_concurrency=max_concurrency,
             retries=retries,
             timeout=timeout,
@@ -66,6 +64,8 @@ class ChatCompletionJob(SwarmJob):
     Input DF must have column `messages` (list of dicts).
     Output DF gets `answer`.
     """
+
+    api_version = 2
 
     def __init__(self, *, parse_reasoning: bool | None = None, **kwargs):
         explicit = parse_reasoning
@@ -97,6 +97,28 @@ class ChatCompletionJob(SwarmJob):
         await self.batched(
             [messages for messages in df[self.input_column_name].tolist()], _call
         )
+
+    async def transform_items(
+        self, items: list[list[ChatCompletionMessageParam]]
+    ) -> list[Any]:
+        outs = []
+        for msgs in items:
+            resp = await self.client.chat.completions.create(
+                model=self.model, messages=msgs, extra_body=self.kwargs
+            )
+            choice = resp.choices[0]
+            if self.parse_reasoning:
+                outs.append(
+                    {
+                        "result": choice.message.content,
+                        "reasoning_content": getattr(
+                            choice.message, "reasoning_content", None
+                        ),
+                    }
+                )
+            else:
+                outs.append({"result": choice.message.content})
+        return outs
 
 
 class MultiChatCompletionJob(SwarmJob):
@@ -166,9 +188,7 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
             model=model,
             input_column_name=input_column_name,
             output_column_name=output_column_name,
-            batch_size=batch_size,
             checkpoint_interval=checkpoint_interval,
-            parallel=parallel,
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
@@ -226,9 +246,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
             model=model,
             input_column_name=input_column_name,
             output_column_name=output_column_name,
-            batch_size=batch_size,
             checkpoint_interval=checkpoint_interval,
-            parallel=parallel,
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
@@ -309,9 +327,7 @@ class MultiTurnTranslationJob(SwarmJob):
             model=model,
             input_column_name=input_column_name,
             output_column_name=output_column_name,
-            batch_size=batch_size,
             checkpoint_interval=checkpoint_interval,
-            parallel=parallel,
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
