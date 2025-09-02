@@ -613,6 +613,11 @@ dependencies = [
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+lepton = [
+    { name = "leptonai" },
+]
+
 [package.dev-dependencies]
 bench = [
     { name = "datasets" },
@@ -632,9 +637,6 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
-lepton = [
-    { name = "leptonai" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -642,6 +644,7 @@ requires-dist = [
     { name = "fsspec", specifier = ">=2025.3.0" },
     { name = "huggingface-hub", specifier = ">=0.32.6" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "leptonai", marker = "extra == 'lepton'", specifier = ">=0.26.2" },
     { name = "openai", specifier = ">=1.88.0" },
     { name = "pandas", specifier = ">=1.5.3" },
     { name = "polars", specifier = ">=1.31.0" },
@@ -653,6 +656,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=9.1.2" },
     { name = "typer", specifier = ">=0.16.0" },
 ]
+provides-extras = ["lepton"]
 
 [package.metadata.requires-dev]
 bench = [
@@ -673,7 +677,6 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.11.13" },
 ]
-lepton = [{ name = "leptonai", specifier = ">=0.26.2" }]
 
 [[package]]
 name = "einops"
