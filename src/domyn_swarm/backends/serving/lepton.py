@@ -3,19 +3,17 @@ from typing import Optional
 
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import (
-    LeptonContainer,
     LeptonDeployment,
     LeptonDeploymentState,
     LeptonDeploymentStatus,
     LeptonDeploymentUserSpec,
-    ResourceRequirement,
 )
 
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
 
 
 @dataclass
-class LeptonServing(ServingBackend):  # type: ignore[misc]
+class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     """DGX Cloud Lepton endpoint backend via leptonai Python SDK.
 
     Docs (Aug 2025):
@@ -58,28 +56,17 @@ class LeptonServing(ServingBackend):  # type: ignore[misc]
         If the deployment already exists, it will be updated with the new spec.
         """
         client = self._client()
-        container = LeptonContainer(
-            image=spec.get("image"),
-            command=None,
-        )
-        deployment_spec = LeptonDeploymentUserSpec(
-            container=container,
-            envs=spec.get("env", {}),
-            resource_requirement=ResourceRequirement(
-                resource_shape=spec.get("resource_shape"),
-                min_replicas=spec.get("replicas", 1),
-                max_replicas=spec.get("replicas", 1),
-            ),
-        )
 
         dep = LeptonDeployment(
-            metadata=Metadata(id=name),
-            spec=deployment_spec,
+            metadata=Metadata(name=name),
+            spec=LeptonDeploymentUserSpec.model_validate(spec),
         )
+
         request_success = client.deployment.create(dep)
+
         if not request_success:
             raise RuntimeError(f"Failed to create Lepton deployment {name}")
-        deployed: LeptonDeployment = client.deployment.get(dep)
+        deployed: LeptonDeployment = client.deployment.get(name)
         url = (
             deployed.status.endpoint.internal_endpoint
             if deployed.status and deployed.status.endpoint

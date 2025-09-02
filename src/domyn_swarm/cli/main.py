@@ -1,5 +1,4 @@
 import logging
-import subprocess
 from importlib import metadata
 from typing import Optional
 
@@ -82,8 +81,16 @@ def launch_up(
             help="Number of replicas for the swarm allocation. Defaults to 1.",
         ),
     ] = None,
+    platform: Annotated[
+        str,
+        typer.Option(
+            "--platform",
+            "-p",
+            help="Platform to use for the swarm allocation. E.g., 'slurm', 'lepton'. Defaults to 'slurm'.",
+        ),
+    ] = "slurm",
 ):
-    cfg = _load_swarm_config(config, replicas=replicas)
+    cfg = _load_swarm_config(config, replicas=replicas, platform=platform)
     _start_swarm(name, cfg, reverse_proxy=reverse_proxy)
 
 
@@ -167,16 +174,8 @@ def down(
     ),
 ):
     swarm = DomynLLMSwarm.model_validate_json(state_file.read())  # validate the file
-    lb = swarm.lb_jobid
-    arr = swarm.jobid
-
-    console.print(f"🔴  Cancelling LB  job {lb}")
-    subprocess.run(["scancel", str(lb)], check=False)
-
-    console.print(f"🔴  Cancelling array job {arr}")
-    subprocess.run(["scancel", str(arr)], check=False)
-
-    typer.echo("✅  Swarm shutdown request sent.")
+    swarm.down()
+    typer.echo("✅ Swarm shutdown request sent.")
 
 
 if __name__ == "__main__":

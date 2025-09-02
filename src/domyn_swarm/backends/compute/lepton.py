@@ -14,7 +14,7 @@ from domyn_swarm.platform.protocols import ComputeBackend, JobHandle, JobStatus
 
 
 @dataclass
-class LeptonCompute(ComputeBackend):  # type: ignore[misc]
+class LeptonComputeBackend(ComputeBackend):  # type: ignore[misc]
     """DGX Cloud Lepton batch job backend via leptonai Python SDK.
 
     Docs (Aug 2025): https://docs.nvidia.com/dgx-cloud/lepton/reference/api/
@@ -81,7 +81,7 @@ class LeptonCompute(ComputeBackend):  # type: ignore[misc]
             parallelism=res.get("parallelism", 1),
             envs=[EnvVar(name=k, value=v) for k, v in (env or {}).items()],
         )
-        job = LeptonJob(spec=spec, metadata=Metadata(id=name))
+        job = LeptonJob(spec=spec, metadata=Metadata(name=name))
         created = client.job.create(job)
         job_id = created.metadata.id_ if created and created.metadata else None
         if not job_id:

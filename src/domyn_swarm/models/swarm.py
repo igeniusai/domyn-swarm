@@ -1,7 +1,7 @@
 import io
 import math
 import os
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 from pydantic import (
@@ -15,7 +15,8 @@ from rich import print as rprint
 
 from domyn_swarm import utils
 from domyn_swarm.helpers.io import is_folder, path_exists, to_path
-from domyn_swarm.models.driver import DriverConfig
+from domyn_swarm.models.driver import DriverConfig, SlurmConfig
+from domyn_swarm.models.lepton import LeptonConfig
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -102,11 +103,16 @@ class DomynLLMSwarmConfig(BaseModel):
 
     driver: DriverConfig = Field(default_factory=DriverConfig)
 
-    platform: Literal["slurm", "azureml", "lepton"] = "slurm"
+    platform: str = "slurm"
+    lepton: LeptonConfig | None = None
+    slurm: SlurmConfig | None = None
+
+    env: dict[str, str] | None = None
 
     def model_post_init(self, context):
-        os.makedirs(self.log_directory, exist_ok=True)
-        os.makedirs(self.home_directory, exist_ok=True)
+        if self.platform == "slurm":
+            os.makedirs(self.log_directory, exist_ok=True)
+            os.makedirs(self.home_directory, exist_ok=True)
         return super().model_post_init(context)
 
     @classmethod
@@ -172,7 +178,10 @@ class DomynLLMSwarmConfig(BaseModel):
 
 
 def _load_swarm_config(
-    config_file: io.TextIOWrapper, *, replicas: int | None = None
+    config_file: io.TextIOWrapper,
+    *,
+    replicas: int | None = None,
+    platform: str | None = "slurm",
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)
@@ -180,4 +189,6 @@ def _load_swarm_config(
     # override default only if user passed something truthy
     if replicas:
         cfg.replicas = replicas
+    if platform:
+        cfg.platform = platform
     return cfg
