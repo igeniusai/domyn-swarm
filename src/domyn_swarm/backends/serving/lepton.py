@@ -59,20 +59,28 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
 
         dep = LeptonDeployment(
             metadata=Metadata(name=name),
-            spec=LeptonDeploymentUserSpec.model_validate(spec),
+            spec=LeptonDeploymentUserSpec.model_validate(spec, by_alias=True),
         )
 
-        request_success = client.deployment.create(dep)
-
+        request_success = client.deployment.create(dep)  # type: ignore
         if not request_success:
             raise RuntimeError(f"Failed to create Lepton deployment {name}")
         deployed: LeptonDeployment = client.deployment.get(name)
+
         url = (
-            deployed.status.endpoint.internal_endpoint
+            deployed.status.endpoint.external_endpoint
             if deployed.status and deployed.status.endpoint
             else ""
         )
-        return ServingHandle(id=name, url=url, meta={"raw": deployed, "name": name})
+
+        token = (
+            dep.spec.api_tokens[0].value
+            if dep.spec and dep.spec.api_tokens and len(dep.spec.api_tokens) > 0
+            else None
+        )
+        return ServingHandle(
+            id=name, url=url, meta={"raw": deployed, "name": name, "token": token}
+        )
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
         import time

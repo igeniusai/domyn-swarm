@@ -185,7 +185,7 @@ def _load_swarm_config(
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)
-    cfg = DomynLLMSwarmConfig(**cfg_dict)
+    cfg = DomynLLMSwarmConfig.model_validate(cfg_dict)
     # override default only if user passed something truthy
     if replicas:
         cfg.replicas = replicas

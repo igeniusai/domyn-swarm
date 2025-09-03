@@ -129,6 +129,7 @@ class SwarmJob(abc.ABC):
             organization="-",
             project="-",
             timeout=timeout,
+            default_headers={"Authorization": f"Bearer {os.getenv('API_TOKEN', '')}"},
             **(client_kwargs or {}),
         )
         self._callbacks: dict[str, Callable] = {}

@@ -128,6 +128,9 @@ def submit_job(
         "-m",
         help="Email address to receive job notifications. If set, email notifications will be enabled.",
     ),
+    platform: str = typer.Option(
+        "slurm", "--platform", "-p", help="Platform to use for the swarm allocation"
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -137,7 +140,7 @@ def submit_job(
         raise typer.Exit(1)
 
     if config:
-        cfg = _load_swarm_config(config)
+        cfg = _load_swarm_config(config, platform=platform)
         swarm_ctx = DomynLLMSwarm(cfg=cfg)
         try:
             with swarm_ctx as swarm:

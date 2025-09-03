@@ -1,10 +1,10 @@
 # --- SwarmStateManager class ---
 import json
 import logging
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 
 if TYPE_CHECKING:
@@ -23,10 +23,9 @@ class SwarmStateManager:
 
     def save(self):
         state_file = (
-            utils.EnvPath(self.swarm.cfg.home_directory)
-            / f"swarm_{self.swarm.jobid}.json"
+            utils.EnvPath(self.swarm.cfg.home_directory) / f"{self.swarm.name}.json"
         )
-        state_file.write_text(self.swarm.model_dump_json(indent=2))
+        state_file.write_text(self.swarm.model_dump_json(indent=2, by_alias=True))
         logger.info(f"State saved to {state_file}")
 
     @classmethod
@@ -38,23 +37,30 @@ class SwarmStateManager:
         with state_file.open("r") as fh:
             state = json.load(fh)
 
+        platform = state.get("cfg", {}).get("platform")
         jobid = state.get("jobid")
         lb_jobid = state.get("lb_jobid")
         lb_node = state.get("lb_node")
-        if jobid is None or lb_jobid is None:
+        if platform == "slurm" and (jobid is None or lb_jobid is None):
             raise ValueError("State file does not contain valid job IDs")
 
-        cfg = DomynLLMSwarmConfig.model_validate(state["cfg"])
+        cfg = DomynLLMSwarmConfig.model_validate(state["cfg"], by_alias=True)
         swarm = DomynLLMSwarm(
-            name=state.get("name", f"domyn-swarm-{int(time.time())}"),
+            name=state.get("name"),
             cfg=cfg,
             jobid=jobid,
             lb_jobid=lb_jobid,
             lb_node=lb_node,
             endpoint=state.get("endpoint"),
         )
-        swarm._deployment.compute = SlurmComputeBackend(
-            cfg=cfg, lb_jobid=lb_jobid, lb_node=lb_node
-        )
+
+        if platform == "slurm":
+            backend = SlurmComputeBackend(cfg=cfg, lb_jobid=lb_jobid, lb_node=lb_node)
+        elif platform == "lepton":
+            backend = LeptonComputeBackend()
+        else:
+            raise ValueError(f"Unsupported platform: {platform}")
+
+        swarm._deployment.compute = backend
 
         return swarm

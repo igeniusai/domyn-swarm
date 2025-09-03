@@ -55,33 +55,17 @@ class LeptonComputeBackend(ComputeBackend):  # type: ignore[misc]
         shard_id: Optional[int] = None,
     ) -> JobHandle:
         client = self._client()
-        res = resources or {}
 
         container = LeptonContainer(
             image=image,
             command=[*map(str, command)],
         )
 
-        affin = None
-        ng = res.get("node_group")
-        allowed_nodes = res.get("allowed_nodes")
-        if ng or allowed_nodes:
-            from leptonai.api.v1.types.affinity import LeptonResourceAffinity
-
-            affin = LeptonResourceAffinity(
-                allowed_dedicated_node_groups=[ng] if ng else None,
-                allowed_nodes_in_node_group=allowed_nodes if allowed_nodes else None,
-            )
-
-        spec = LeptonJobUserSpec(
-            resource_shape=res.get("resource_shape"),
-            affinity=affin,
-            container=container,
-            completions=res.get("completions", 1),
-            parallelism=res.get("parallelism", 1),
-            envs=[EnvVar(name=k, value=v) for k, v in (env or {}).items()],
-        )
+        spec = LeptonJobUserSpec.model_validate(resources or {})
+        spec.container = container
+        spec.envs = [EnvVar(name=k, value=v) for k, v in (env or {}).items()]
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
+
         created = client.job.create(job)
         job_id = created.metadata.id_ if created and created.metadata else None
         if not job_id:

@@ -22,6 +22,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev --extra lepton
 COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+
 
 # Build sdist + wheel into /src/dist/
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -57,8 +60,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Drop privileges
 USER ${APP_USER}
 
-# If your package exposes a console_script (recommended),
-# set the entrypoint to it. Replace "your-cli" with your actual command.
 ENTRYPOINT ["domyn-swarm"]
 # Provide a default arg so `docker run image` shows help
 CMD ["--help"]

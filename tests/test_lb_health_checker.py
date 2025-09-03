@@ -37,7 +37,7 @@ def test_lb_healthy(mock_check_output, dummy_swarm_lb_health_checker):
         patch.object(LBHealthChecker._wait_for_http_ready, "__kwdefaults__", new_kw),
         patch("domyn_swarm.core.lb_health_checker.time.sleep", return_value=None),
     ):
-        checker.wait_for_lb(1)  # must be > 0 so a probe actually runs
+        checker.wait_for_lb(None, 1)  # must be > 0 so a probe actually runs
 
     assert dummy_swarm_lb_health_checker.endpoint == "http://dummy-node:8080"
 
