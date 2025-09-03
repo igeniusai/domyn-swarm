@@ -20,10 +20,8 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev --extra lepton
 COPY . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --extra lepton
 
 # Build sdist + wheel into /src/dist/
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -53,7 +51,7 @@ ENV UV_SYSTEM_PYTHON=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system /tmp/dist/*.whl && \
+    uv pip install --system --find-links /tmp/dist "domyn-swarm[lepton]" && \
     rm -rf /tmp/dist
 
 # Drop privileges
