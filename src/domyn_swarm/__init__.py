@@ -3,9 +3,8 @@ import json
 import logging
 import secrets
 import string
-import subprocess
 import sys
-import textwrap
+import warnings
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,7 +19,6 @@ from leptonai.api.v1.types.deployment import (
 from leptonai.api.v1.types.job import LeptonJobUserSpec
 from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator
 
-from domyn_swarm import utils
 from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.backends.serving.lepton import LeptonServingBackend
@@ -33,9 +31,9 @@ from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+from domyn_swarm.platform.protocols import ServingHandle
 
 from .core.slurm_driver import SlurmDriver
-from .core.srun_builder import SrunCommandBuilder
 from .core.state import SwarmStateManager
 
 logger = setup_logger(__name__, level=logging.INFO)
@@ -55,12 +53,12 @@ class DomynLLMSwarm(BaseModel):
 
     name: str | None = Field(default_factory=generate_swarm_name)
     cfg: DomynLLMSwarmConfig
-    jobid: Optional[int] = None  # Slurm job id, set after job submission
-    lb_jobid: Optional[int] = None  # LB job id, set after job submission
-    lb_node: Optional[str] = None  # the node where the LB is running
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
     delete_on_exit: Optional[bool] = (
         False  # Delete the resources for this cluster at the end of the job
+    )
+    serving_handle: Optional[ServingHandle] = (
+        None  # ServingHandle, set after deployment
     )
 
     @field_validator("name")
@@ -90,16 +88,40 @@ class DomynLLMSwarm(BaseModel):
         self.cfg.model = value
 
     def _ensure_ready(self):
-        if not all([self.jobid, self.lb_jobid, self.lb_node, self.endpoint]):
-            raise RuntimeError(
-                f"Swarm not ready (jobid/lb_jobid/lb_node/endpoint): {self.jobid}/{self.lb_jobid}/{self.lb_node}/{self.endpoint}"
-            )
-
-    def model_post_init(self, __context: Any) -> None:
+        """
+        Ensure the swarm is ready to accept jobs.
+        Raises RuntimeError if not ready.
+        """
         match self.cfg.platform:
             case "slurm":
-                self._slurm = SlurmDriver(self.cfg)
-                self._serving = SlurmServingBackend(driver=self._slurm, cfg=self.cfg)
+                if self.serving_handle is None:
+                    raise RuntimeError("Serving handle is null.")
+                jobid = self.serving_handle.meta.get("jobid")
+                lb_jobid = self.serving_handle.meta.get("lb_jobid")
+                lb_node = self.serving_handle.meta.get("lb_node")
+                endpoint = self.serving_handle.url
+                if not all([jobid, lb_jobid, lb_node, endpoint]):
+                    raise RuntimeError(
+                        f"Swarm not ready (jobid/lb_jobid/lb_node/endpoint): {jobid}/{lb_jobid}/{lb_node}/{endpoint}"
+                    )
+            case "lepton":
+                if self.serving_handle is None:
+                    raise RuntimeError("Serving handle is null.")
+                endpoint = self.serving_handle.url
+                if not endpoint:
+                    raise RuntimeError(f"Swarm not ready (endpoint): {endpoint}")
+            case "azureml":
+                raise NotImplementedError("AzureML platform is not yet supported.")
+            case _:
+                raise ValueError(f"Unsupported platform: {self.cfg.platform}")
+
+    def model_post_init(self, __context: Any) -> None:
+        """Post-init to set up the deployment backend."""
+        self._cleaned = False
+        match self.cfg.platform:
+            case "slurm":
+                slurm = SlurmDriver(self.cfg)
+                serving = SlurmServingBackend(driver=slurm, cfg=self.cfg)
                 pass
             case "azureml":
                 raise NotImplementedError("AzureML platform is not yet supported.")
@@ -108,106 +130,27 @@ class DomynLLMSwarm(BaseModel):
                     raise ValueError(
                         "Lepton configuration is required in order to use Lepton as platform."
                     )
-                self._serving = LeptonServingBackend(
-                    workspace=self.cfg.lepton.workspace_id
-                )
+                serving = LeptonServingBackend(workspace=self.cfg.lepton.workspace_id)
             case _:
                 raise ValueError(f"Unsupported platform: {self.cfg.platform}")
 
         self._state_mgr = SwarmStateManager(self)
-        self._deployment = Deployment(serving=self._serving)
+        self._deployment = Deployment(serving=serving)
 
     def __enter__(self):
-        # allocate endpoint
-        match self.cfg.platform:
-            case "slurm":
-                spec = {
-                    "replicas": self.cfg.replicas,
-                    "gpus_per_replica": self.cfg.gpus_per_replica,
-                }
-            case "azureml":
-                raise NotImplementedError("AzureML platform is not yet supported.")
-            case "lepton":
-                if self.cfg.lepton is None:
-                    raise ValueError("Lepton configuration is required.")
-                api_token = "".join(
-                    secrets.choice(string.ascii_letters + string.digits)
-                    for _ in range(32)
-                )
-                container = LeptonContainer(
-                    image=str(self.cfg.vllm_image) or "vllm/vllm-openai",
-                    command=[
-                        "vllm",
-                        "serve",
-                        self.cfg.model,
-                        "--port",
-                        str(self.cfg.vllm_port),
-                        "--tensor-parallel-size",
-                        str(self.cfg.gpus_per_replica),
-                        *(self.cfg.vllm_args or "").split(),
-                    ],
-                )
-                deployment_spec = LeptonDeploymentUserSpec(
-                    container=container,
-                    resource_requirement=ResourceRequirement(
-                        resource_shape=self.cfg.lepton.endpoint.resource_shape,
-                        min_replicas=self.cfg.replicas,
-                        max_replicas=self.cfg.replicas,
-                        affinity=LeptonResourceAffinity(
-                            allowed_dedicated_node_groups=[
-                                self.cfg.lepton.endpoint.node_group
-                            ]
-                            if self.cfg.lepton.endpoint.node_group
-                            else None,
-                            allowed_nodes_in_node_group=self.cfg.lepton.endpoint.allowed_nodes
-                            if self.cfg.lepton.endpoint.allowed_nodes
-                            else None,
-                        ),
-                    ),
-                    envs=[
-                        EnvVar(name=key, value=value)
-                        for key, value in (self.cfg.env or {}).items()
-                    ]
-                    + [EnvVar(name="HF_HOME", value=str(self.cfg.hf_home))],
-                    mounts=self.cfg.lepton.endpoint.mounts,
-                    api_tokens=[TokenVar(value=api_token)],
-                )
-                spec = deployment_spec.model_dump(by_alias=True)
-            case _:
-                raise ValueError(f"Unsupported platform: {self.cfg.platform}")
-
         if not self.name:
             raise RuntimeError("Name is null.")
+        assert self._deployment is not None
 
-        deployment_name = textwrap.shorten(self.name.lower(), 36)
+        spec = self._build_serving_spec()  # per-platform; see helper below
+        deployment_name = self._deployment_name()  # sanitize/truncate once
+
         logger.info(f"Creating deployment {deployment_name} on {self.cfg.platform}...")
 
         handle = self._deployment.up(deployment_name, spec, timeout_s=self.cfg.lb_wait)
         self.serving_handle = handle
-
-        self.jobid = handle.meta.get("jobid")
-        self.lb_jobid = handle.meta.get("lb_jobid")
         self.endpoint = handle.url
-        self.lb_node = handle.meta.get("lb_node")
-
-        self._persist()
-
-        match self.cfg.platform:
-            case "slurm":
-                if not self.lb_jobid:
-                    raise RuntimeError("LB Job ID is null.")
-
-                if not self.lb_node:
-                    raise RuntimeError("LB Job ID is null.")
-
-                # compute backend now knows where to run
-                self._deployment.compute = SlurmComputeBackend(
-                    cfg=self.cfg, lb_jobid=self.lb_jobid, lb_node=self.lb_node
-                )
-            case "azureml":
-                raise NotImplementedError("AzureML platform is not yet supported.")
-            case "lepton":
-                self._deployment.compute = LeptonComputeBackend()
+        self._deployment.compute = self._make_compute_backend(handle)
 
         self._persist()
         return self
@@ -226,74 +169,63 @@ class DomynLLMSwarm(BaseModel):
         Submit a user script to the swarm allocation.
         The script will be run on the head node (SLURM_NODEID 0).
         """
+        pass
 
-        if self.lb_jobid is None:
-            raise RuntimeError("LB Job ID is null.")
+        # if self.lb_jobid is None:
+        #     raise RuntimeError("LB Job ID is null.")
 
-        if self.lb_node is None:
-            raise RuntimeError("LB Node is null.")
+        # if self.lb_node is None:
+        #     raise RuntimeError("LB Node is null.")
 
-        if self.endpoint is None:
-            raise RuntimeError("Endpoint is null.")
+        # if self.endpoint is None:
+        #     raise RuntimeError("Endpoint is null.")
 
-        if self.cfg.venv_path is None:
-            raise RuntimeError("Venv path is None.")
+        # if self.cfg.venv_path is None:
+        #     raise RuntimeError("Venv path is None.")
 
-        if self.jobid is None:
-            raise RuntimeError("No job submitted yet")
-        if not script_path.is_file():
-            raise FileNotFoundError(f"Script not found: {script_path}")
+        # if self.jobid is None:
+        #     raise RuntimeError("No job submitted yet")
+        # if not script_path.is_file():
+        #     raise FileNotFoundError(f"Script not found: {script_path}")
 
-        logger.info(f"Submitting user script {script_path} to job {self.jobid}")
+        # logger.info(f"Submitting user script {script_path} to job {self.jobid}")
 
-        builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
-            {"ENDPOINT": self.endpoint, "MODEL": self.model}
-        )
+        # builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
+        #     {"ENDPOINT": self.endpoint, "MODEL": self.model}
+        # )
 
-        if self.cfg.mail_user:
-            builder = builder.with_mail(self.cfg.mail_user)
+        # if self.cfg.mail_user:
+        #     builder = builder.with_mail(self.cfg.mail_user)
 
-        extra = [] if extra_args is None else extra_args
-        cmd = builder.build(
-            [
-                str(self.cfg.venv_path / "bin" / "python"),
-                str(script_path),
-                *extra,
-            ]
-        )
+        # extra = [] if extra_args is None else extra_args
+        # cmd = builder.build(
+        #     [
+        #         str(self.cfg.venv_path / "bin" / "python"),
+        #         str(script_path),
+        #         *extra,
+        #     ]
+        # )
 
-        if detach:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-                start_new_session=True,
-                close_fds=True,
-            )
-            logger.info(f"Detached process with PID {proc.pid}")
-            return proc.pid
-        else:
-            subprocess.run(
-                cmd,
-                check=True,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-            )
+        # if detach:
+        #     proc = subprocess.Popen(
+        #         cmd,
+        #         stdout=sys.stdout,
+        #         stderr=sys.stderr,
+        #         start_new_session=True,
+        #         close_fds=True,
+        #     )
+        #     logger.info(f"Detached process with PID {proc.pid}")
+        #     return proc.pid
+        # else:
+        #     subprocess.run(
+        #         cmd,
+        #         check=True,
+        #         stdout=sys.stdout,
+        #         stderr=sys.stderr,
+        #     )
 
     def _persist(self):
         self._state_mgr.save()
-
-    def _get_lb_node(self) -> str:
-        if self.lb_jobid is None:
-            raise RuntimeError("LB Job ID is null.")
-
-        return self._slurm.get_node_from_jobid(self.lb_jobid)
-
-    def _get_head_node(self) -> str:
-        if self.jobid is None:
-            raise RuntimeError("Job ID is null.")
-
-        return self._slurm.get_node_from_jobid(self.jobid)
 
     def submit_job(
         self,
@@ -368,21 +300,9 @@ class DomynLLMSwarm(BaseModel):
         ...     num_threads=4
         ... )
         """
-        # self._ensure_ready()
+        self._ensure_ready()
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)
-
-        # if self.jobid is None or self.endpoint is None:
-        #     raise RuntimeError("Swarm not ready")
-
-        # if self.lb_jobid is None:
-        #     raise RuntimeError("LB Job ID is null.")
-
-        # if self.lb_node is None:
-        #     raise RuntimeError("LB Node is null.")
-
-        # if not input_parquet.is_file():
-        #     raise FileNotFoundError(input_parquet)
 
         job_class = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
         job_kwargs = json.dumps(job.to_kwargs())
@@ -426,18 +346,22 @@ class DomynLLMSwarm(BaseModel):
             "JOB_KWARGS": job_kwargs,
         }
 
-        if self.serving_handle.meta.get("token"):
-            env["API_TOKEN"] = self.serving_handle.meta.get("token")
-
         if self.cfg.env:
             env.update(self.cfg.env)
 
         image = None
         resources = None
         match self.cfg.platform:
+            case "slurm":
+                pass
             case "azureml":
                 raise NotImplementedError("AzureML platform is not yet supported.")
             case "lepton":
+                env["API_TOKEN_SECRET_NAME"] = (
+                    self.serving_handle.meta.get("token_secret_name", "")
+                    if self.serving_handle
+                    else ""
+                )
                 image = self.cfg.lepton.job.image if self.cfg.lepton else None
                 affinity = LeptonResourceAffinity(
                     allowed_dedicated_node_groups=[self.cfg.lepton.job.node_group]
@@ -482,36 +406,105 @@ class DomynLLMSwarm(BaseModel):
         """
         return SwarmStateManager.load(state_file)
 
-    def _load_state(
-        self,
-        jobid: int,
-        lb_jobid: int,
-        lb_node: Optional[str] = None,
-        endpoint: Optional[str] = None,
-        model: Optional[str] = None,
-    ) -> "DomynLLMSwarm":
-        """
-        Load the state of an existing swarm from a state file.
-        """
-        self.jobid = jobid
-        self.lb_jobid = lb_jobid
-        self.lb_node = lb_node
-        self.endpoint = endpoint
-        self.model = model or self.cfg.model
-
-        logger.info(f"Loaded state from {self.jobid} and {self.lb_jobid}")
-        return self
-
     def cleanup(self):
         if self._deployment and self.serving_handle:
             self._deployment.down(self.serving_handle)
-        # preserve your logs + flag
-        logger.info(f"scancel {self.jobid} and {self.lb_jobid} requested")
         self._cleaned = True
 
     def down(self):
         """Manually clean up the swarm resources."""
         self.cleanup()
+
+    def _deployment_name(self) -> str:
+        assert self.name is not None
+        raw = self.name.lower()
+        # per-platform constraints (avoid textwrap.shorten which adds a placeholder)
+        if self.cfg.platform == "lepton":
+            maxlen = 36
+            # only letters, digits, dash/underscore; strip others
+            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
+            return cleaned[:maxlen] or "swarm"
+        elif self.cfg.platform == "slurm":
+            # Slurm is lenient, but keep it tidy
+            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
+            return cleaned[:80] or "swarm"
+        else:
+            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
+            return cleaned[:63] or "swarm"
+
+    def _build_serving_spec(self) -> dict:
+        match self.cfg.platform:
+            case "slurm":
+                return {
+                    "replicas": self.cfg.replicas,
+                    "gpus_per_replica": self.cfg.gpus_per_replica,
+                }
+            case "lepton":
+                # build Lepton spec; DO NOT store the api_token on self (state is persisted)
+                if self.cfg.lepton is None or self.cfg.lepton.endpoint is None:
+                    raise ValueError(
+                        "Lepton endpoint configuration is required in order to use Lepton as platform."
+                    )
+                api_token = "".join(
+                    secrets.choice(string.ascii_letters + string.digits)
+                    for _ in range(32)
+                )
+                container = LeptonContainer(
+                    image=str(self.cfg.vllm_image) or "vllm/vllm-openai",
+                    command=[
+                        "vllm",
+                        "serve",
+                        self.cfg.model,
+                        "--port",
+                        str(self.cfg.vllm_port),
+                        "--tensor-parallel-size",
+                        str(self.cfg.gpus_per_replica),
+                        *(self.cfg.vllm_args or "").split(),
+                    ],
+                )
+                spec = LeptonDeploymentUserSpec(
+                    container=container,
+                    resource_requirement=ResourceRequirement(
+                        resource_shape=self.cfg.lepton.endpoint.resource_shape,
+                        min_replicas=self.cfg.replicas,
+                        max_replicas=self.cfg.replicas,
+                        affinity=LeptonResourceAffinity(
+                            allowed_dedicated_node_groups=(
+                                [self.cfg.lepton.endpoint.node_group]
+                                if self.cfg.lepton.endpoint.node_group
+                                else None
+                            ),
+                            allowed_nodes_in_node_group=self.cfg.lepton.endpoint.allowed_nodes
+                            or None,
+                        ),
+                    ),
+                    envs=[
+                        EnvVar(name=k, value=v) for k, v in (self.cfg.env or {}).items()
+                    ]
+                    + [EnvVar(name="HF_HOME", value=str(self.cfg.hf_home))],
+                    mounts=self.cfg.lepton.endpoint.mounts,
+                    api_tokens=[TokenVar(value=api_token)],
+                ).model_dump(by_alias=True)
+                return spec
+            case _:
+                return {}
+
+    def _make_compute_backend(self, handle: ServingHandle):
+        match self.cfg.platform:
+            case "slurm":
+                lb_jobid = handle.meta.get("lb_jobid")
+                lb_node = handle.meta.get("lb_node")
+                if not lb_jobid or not lb_node:
+                    raise RuntimeError("LB Job ID/Node missing in Slurm handle.")
+                return SlurmComputeBackend(
+                    cfg=self.cfg, lb_jobid=lb_jobid, lb_node=lb_node
+                )
+            case "lepton":
+                return LeptonComputeBackend()
+            case _:
+                raise NotImplementedError(
+                    f"Compute backend for {self.cfg.platform} not implemented"
+                )
 
 
 def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
@@ -527,25 +520,26 @@ def _start_swarm(
     reverse_proxy: bool = False,
 ) -> None:
     """Common context-manager + reverse proxy logic."""
-    with DomynLLMSwarm(cfg=cfg, name=name) as swarm:
+    with DomynLLMSwarm(cfg=cfg, name=name) as _:
         if reverse_proxy:
-            from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
+            warnings.warn("This feature is not currently enabled")
+            # from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
 
-            # TODO check this
-            if not isinstance(cfg.nginx_image, utils.EnvPath):
-                raise RuntimeError("Nginx image is not an env path.")
+            # # TODO check this
+            # if not isinstance(cfg.nginx_image, utils.EnvPath):
+            #     raise RuntimeError("Nginx image is not an env path.")
 
-            if swarm.lb_node is None:
-                raise RuntimeError("LB Node is null.")
+            # if swarm.lb_node is None:
+            #     raise RuntimeError("LB Node is null.")
 
-            if swarm.endpoint is None:
-                raise RuntimeError("Endpoint is null.")
+            # if swarm.endpoint is None:
+            #     raise RuntimeError("Endpoint is null.")
 
-            launch_reverse_proxy(
-                cfg.nginx_template_path,
-                cfg.nginx_image,
-                swarm.lb_node,
-                swarm._get_head_node(),
-                int(swarm.endpoint.split(":")[2]),
-                cfg.ray_dashboard_port,
-            )
+            # launch_reverse_proxy(
+            #     cfg.nginx_template_path,
+            #     cfg.nginx_image,
+            #     swarm.lb_node,
+            #     swarm._get_head_node(),
+            #     int(swarm.endpoint.split(":")[2]),
+            #     cfg.ray_dashboard_port,
+            # )

@@ -1,7 +1,8 @@
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from leptonai.api.v1.types.common import Metadata
+from leptonai.api.v1.types.common import Metadata, SecretItem
 from leptonai.api.v1.types.deployment import (
     LeptonDeployment,
     LeptonDeploymentState,
@@ -9,7 +10,10 @@ from leptonai.api.v1.types.deployment import (
     LeptonDeploymentUserSpec,
 )
 
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
+
+logger = setup_logger(__name__, level=logging.INFO)
 
 
 @dataclass
@@ -72,14 +76,21 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             if deployed.status and deployed.status.endpoint
             else ""
         )
+        logger.info(f"Lepton deployment {name} created with URL: {url}")
 
         token = (
             dep.spec.api_tokens[0].value
             if dep.spec and dep.spec.api_tokens and len(dep.spec.api_tokens) > 0
             else None
         )
+        secret_name = f"{name}-token"
+        secrets = [SecretItem(name=f"{name}-token", value=token or "changeme")]
+        _ = client.secret.create(secrets)
+
         return ServingHandle(
-            id=name, url=url, meta={"raw": deployed, "name": name, "token": token}
+            id=name,
+            url=url,
+            meta={"raw": deployed, "name": name, "token_secret_name": secret_name},
         )
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
@@ -92,7 +103,6 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             status: Optional[LeptonDeploymentStatus] = dep.status
             state = status.state if status else None
             if state == LeptonDeploymentState.Ready and status and status.endpoint:
-                handle.url = status.endpoint.internal_endpoint
                 break
             if time.time() - start > timeout_s:
                 raise TimeoutError(
@@ -106,5 +116,8 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         client = self._client()
         try:
             client.deployment.delete(handle.id)
+            secret_name = handle.meta.get("token_secret_name")
+            if secret_name:
+                client.secret.delete(secret_name)
         except Exception:
             pass

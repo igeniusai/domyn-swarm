@@ -119,9 +119,12 @@ def check_status(
     """
     swarm: DomynLLMSwarm = DomynLLMSwarm.model_validate_json(state_file.read())
 
+    if swarm.serving_handle is None:
+        raise ValueError("Swarm does not have a serving handle.")
+
     name = name or swarm.name
-    load_balancer_jobid = swarm.lb_jobid
-    array_jobid = swarm.jobid
+    load_balancer_jobid = swarm.serving_handle.meta.get("lb_jobid")
+    array_jobid = swarm.serving_handle.meta.get("jobid")
     endpoint = swarm.endpoint
     replicas = swarm.cfg.replicas
 

@@ -2,9 +2,13 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from leptonai.api.v1.types.common import Metadata
-from leptonai.api.v1.types.deployment import LeptonContainer, LeptonDeploymentState
-from leptonai.api.v1.types.job import (
+from leptonai.api.v1.types.deployment import (
+    EnvValue,
     EnvVar,
+    LeptonContainer,
+    LeptonDeploymentState,
+)
+from leptonai.api.v1.types.job import (
     LeptonJob,
     LeptonJobState,
     LeptonJobUserSpec,
@@ -63,7 +67,14 @@ class LeptonComputeBackend(ComputeBackend):  # type: ignore[misc]
 
         spec = LeptonJobUserSpec.model_validate(resources or {})
         spec.container = container
-        spec.envs = [EnvVar(name=k, value=v) for k, v in (env or {}).items()]
+        secret_name = (
+            env.get("API_TOKEN_SECRET_NAME", f"{name}-token")
+            if env
+            else f"{name}-token"
+        )
+        spec.envs = [EnvVar(name=k, value=v) for k, v in (env or {}).items()] + [
+            EnvVar(name="API_TOKEN", value_from=EnvValue(secret_name_ref=secret_name))
+        ]
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
 
         created = client.job.create(job)
