@@ -1,6 +1,10 @@
 
 # domyn-swarm
 
+![CI](https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
+
 A simple CLI for launching and managing Slurm-backed LLM clusters (“swarms”) with optional replicas, load-balancing, and two high-level submission modes:
 
 * **script** – run any arbitrary Python file on the head node
