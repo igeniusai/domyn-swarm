@@ -9,16 +9,16 @@ from rich.panel import Panel
 from rich.table import Table
 from typing_extensions import Annotated
 
-from domyn_swarm import (
+from ..cli.pool import pool_app
+from ..cli.submit import submit_app
+from ..config.swarm import _load_swarm_config
+from ..core.swarm import (
     DomynLLMSwarm,
     _start_swarm,
 )
-from domyn_swarm.cli.pool import pool_app
-from domyn_swarm.cli.submit import submit_app
-from domyn_swarm.config.swarm import _load_swarm_config
-from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.helpers.reverse_proxy import is_endpoint_healthy
-from domyn_swarm.slurm import get_job_status
+from ..helpers.logger import setup_logger
+from ..helpers.reverse_proxy import is_endpoint_healthy
+from ..helpers.slurm import get_job_status
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 

@@ -10,9 +10,12 @@ from leptonai.api.v1.types.deployment import (
     LeptonDeploymentUserSpec,
 )
 
+from domyn_swarm.helpers.lepton import (
+    get_env_var_by_name,
+    sanitize_tokens_in_deployment,
+)
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
-from domyn_swarm.utils.lepton import get_env_var_by_name, sanitize_tokens_in_deployment
 
 logger = setup_logger(__name__, level=logging.INFO)
 
