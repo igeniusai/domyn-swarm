@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional, Sequence
 from rich import print as rprint
 from rich.syntax import Syntax
 
-from domyn_swarm.core.srun_builder import SrunCommandBuilder  # your file/module
+from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
 
 
@@ -37,6 +37,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         detach: bool = False,
         nshards: Optional[int] = None,
         shard_id: Optional[int] = None,
+        extras: dict | None = None,
     ) -> JobHandle:
         builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
         if env:

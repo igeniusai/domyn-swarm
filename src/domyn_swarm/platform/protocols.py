@@ -61,9 +61,13 @@ class ServingBackend(Protocol):
     This represents the "Create an endpoint" half of the user's target model.
     """
 
-    def create_or_update(self, name: str, spec: dict) -> ServingHandle: ...
+    def create_or_update(
+        self, name: str, spec: dict, extras: dict | None = None
+    ) -> ServingHandle: ...
 
-    def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle: ...
+    def wait_ready(
+        self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
+    ) -> ServingHandle: ...
 
     def delete(self, handle: ServingHandle) -> None: ...
 
@@ -88,6 +92,7 @@ class ComputeBackend(Protocol):
         detach: bool = False,
         nshards: Optional[int] = None,
         shard_id: Optional[int] = None,
+        extras: dict | None = None,
     ) -> JobHandle: ...
 
     def wait(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus: ...

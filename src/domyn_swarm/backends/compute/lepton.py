@@ -61,6 +61,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         detach: bool = False,
         nshards: Optional[int] = None,
         shard_id: Optional[int] = None,
+        extras: dict | None = None,
     ) -> JobHandle:
         client = self._client()
 
@@ -71,14 +72,14 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         spec = LeptonJobUserSpec.model_validate(resources or {})
         spec.container = container
-        secret_name = (
-            env.get("API_TOKEN_SECRET_NAME", f"{name}-token")
-            if env
-            else f"{name}-token"
-        )
-        spec.envs = [EnvVar(name=k, value=v) for k, v in (env or {}).items()] + [
+        secret_name = extras.get("api_token") if extras else None
+
+        if spec.envs is None:
+            spec.envs = []
+        spec.envs.append(
             EnvVar(name="API_TOKEN", value_from=EnvValue(secret_name_ref=secret_name))
-        ]
+        )
+
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
 
         created = client.job.create(job)

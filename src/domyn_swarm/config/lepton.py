@@ -69,17 +69,10 @@ class LeptonConfig(BaseModel):
         compute = LeptonComputeBackend(workspace=self.workspace_id)
 
         api_token = None
-        api_token_secret_name = self.endpoint.api_token_secret_name
         if not self.endpoint.api_token_secret_name:
             api_token = "".join(
                 secrets.choice(string.ascii_letters + string.digits) for _ in range(32)
             )
-            api_token_secret_name = f"{cfg_ctx.name}-token"
-
-        # EnvVar for api token secret name
-        api_token_env_var = EnvVar(
-            name="API_TOKEN_SECRET_NAME", value=api_token_secret_name
-        )
 
         requirement = ResourceRequirement(
             min_replicas=cfg_ctx.replicas,
@@ -112,8 +105,7 @@ class LeptonConfig(BaseModel):
             envs=[
                 EnvVar(name=k, value=v)
                 for k, v in (self.env | self.endpoint.env or {}).items()
-            ]
-            + [api_token_env_var],
+            ],
             api_tokens=[TokenVar(value=api_token)],
         ).model_dump(exclude_none=True, by_alias=True)
 
@@ -127,8 +119,7 @@ class LeptonConfig(BaseModel):
             envs=[
                 EnvVar(name=k, value=v)
                 for k, v in (self.env | self.job.env or {}).items()
-            ]
-            + [api_token_env_var],
+            ],
         ).model_dump(exclude_none=True, by_alias=True)
 
         return DeploymentPlan(

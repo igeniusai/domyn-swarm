@@ -58,7 +58,9 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             ) from e
         return APIClient()
 
-    def create_or_update(self, name: str, spec: dict) -> ServingHandle:
+    def create_or_update(
+        self, name: str, spec: dict, extras: dict | None = None
+    ) -> ServingHandle:
         """
         Create or update a Lepton deployment (serving endpoint).
         If the deployment already exists, it will be updated with the new spec.
@@ -68,6 +70,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(
             spec, by_alias=True
         )
+
         dep = LeptonDeployment(
             metadata=Metadata(name=name),
             spec=lepton_dep_user_spec,
@@ -110,7 +113,9 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             },
         )
 
-    def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
+    def wait_ready(
+        self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
+    ) -> ServingHandle:
         import time
 
         client = self._client()

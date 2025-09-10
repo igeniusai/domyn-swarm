@@ -31,9 +31,9 @@ import pandas as pd
 from openai import AsyncOpenAI
 from tqdm import tqdm
 
+from ..checkpoint.manager import CheckpointManager
 from ..helpers.logger import setup_logger
 from .batching import BatchExecutor
-from .checkpointing import CheckpointManager
 
 logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
 

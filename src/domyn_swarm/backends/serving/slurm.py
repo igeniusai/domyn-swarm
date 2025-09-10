@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.backends.serving.slurm_readiness import SlurmReadiness
 from domyn_swarm.config.slurm import SlurmConfig
-from domyn_swarm.core.slurm_driver import SlurmDriver
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
 
 
@@ -26,7 +26,9 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
     cfg: SlurmConfig
     readiness: Optional[SlurmReadiness] = None
 
-    def create_or_update(self, name: str, spec: dict) -> ServingHandle:
+    def create_or_update(
+        self, name: str, spec: dict, extras: dict | None = None
+    ) -> ServingHandle:
         replicas = spec.get("replicas", 1)
         nodes = spec.get("nodes", 1)
         gpus_per_node = spec.get("gpus_per_node", 1)
@@ -48,7 +50,9 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             },
         )
 
-    def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
+    def wait_ready(
+        self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
+    ) -> ServingHandle:
         # Delegate to your health checker which sets endpoint when LB is alive
         probe = self.readiness or SlurmReadiness(
             driver=self.driver,

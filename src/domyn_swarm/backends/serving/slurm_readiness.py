@@ -4,7 +4,7 @@ from typing import Optional
 from rich.console import Console
 from rich.status import Status
 
-from domyn_swarm.core.slurm_driver import SlurmDriver
+from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.platform.http_probe import wait_http_200
 from domyn_swarm.platform.protocols import ServingHandle
 from domyn_swarm.platform.readiness import ServingReadiness

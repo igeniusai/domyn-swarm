@@ -4,8 +4,9 @@ from typing import List, Optional
 
 import typer
 
-from domyn_swarm import DomynLLMSwarm, _load_job, utils
+from domyn_swarm import DomynLLMSwarm, utils
 from domyn_swarm.config.swarm import _load_swarm_config
+from domyn_swarm.core.swarm import _load_job
 from domyn_swarm.helpers.logger import setup_logger
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)

@@ -4,9 +4,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from domyn_swarm import utils
+from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
-from domyn_swarm.core.slurm_driver import SlurmDriver
 
 
 class DriverConfig(BaseModel):
