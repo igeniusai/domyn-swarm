@@ -15,9 +15,9 @@ from domyn_swarm import (
 )
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.cli.submit import submit_app
+from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.helpers.reverse_proxy import is_endpoint_healthy
-from domyn_swarm.models.swarm import _load_swarm_config
 from domyn_swarm.slurm import get_job_status
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)

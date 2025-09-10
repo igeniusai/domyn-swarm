@@ -2,7 +2,7 @@ import pathlib
 
 import click
 
-import domyn_swarm
+from domyn_swarm import utils
 
 
 class ClickEnvPath(click.ParamType):
@@ -10,6 +10,6 @@ class ClickEnvPath(click.ParamType):
 
     def convert(self, value, param, ctx):
         try:
-            return pathlib.Path(str(domyn_swarm.utils.EnvPath(value)))
+            return pathlib.Path(str(utils.EnvPath(value)))
         except Exception as e:
             self.fail(f"{value!r} is not a valid path: {e}", param, ctx)

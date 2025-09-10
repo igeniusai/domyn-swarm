@@ -5,7 +5,7 @@ from pydantic_core import core_schema
 
 
 class EnvPath(pathlib.Path):
-    _flavour = type(pathlib.Path())._flavour  # Required for subclassing Path
+    # _flavour = type(pathlib.Path())._flavour  # Required for subclassing Path
 
     def __new__(cls, *args, **kwargs):
         raw_path = os.path.expandvars(os.path.join(*map(str, args)))

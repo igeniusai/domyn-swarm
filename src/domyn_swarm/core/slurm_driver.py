@@ -1,22 +1,30 @@
 import os
 import subprocess
 import tempfile
+from typing import Any
 
 import jinja2
 
 from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 logger = setup_logger(__name__)
 
 
 class SlurmDriver:
-    def __init__(self, cfg: DomynLLMSwarmConfig):
+    def __init__(self, cfg: Any):
         self.cfg = cfg
 
-    def submit_replicas(self, job_name: str) -> int:
+    def submit_replicas(
+        self,
+        job_name: str,
+        replicas,
+        nodes,
+        gpus_per_node,
+        gpus_per_replica,
+        replicas_per_node,
+    ) -> int:
         """Submit the replica array job to Slurm.
         Returns the job ID of the submitted job."""
         env = jinja2.Environment(
@@ -30,9 +38,7 @@ class SlurmDriver:
             job_name=job_name,
             path_exists=path_exists,
             is_folder=is_folder,
-            cuda_visible_devices=get_device_slices(
-                self.cfg.gpus_per_node, self.cfg.gpus_per_replica
-            ),
+            cuda_visible_devices=get_device_slices(gpus_per_node, gpus_per_replica),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
@@ -43,11 +49,11 @@ class SlurmDriver:
         sbatch_cmd = ["sbatch", "--parsable"]
         array_spec = None
         if self.cfg.requires_ray:
-            array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
-        elif self.cfg.nodes and self.cfg.nodes >= 1 and self.cfg.replicas > 1:
-            array_spec = f"0-{self.cfg.nodes - 1}%{self.cfg.nodes}"
+            array_spec = f"0-{replicas - 1}%{replicas}"
+        elif nodes and nodes >= 1 and replicas > 1:
+            array_spec = f"0-{nodes - 1}%{nodes}"
             sbatch_cmd.append("--nodes=1")
-            sbatch_cmd.append(f"--ntasks-per-node={self.cfg.replicas_per_node}")
+            sbatch_cmd.append(f"--ntasks-per-node={replicas_per_node}")
 
         if array_spec is not None:
             sbatch_cmd.extend(["--array", array_spec])

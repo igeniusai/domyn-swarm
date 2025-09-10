@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
+from typing import Dict, Mapping, Optional, Sequence
 
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import (
@@ -12,13 +12,15 @@ from leptonai.api.v1.types.job import (
     LeptonJob,
     LeptonJobState,
     LeptonJobUserSpec,
+    LeptonResourceAffinity,
 )
 
-from domyn_swarm.platform.protocols import ComputeBackend, JobHandle, JobStatus
+from domyn_swarm.config.lepton import LeptonConfig
+from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
 
 
 @dataclass
-class LeptonComputeBackend(ComputeBackend):  # type: ignore[misc]
+class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     """DGX Cloud Lepton batch job backend via leptonai Python SDK.
 
     Docs (Aug 2025): https://docs.nvidia.com/dgx-cloud/lepton/reference/api/
@@ -36,6 +38,8 @@ class LeptonComputeBackend(ComputeBackend):  # type: ignore[misc]
       "parallelism": int,                # default 1
     }
     """
+
+    workspace: Optional[str] = None  # if multiple workspaces, else default
 
     def _client(self):
         try:
@@ -100,3 +104,28 @@ class LeptonComputeBackend(ComputeBackend):  # type: ignore[misc]
             client.job.delete(handle.id)
         except Exception:
             pass
+
+    def default_python(self, cfg) -> str:
+        return "python"
+
+    def default_image(self, cfg) -> Optional[str]:
+        # if you populated cfg.lepton.job.image, reuse it
+        return cfg.lepton.job.image if getattr(cfg, "lepton", None) else None
+
+    def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
+        affinity = LeptonResourceAffinity(
+            allowed_dedicated_node_groups=cfg.job.allowed_dedicated_node_groups,
+            allowed_nodes_in_node_group=cfg.job.allowed_nodes or None,
+        )
+        spec = LeptonJobUserSpec(
+            affinity=affinity,
+            resource_shape=cfg.job.resource_shape or cfg.endpoint.resource_shape,
+            completions=1,
+            parallelism=1,
+            mounts=cfg.job.mounts,
+        )
+        return spec.model_dump(by_alias=True)
+
+    def default_env(self, cfg) -> Dict[str, str]:
+        # forward secret name for the endpoint token if you stored it in the handle
+        return {}

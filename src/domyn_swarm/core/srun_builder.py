@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+from domyn_swarm.config.slurm import SlurmConfig
 
 
 class SrunCommandBuilder:
     """Builder for constructing srun commands with various configurations."""
 
-    def __init__(self, cfg: DomynLLMSwarmConfig, jobid: int, nodelist: str):
+    def __init__(self, cfg: SlurmConfig, jobid: int, nodelist: str):
         self.cfg = cfg
         self.jobid = jobid
         self.nodelist = nodelist

@@ -1,18 +1,17 @@
 import shlex
 import subprocess
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from rich import print as rprint
 from rich.syntax import Syntax
 
 from domyn_swarm.core.srun_builder import SrunCommandBuilder  # your file/module
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
-from domyn_swarm.platform.protocols import ComputeBackend, JobHandle, JobStatus
+from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
 
 
 @dataclass
-class SlurmComputeBackend(ComputeBackend):  # type: ignore[misc]
+class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     """Compute backend using `srun` inside the LB allocation.
 
     Notes
@@ -23,7 +22,7 @@ class SlurmComputeBackend(ComputeBackend):  # type: ignore[misc]
       `wait()` will join that process.
     """
 
-    cfg: DomynLLMSwarmConfig
+    cfg: Any
     lb_jobid: int
     lb_node: str
 
@@ -91,3 +90,8 @@ class SlurmComputeBackend(ComputeBackend):  # type: ignore[misc]
                 subprocess.run(["kill", "-TERM", str(pid)], check=False)
             except Exception:
                 pass
+
+    def default_python(self, cfg) -> str:
+        if cfg.venv_path and cfg.venv_path.is_dir():
+            return str(cfg.venv_path / "bin" / "python")
+        return super().default_python(cfg)

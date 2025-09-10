@@ -2,8 +2,8 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.slurm_driver import SlurmDriver
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 
 @pytest.fixture

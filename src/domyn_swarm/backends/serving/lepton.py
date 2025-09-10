@@ -12,6 +12,7 @@ from leptonai.api.v1.types.deployment import (
 
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
+from domyn_swarm.utils.lepton import get_env_var_by_name, sanitize_tokens_in_deployment
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -61,9 +62,12 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         """
         client = self._client()
 
+        lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(
+            spec, by_alias=True
+        )
         dep = LeptonDeployment(
             metadata=Metadata(name=name),
-            spec=LeptonDeploymentUserSpec.model_validate(spec, by_alias=True),
+            spec=lepton_dep_user_spec,
         )
 
         request_success = client.deployment.create(dep)  # type: ignore
@@ -83,14 +87,24 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             if dep.spec and dep.spec.api_tokens and len(dep.spec.api_tokens) > 0
             else None
         )
-        secret_name = f"{name}-token"
-        secrets = [SecretItem(name=f"{name}-token", value=token or "changeme")]
+        secret_name = (
+            get_env_var_by_name(dep.spec.envs, "API_TOKEN_SECRET_NAME")
+            if dep.spec and dep.spec.envs
+            else None
+        )
+        secrets = [
+            SecretItem(name=secret_name or f"{name}-token", value=token or "changeme")
+        ]
         _ = client.secret.create(secrets)
 
         return ServingHandle(
             id=name,
             url=url,
-            meta={"raw": deployed, "name": name, "token_secret_name": secret_name},
+            meta={
+                "raw": sanitize_tokens_in_deployment(deployed),
+                "name": name,
+                "token_secret_name": secret_name,
+            },
         )
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
@@ -121,3 +135,9 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
                 client.secret.delete(secret_name)
         except Exception:
             pass
+
+    def ensure_ready(self, handle: ServingHandle):
+        """Ensure the current serving handle is ready, or raise if not."""
+        endpoint = handle.url
+        if not endpoint:
+            raise RuntimeError(f"Swarm not ready (endpoint): {endpoint}")

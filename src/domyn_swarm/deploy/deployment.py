@@ -27,6 +27,9 @@ class Deployment:
     serving: ServingBackend
     compute: ComputeBackend = None  # type: ignore[assignment]
 
+    extras: Optional[dict] = (
+        None  # for any extra metadata, e.g. workspace, resource shape, etc.
+    )
     _handle: Optional[ServingHandle] = None
 
     def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
@@ -71,6 +74,12 @@ class Deployment:
     def __exit__(self, exc_type, exc, tb):  # type: ignore[override]
         if self._handle is not None:
             try:
-                self.serving.delete(self._handle)
+                self.down(self._handle)
             finally:
                 self._handle = None
+
+    def ensure_ready(self):
+        """Ensure the current serving handle is ready, or raise if not."""
+        if self._handle is None:
+            raise RuntimeError("No serving handle to ensure readiness for")
+        return self.serving.ensure_ready(self._handle)

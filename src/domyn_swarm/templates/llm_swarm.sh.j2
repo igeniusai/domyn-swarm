@@ -2,7 +2,7 @@
 ###############################################################################
 #  SLURM DIRECTIVES
 ###############################################################################
-#SBATCH --account=iGen_train
+#SBATCH --account={{ cfg._backend_config.account }}
 {% if cfg.mail_user %}
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user={{ cfg.mail_user }}

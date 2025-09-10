@@ -1,12 +1,13 @@
 import io
 import math
 import os
-from typing import Any
+from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -14,13 +15,16 @@ from pydantic import (
 from rich import print as rprint
 
 from domyn_swarm import utils
+from domyn_swarm.config.backend import BackendConfig, BackendsConfig
+from domyn_swarm.config.defaults import default_for
+from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.helpers.io import is_folder, path_exists, to_path
-from domyn_swarm.models.driver import DriverConfig, SlurmConfig
-from domyn_swarm.models.lepton import LeptonConfig
 
 
 class DomynLLMSwarmConfig(BaseModel):
-    hf_home: utils.EnvPath = utils.EnvPath("/leonardo_work/iGen_train/shared_hf_cache/")
+    hf_home: utils.EnvPath = Field(
+        default_factory=default_for("hf_home", utils.EnvPath("~/.cache/huggingface"))
+    )
 
     # model / revision --------------------------------------------------------
     model: str
@@ -47,73 +51,59 @@ class DomynLLMSwarmConfig(BaseModel):
         ge=1,
         default=None,
     )
-    requires_ray: bool | None = Field(
-        description="Whether to use Ray for distributed execution",
-        default=None,
-    )
     mem_per_cpu: str | None = None
-    partition: str = "boost_usr_prod"
-    account: str = "iGen_train"
+    lb_wait: int = 1200  # seconds to wait for LB to be ready
 
     # container images --------------------------------------------------------
-    vllm_image: str | utils.EnvPath = utils.EnvPath(
-        "/leonardo_work/iGen_train/fdambro1/images/vllm_0.10.1.1.sif"
-    )
-    nginx_image: str | utils.EnvPath = utils.EnvPath(
-        "/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif"
-    )
-    lb_wait: int = 1200  # seconds to wait for LB to be ready
-    lb_port: int = 9000
+    image: str | utils.EnvPath = Field(default_factory=default_for("vllm_image", ""))
+
+    args: str = ""
+    port: int = 8000
+    venv_path: utils.EnvPath | None = None
 
     home_directory: utils.EnvPath = Field(
         default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
     )
 
-    log_directory: utils.EnvPath = Field(
-        default_factory=lambda data: data["home_directory"] / "logs"
+    backends: list[BackendConfig] = Field(
+        description="List of backend configurations",
+        default_factory=list,
     )
-
-    # misc --------------------------------------------------------------------
-    max_concurrent_requests: int = 2_000
-    poll_interval: int = 10  # sacct polling cadence (s)
-
-    # template path (auto-filled after clone)
-    template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
-        / "templates"
-        / "llm_swarm.sh.j2"
-    )
-    nginx_template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
-        / "templates"
-        / "nginx.conf.j2"
-    )
-    vllm_args: str = ""
-    vllm_port: int = 8000
-    ray_port: int = 6379
-    ray_dashboard_port: int = 8265
-    venv_path: utils.EnvPath | None = None
-
-    time_limit: str = "36:00:00"  # e.g. 36 hours
-    exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
-    node_list: str | None = None  # e.g. "node[4-6]" (optional)
-
-    # mail notification -------------------------------------------------------
-    mail_user: str | None = None  # Enable email notifications if set
-
-    driver: DriverConfig = Field(default_factory=DriverConfig)
-
-    platform: str = "slurm"
-    lepton: LeptonConfig | None = None
-    slurm: SlurmConfig | None = None
+    default_backend: Optional[Literal["first"]] | Optional[int] = None
+    _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
+    _backend_config: BackendConfig | None = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
 
-    def model_post_init(self, context):
-        if self.platform == "slurm":
-            os.makedirs(self.log_directory, exist_ok=True)
-            os.makedirs(self.home_directory, exist_ok=True)
-        return super().model_post_init(context)
+    @model_validator(mode="after")
+    def _resolve_platform_from_backends(self):
+        """
+        If `backends` is provided, set a runtime plan now.
+        This keeps BC: legacy configs with no `backends` continue to use `platform`.
+        """
+        if self.backends:
+            idx = 0
+            if isinstance(self.default_backend, int):
+                idx = self.default_backend
+
+            # Build deployment plans with `self` as context (to access replicas, hf_home, vllm args, etc.)
+            plans = BackendsConfig(backends=self.backends).build_all(self)
+            if not plans:
+                raise ValueError("At least one backend must be configured")
+            self._plan = plans[idx]
+            self._backend_config = self.backends[idx]
+        return self
+
+    # Convenience accessor
+    def get_deployment_plan(self) -> DeploymentPlan | None:
+        return self._plan
+
+    @field_validator("backends")
+    @classmethod
+    def not_empty(cls, v: list[BackendConfig]) -> list[BackendConfig]:
+        if not v:
+            raise ValueError("At least one backend must be configured")
+        return v
 
     @classmethod
     def read(cls, path: str) -> "DomynLLMSwarmConfig":
@@ -189,6 +179,4 @@ def _load_swarm_config(
     # override default only if user passed something truthy
     if replicas:
         cfg.replicas = replicas
-    if platform:
-        cfg.platform = platform
     return cfg

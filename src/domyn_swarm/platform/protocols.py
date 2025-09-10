@@ -1,6 +1,7 @@
+import sys
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Mapping, Optional, Protocol, Sequence, runtime_checkable
+from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 
 class JobStatus(str, Enum):
@@ -66,6 +67,8 @@ class ServingBackend(Protocol):
 
     def delete(self, handle: ServingHandle) -> None: ...
 
+    def ensure_ready(self, handle: ServingHandle): ...
+
 
 @runtime_checkable
 class ComputeBackend(Protocol):
@@ -90,3 +93,25 @@ class ComputeBackend(Protocol):
     def wait(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus: ...
 
     def cancel(self, handle: JobHandle) -> None: ...
+
+    def default_python(self, cfg) -> str: ...
+
+    def default_image(self, cfg) -> Optional[str]: ...
+
+    def default_resources(self, cfg) -> Optional[dict]: ...
+
+    def default_env(self, cfg) -> Dict[str, str]: ...
+
+
+class DefaultComputeMixin:
+    def default_python(self, cfg) -> str:
+        return sys.executable
+
+    def default_image(self, cfg) -> Optional[str]:
+        return None
+
+    def default_resources(self, cfg) -> Optional[dict]:
+        return None
+
+    def default_env(self, cfg) -> Dict[str, str]:
+        return {}

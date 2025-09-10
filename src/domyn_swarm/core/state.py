@@ -37,7 +37,7 @@ class SwarmStateManager:
         if swarm.serving_handle is None:
             raise ValueError("Swarm does not have a serving handle.")
 
-        platform = swarm.cfg.platform
+        platform = swarm._platform
 
         if (
             platform == "slurm"

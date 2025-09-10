@@ -1,21 +1,21 @@
 #!/bin/bash
-#SBATCH --account=iGen_train
-{% if cfg.mail_user %}
+#SBATCH --account={{ cfg._backend_config.account }}
+{% if cfg._backend_config.mail_user %}
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user={{ cfg.mail_user }}
+#SBATCH --mail-user={{ cfg._backend_config.mail_user }}
 {% endif %}
-#SBATCH --qos=qos_llm_min
+#SBATCH --qos={{ cfg._backend_config.qos }}
 
 #SBATCH --exclusive
 #SBATCH --job-name={{ job_name }}-lb
-#SBATCH --partition={{ cfg.partition }}
+#SBATCH --partition={{ cfg._backend_config.partition }}
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task={{ cfg.driver.cpus_per_task }}
-#SBATCH --mem={{ cfg.driver.mem }}
-#SBATCH --threads-per-core={{ cfg.driver.threads_per_core }}
-#SBATCH --time={{ cfg.driver.wall_time }}
-#SBATCH --output={{ cfg.log_directory }}/lb_%j.out
-#SBATCH --error={{ cfg.log_directory }}/lb_%j.err
+#SBATCH --cpus-per-task={{ cfg._backend_config.driver.cpus_per_task }}
+#SBATCH --mem={{ cfg._backend_config.driver.mem }}
+#SBATCH --threads-per-core={{ cfg._backend_config.driver.threads_per_core }}
+#SBATCH --time={{ cfg._backend_config.driver.wall_time }}
+#SBATCH --output={{ cfg._backend_config.log_directory }}/lb_%j.out
+#SBATCH --error={{ cfg.backend_config.log_directory }}/lb_%j.err
 
 set -eu
 REPLICAS={{ cfg.replicas }}
