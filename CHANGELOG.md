@@ -1,3 +1,13 @@
+## v0.15.0 (2025-09-10)
+
+### Feat
+
+- **readme**: add badges
+
+### Fix
+
+- fix issue with environment variables not being expanded in config
+
 ## v0.14.0 (2025-08-29)
 
 ### Feat
