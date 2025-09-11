@@ -2,6 +2,7 @@
 # domyn-swarm
 
 ![CI](https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg)
+![Static Badge](https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
 
