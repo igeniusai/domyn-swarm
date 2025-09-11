@@ -138,7 +138,13 @@ def launch_reverse_proxy(
         ray_port=ray_dashboard_port,
     )
 
-    with tempfile.TemporaryDirectory(delete=False) as temp_dir:
+    # Deletion control is only available from Python 3.12
+    if sys.version_info >= (3, 12):
+        tmp_directory = tempfile.TemporaryDirectory(delete=False)
+    else:
+        tmp_directory = tempfile.TemporaryDirectory()
+
+    with tmp_directory as temp_dir:
         conf_path = utils.EnvPath(temp_dir) / "nginx.conf"
         with open(conf_path, "w") as f:
             f.write(nginx_conf)
