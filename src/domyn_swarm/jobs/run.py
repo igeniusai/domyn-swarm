@@ -194,8 +194,9 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     if hasattr(job_cls, "output_column_name"):
         o = getattr(job_cls, "output_column_name")
         output_cols = o if isinstance(o, list) else [o]
-    elif getattr(args, "output_column", None):
-        output_cols = [args.output_column]
+    elif "output_column_name" in job_kwargs:
+        o = job_kwargs["output_column_name"]
+        output_cols = o if isinstance(o, list) else [o]
 
     # Map legacy --nthreads to shards
     nshards = getattr(args, "nthreads", 1)

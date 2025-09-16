@@ -58,12 +58,7 @@ class SwarmJob(abc.ABC):
         provider: str = "openai",
         input_column_name: str = "messages",
         output_column_name: str | list = "result",
-        checkpoint_dir: Path | str = ".checkpoints/",
         checkpoint_interval: int = 16,
-        # TODO: deprecated, remove in future versions
-        batch_size: int | None = None,
-        # TODO: deprecated, remove in future versions
-        parallel: int | None = None,
         max_concurrency: int = 2,
         retries: int = 5,
         timeout: float = 600,
@@ -80,9 +75,7 @@ class SwarmJob(abc.ABC):
             provider: LLM provider (default: "openai").
             input_column_name: Name of the input column in the DataFrame.
             output_column_name: Name of the output column(s) in the DataFrame.
-            batch_size: Size of each batch for processing. (deprecated, use `checkpoint_interval`).
             checkpoint_interval: Number of items to process before checkpointing.
-            parallel: Number of concurrent requests to process. (deprecated, use `max_concurrency`).
             max_concurrency: Maximum number of concurrent requests to process.
             retries: Number of retries for failed requests.
             timeout: Request timeout in seconds.
@@ -97,27 +90,11 @@ class SwarmJob(abc.ABC):
         if not model:
             raise ValueError("Model name must be specified")
 
-        if parallel is not None:
-            logger.warning(
-                "The `parallel` parameter is deprecated. Use `max_concurrent_requests` instead."
-            )
-            self.max_concurrency = parallel
-
-        if batch_size is not None:
-            logger.warning(
-                "The `batch_size` parameter is deprecated. Use `checkpoint_interval` instead."
-            )
-            self.checkpoint_interval = batch_size
-
         self.model = model
         self.provider = provider
         self.input_column_name = input_column_name
         self.output_column_name = output_column_name
         self.checkpoint_interval = checkpoint_interval
-        # TODO: deprecated, remove in future versions
-        self.batch_size = batch_size
-        # TODO: deprecated, remove in future versions
-        self.parallel = parallel
         self.max_concurrency = max_concurrency
         self.retries = retries
         self.timeout = timeout

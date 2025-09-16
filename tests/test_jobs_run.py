@@ -7,24 +7,30 @@ import pandas as pd
 import pytest
 
 import domyn_swarm.jobs.run as run_mod
+from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.jobs.run import (
     _amain,
     _load_cls,
     build_job_from_args,
     parse_args,
-    run_swarm_in_threads,
+    run_job_unified,
 )
 
 
 # Dummy SwarmJob for testing
-class DummySwarmJob:
+class DummySwarmJob(SwarmJob):
+    max_concurrency = 2
+    retries = 1
+    timeout = 10
+
     def __init__(self, **kwargs):
         self.params = kwargs
 
-    async def run(self, df: pd.DataFrame, tag: str, checkpoint_dir: str = "."):
-        df = df.copy()
-        df["output"] = f"{tag}_processed"
-        return df
+    async def transform(self, df):
+        raise NotImplementedError()
+
+    async def transform_items(self, items: list):
+        return [f"test_shard_{i}" for i in items]
 
 
 def test_load_cls_runtime():
@@ -62,13 +68,15 @@ def test_build_job_from_args(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_swarm_in_threads():
-    df = pd.DataFrame({"col": [1, 2, 3, 4]})
-    out_df = await run_swarm_in_threads(
-        df,
+    df = pd.DataFrame({"messages": [1, 2, 3, 4]})
+    out_df = await run_job_unified(
         DummySwarmJob,
-        job_kwargs={},
+        df,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri="file://" + tempfile.mkdtemp() + "/out.parquet",
         tag="test",
-        num_threads=2,
+        nshards=2,
         checkpoint_dir=tempfile.mkdtemp(),
     )
     assert "output" in out_df.columns
@@ -110,16 +118,22 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     monkeypatch.setenv("ENDPOINT", "mock-endpoint")
     monkeypatch.setenv("INPUT_PARQUET", str(input_path))
     monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
+    monkeypatch.setenv(
+        "JOB_KWARGS", '{"input_column_name": "text", "output_column_name": "output"}'
+    )
 
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
         "--nthreads",
         "1",  # Use single-threaded path
+        "--job-kwargs",
+        '{"input_column_name": "text", "output_column_name": "output"}',
     ]
     await _amain(args)
 
     df_out = pd.read_parquet(output_path)
+    print(df_out)
     assert "output" in df_out.columns
     assert df_out.shape[0] == 2
 
