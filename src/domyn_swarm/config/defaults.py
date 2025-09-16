@@ -5,6 +5,8 @@ from typing import Any, Callable, Optional, TypeVar
 
 import yaml
 
+from . import get_settings
+
 T = TypeVar("T")
 
 # Search order (first hit wins)
@@ -24,6 +26,10 @@ _DEFAULT_FILES = (
 
 
 def _find_defaults_file() -> Optional[Path]:
+    s = get_settings()
+    if s.defaults_file and Path(s.defaults_file).is_file():
+        return Path(s.defaults_file)
+
     for f in _DEFAULT_FILES:
         try:
             p = f()
