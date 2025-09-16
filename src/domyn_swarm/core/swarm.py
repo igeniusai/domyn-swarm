@@ -109,7 +109,7 @@ class DomynLLMSwarm(BaseModel):
         )
 
         handle = self._deployment.up(
-            deployment_name, serving_spec, timeout_s=self.cfg.lb_wait
+            deployment_name, serving_spec, timeout_s=self.cfg.wait_endpoint_s
         )
         self.serving_handle = handle
         self.endpoint = handle.url

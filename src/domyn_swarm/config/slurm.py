@@ -9,14 +9,14 @@ from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 
 
-class DriverConfig(BaseModel):
+class SlurmEndpointConfig(BaseModel):
     cpus_per_task: int = 2
     mem: str = "16GB"
     threads_per_core: int = 1
     wall_time: str = "24:00:00"
     enable_proxy_buffering: bool = True
     nginx_timeout: str | int = "60s"
-    lb_port: int = 9000
+    port: int = 9000
     nginx_image: str | utils.EnvPath = Field(
         default_factory=default_for("slurm.driver.nginx_image", utils.EnvPath(""))
     )
@@ -54,7 +54,7 @@ class SlurmConfig(BaseModel):
     exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
     node_list: str | None = None  # e.g. "node[4-6]" (optional)
     mail_user: str | None = None  # Enable email notifications if set
-    driver: DriverConfig = Field(default_factory=DriverConfig)
+    endpoint: SlurmEndpointConfig = Field(default_factory=SlurmEndpointConfig)
 
     home_directory: utils.EnvPath = Field(
         default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
@@ -74,7 +74,7 @@ class SlurmConfig(BaseModel):
         from domyn_swarm.backends.serving.slurm import SlurmServingBackend
 
         driver = SlurmDriver(cfg=cfg_ctx)
-        serving = SlurmServingBackend(driver=driver, cfg=cfg_ctx)
+        serving = SlurmServingBackend(driver=driver, cfg=self)
         compute = SlurmComputeBackend(cfg=self, lb_jobid=0, lb_node="")
 
         return DeploymentPlan(

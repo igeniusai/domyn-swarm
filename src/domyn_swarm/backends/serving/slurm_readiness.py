@@ -20,12 +20,12 @@ class SlurmReadiness(ServingReadiness):
         self,
         *,
         driver: SlurmDriver,
-        lb_port: int,
+        endpoint_port: int,
         poll_interval_s: float = 10.0,
         console: Optional[Console] = None,
     ):
         self.driver = driver
-        self.lb_port = lb_port
+        self.endpoint_port = endpoint_port
         self.poll_interval_s = poll_interval_s
         self.console = console or Console()
 
@@ -47,7 +47,7 @@ class SlurmReadiness(ServingReadiness):
             handle.meta["lb_node"] = lb_node
             status.update(f"[yellow]LB job running on {lb_node}, probing HTTP…")
 
-            base = f"http://{lb_node}:{self.lb_port}"
+            base = f"http://{lb_node}:{self.endpoint_port}"
             wait_http_200(
                 f"{base}/v1/models",
                 timeout_s=timeout_s,

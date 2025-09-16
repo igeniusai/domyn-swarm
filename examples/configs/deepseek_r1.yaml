@@ -3,7 +3,16 @@ revision: main
 gpus_per_replica: 24
 gpus_per_node: 4
 replicas: 1
-vllm_args: "--block-size 32 --enable-expert-parallel --reasoning-parser deepseek_r1 --pipeline-parallel-size 6  --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 34000 --max-num-seqs 128"
+args: "--block-size 32 --enable-expert-parallel --reasoning-parser deepseek_r1 --pipeline-parallel-size 6  --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 34000 --max-num-seqs 128"
 lb_wait: 3600
-hf_home: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
-lb_port: 9001
+env:
+  HF_HOME: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
+backends:
+  - type: slurm
+    partition: boost_usr_prod
+    account: igen_train
+    qos: qos_llm_min
+    endpoint:
+      port: 9001
+      cpus_per_task: 4
+      wall_time: "36:00:00"

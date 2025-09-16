@@ -15,6 +15,7 @@ _DEFAULT_FILES = (
     else None,
     # project local
     lambda: Path.cwd() / "defaults.yaml",
+    lambda: Path.cwd() / ".domyn_swarm" / "defaults.yaml",
     # user config dir
     lambda: Path.home() / ".domyn_swarm" / "defaults.yaml",
     # package etc/ (optional; adjust to your tree)

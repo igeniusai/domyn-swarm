@@ -16,6 +16,13 @@ from pydantic import BaseModel, Field
 
 from domyn_swarm.config.plan import DeploymentPlan
 
+_DEFAULT_RESOURCE_SHAPES = {
+    8: "gpu.8xh200",
+    4: "gpu.4xh200",
+    2: "gpu.2xh200",
+    1: "gpu.1xh200",
+}
+
 
 class LeptonEndpointConfig(BaseModel):
     image: str = "vllm/vllm-openai:latest"

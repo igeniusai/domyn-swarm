@@ -42,8 +42,8 @@ class SrunCommandBuilder:
             f"--nodelist={self.nodelist}",
             f"--ntasks={ntasks}",
             "--overlap",
-            f"--mem={self.cfg.driver.mem}",
-            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
+            f"--mem={self.cfg.endpoint.mem}",
+            f"--cpus-per-task={self.cfg.endpoint.cpus_per_task}",
         ]
 
         if self.env:

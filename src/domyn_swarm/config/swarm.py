@@ -22,10 +22,6 @@ from domyn_swarm.helpers.io import is_folder, path_exists, to_path
 
 
 class DomynLLMSwarmConfig(BaseModel):
-    hf_home: utils.EnvPath = Field(
-        default_factory=default_for("hf_home", utils.EnvPath("~/.cache/huggingface"))
-    )
-
     # model / revision --------------------------------------------------------
     model: str
     revision: str | None = None
@@ -52,10 +48,9 @@ class DomynLLMSwarmConfig(BaseModel):
         default=None,
     )
     mem_per_cpu: str | None = None
-    lb_wait: int = 1200  # seconds to wait for LB to be ready
+    wait_endpoint_s: int = 1200  # seconds to wait for LB to be ready
 
-    # container images --------------------------------------------------------
-    image: str | utils.EnvPath = Field(default_factory=default_for("vllm_image", ""))
+    image: str | utils.EnvPath = Field(default_factory=default_for("image", ""))
 
     args: str = ""
     port: int = 8000
@@ -116,7 +111,12 @@ class DomynLLMSwarmConfig(BaseModel):
         if path_exists(v) and is_folder(v):
             rprint(f"Model saved to local folder {v} will be used")
         else:
-            hf_home = info.data["hf_home"]
+            hf_home = info.data["env"].get("hf_home") if info.data.get("env") else None
+            if not hf_home:
+                hf_home = os.getenv(
+                    "HF_HOME",
+                    os.path.join(os.path.expanduser("~"), ".cache/huggingface"),
+                )
             rprint(
                 f"[yellow]Huggingface model[/yellow] [bold green]{v}[/bold green] [yellow]will be used, make sure that[/yellow] [bold cyan]HF_HOME[/bold cyan] [yellow]is specified correctly and the model is available in[/yellow] {hf_home}/hub"
             )
@@ -162,7 +162,14 @@ class DomynLLMSwarmConfig(BaseModel):
         data["replicas_per_node"] = replicas_per_node
         data["nodes"] = nodes
         data["cpus_per_task"] = cpus_per_task
-        data["requires_ray"] = requires_ray
+
+        # Update backend configurations with computed values
+        backends = data.get("backends", [])
+        if backends:
+            for backend in backends:
+                if backend.get("type") == "slurm" and "requires_ray" not in backend:
+                    backend["requires_ray"] = requires_ray
+        data["backends"] = backends
 
         return data
 

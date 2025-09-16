@@ -38,14 +38,14 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         jobid = self.driver.submit_replicas(
             name, replicas, nodes, gpus_per_node, gpus_per_replica, replicas_per_node
         )
-        lb_jobid = self.driver.submit_lb(name, jobid)
+        lb_jobid = self.driver.submit_endpoint(name, jobid, replicas)
         return ServingHandle(
             id=str(lb_jobid),
             url="",  # filled in wait_ready()
             meta={
                 "jobid": jobid,
                 "lb_jobid": lb_jobid,
-                "port": self.cfg.driver.lb_port,
+                "port": self.cfg.endpoint.port,
                 "name": name,
             },
         )
@@ -56,8 +56,8 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         # Delegate to your health checker which sets endpoint when LB is alive
         probe = self.readiness or SlurmReadiness(
             driver=self.driver,
-            lb_port=self.cfg.driver.lb_port,
-            poll_interval_s=self.cfg.driver.poll_interval,
+            endpoint_port=self.cfg.endpoint.port,
+            poll_interval_s=self.cfg.endpoint.poll_interval,
         )
         return probe.wait_ready(handle, timeout_s)
 
