@@ -23,20 +23,19 @@ def submit_script(
         exists=True,
         help="YAML that defines/creates a new swarm",
     ),
-    state: Optional[Path] = typer.Option(
-        None,
-        "--state",
-        exists=True,
-        click_type=utils.ClickEnvPath(),
-        help="swarm_*.json file of an existing swarm",
+    jobid: int | None = typer.Option(None, "--jobid", exists=True, help="Job ID."),
+    home_directory: Path = typer.Option(
+        Path("./.domyn_swarm"),
+        "--home-directory",
+        help="Home directory if different from ./.domyn_swarm",
     ),
     args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
     """
-    if bool(config) == bool(state):
-        logger.error("Either --config or --state must be provided, not both.")
+    if config is not None and jobid is not None:
+        logger.error("Either --config or --jobid must be provided, not both.")
         raise typer.Exit(1)
 
     if config:
@@ -44,11 +43,11 @@ def submit_script(
         with DomynLLMSwarm(cfg=cfg) as swarm:
             swarm.submit_script(script_file, extra_args=args)
 
-    elif state is None:
+    elif jobid is None:
         raise RuntimeError("State is null.")
 
     else:
-        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
+        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(jobid, home_directory)
         swarm.submit_script(script_file, extra_args=args)
 
 
@@ -70,12 +69,11 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    state: Optional[Path] = typer.Option(
-        None,
-        "--state",
-        exists=True,
-        click_type=utils.ClickEnvPath(),
-        help="Path toswarm_*.json of a running swarm",
+    jobid: int | None = typer.Option(None, "--jobid", exists=True, help="Job ID."),
+    home_directory: Path = typer.Option(
+        Path("./.domyn_swarm"),
+        "--home-directory",
+        help="Home directory if different from ./.domyn_swarm",
     ),
     # TODO: deprecated, remove in future versions
     batch_size: int | None = typer.Option(
@@ -146,8 +144,8 @@ def submit_job(
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
     """
-    if bool(config) == bool(state):
-        logger.error("Either --config or --state must be provided, not both.")
+    if config is not None and jobid is not None:
+        logger.error("Either --config or --jobid must be provided, not both.")
         raise typer.Exit(1)
 
     if parallel is not None:
@@ -191,11 +189,11 @@ def submit_job(
                 mail_user=mail_user,
                 checkpoint_dir=checkpoint_dir,
             )
-    elif state is None:
-        raise RuntimeError("State is null.")
+    elif jobid is None:
+        raise RuntimeError("Job ID is null.")
 
     else:
-        swarm = DomynLLMSwarm.from_state(state)
+        swarm = DomynLLMSwarm.from_state(jobid, home_directory)
         job = _load_job(
             job_class,
             job_kwargs,

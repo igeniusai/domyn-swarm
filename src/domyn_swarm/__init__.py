@@ -84,7 +84,7 @@ class DomynLLMSwarm(BaseModel):
     def __enter__(self):
         self._submit_clusters_job()
         self._wait_for_lb_health()
-        self._persist()
+        self._state_mgr.update_lb_data()
         return self  # nothing else to expose in Mode B
 
     def __exit__(self, exc_type, exc, tb):
@@ -355,11 +355,21 @@ class DomynLLMSwarm(BaseModel):
             subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
 
     @classmethod
-    def from_state(cls, state_file: Path) -> "DomynLLMSwarm":
+    def from_state(cls, jobid: int, home_directory: Path) -> "DomynLLMSwarm":
+        """Initialize a swarm from a saved state.
+
+        Args:
+            jobid (int): Job id.
+            home_directory (Path): Domyn-swarm home directory.
+
+        Returns:
+            DomynLLMSwarm: Loaded swarm.
         """
-        Load a swarm from a saved state file (swarm_*.json).
-        """
-        return SwarmStateManager.load(state_file)
+        return SwarmStateManager.load(jobid, home_directory)
+
+    def delete_record(self) -> None:
+        """Delete swarm from the DB"""
+        self._state_mgr.delete_record()
 
     def _load_state(
         self,
