@@ -5,6 +5,7 @@ from typing import List, Optional
 import typer
 
 from domyn_swarm import DomynLLMSwarm, utils
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.core.swarm import _load_job
 from domyn_swarm.helpers.logger import setup_logger
@@ -12,6 +13,8 @@ from domyn_swarm.helpers.logger import setup_logger
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+
+settings = get_settings()
 
 
 @submit_app.command("script")
@@ -24,20 +27,19 @@ def submit_script(
         exists=True,
         help="YAML that defines/creates a new swarm",
     ),
-    state: Optional[Path] = typer.Option(
-        None,
-        "--state",
-        exists=True,
-        click_type=utils.ClickEnvPath(),
-        help="swarm_*.json file of an existing swarm",
+    jobid: int | None = typer.Option(None, "--jobid", exists=True, help="Job ID."),
+    home_directory: Path = typer.Option(
+        Path("./.domyn_swarm"),
+        "--home-directory",
+        help="Home directory if different from ./.domyn_swarm",
     ),
     args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
     """
-    if bool(config) == bool(state):
-        logger.error("Either --config or --state must be provided, not both.")
+    if config is not None and jobid is not None:
+        logger.error("Either --config or --jobid must be provided, not both.")
         raise typer.Exit(1)
 
     if config:
@@ -45,11 +47,11 @@ def submit_script(
         with DomynLLMSwarm(cfg=cfg) as swarm:
             swarm.submit_script(script_file, extra_args=args)
 
-    elif state is None:
+    elif jobid is None:
         raise RuntimeError("State is null.")
 
     else:
-        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(state)
+        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(jobid, home_directory)
         swarm.submit_script(script_file, extra_args=args)
 
 
@@ -71,12 +73,9 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    state: Optional[Path] = typer.Option(
+    jobid: Optional[int] = typer.Option(
         None,
-        "--state",
-        exists=True,
-        click_type=utils.ClickEnvPath(),
-        help="Path toswarm_*.json of a running swarm",
+        "--jobid",
     ),
     checkpoint_dir: Path = typer.Option(
         ".checkpoints/",
@@ -136,8 +135,8 @@ def submit_job(
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
     """
-    if bool(config) == bool(state):
-        logger.error("Either --config or --state must be provided, not both.")
+    if config is not None and jobid is not None:
+        logger.error("Either --config or --jobid must be provided, not both.")
         raise typer.Exit(1)
 
     if config:
@@ -180,11 +179,11 @@ def submit_job(
                 raise typer.Abort()
             else:
                 typer.echo("Continuing to wait for job to complete …")
-    elif state is None:
-        raise RuntimeError("State is null.")
+    elif jobid is None:
+        raise RuntimeError("Job ID is null.")
 
     else:
-        swarm = DomynLLMSwarm.from_state(state)
+        swarm = DomynLLMSwarm.from_state(jobid, settings.home_dir)
         job = _load_job(
             job_class,
             job_kwargs,

@@ -1,5 +1,6 @@
 import logging
 from importlib import metadata
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -12,8 +13,8 @@ from typing_extensions import Annotated
 from ..cli.pool import pool_app
 from ..cli.submit import submit_app
 from ..config.swarm import _load_swarm_config
+from ..core.state import SwarmStateManager
 from ..core.swarm import (
-    DomynLLMSwarm,
     _start_swarm,
 )
 from ..helpers.logger import setup_logger
@@ -99,8 +100,10 @@ def launch_up(
     short_help="Check the status of the swarm allocation given its state file",
 )
 def check_status(
-    state_file: typer.FileText = typer.Argument(
-        ..., exists=True, help="The swarm_*.json file printed at launch"
+    jobid: int = typer.Argument(..., exists=True, help="Job ID."),  # TODO: string
+    home_directory: Path = typer.Argument(
+        default=Path("./.domyn_swarm"),
+        help="Home directory if different from ./.domyn_swarm",
     ),
     name: Annotated[
         Optional[str],
@@ -110,15 +113,14 @@ def check_status(
             help="Name of the swarm allocation to check status for. If not provided, checks all allocations.",
         ),
     ] = None,
-):
+) -> None:
     """
     Check the status of the swarm allocation.
 
-    This command will read the state file and print the status of the swarm allocation.
+    This command will read the DB and print the status of the swarm allocation.
     If a name is provided, it will check the status of that specific allocation.
     """
-    swarm: DomynLLMSwarm = DomynLLMSwarm.model_validate_json(state_file.read())
-
+    swarm = SwarmStateManager.load(jobid, home_directory)
     if swarm.serving_handle is None:
         raise ValueError("Swarm does not have a serving handle.")
 
@@ -172,13 +174,16 @@ def check_status(
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
-    state_file: typer.FileText = typer.Argument(
-        ..., exists=True, help="The swarm_*.json file printed at launch"
+    jobid: int = typer.Argument(..., exists=True, help="Job ID."),
+    home_directory: Path = typer.Argument(
+        default=Path("./.domyn_swarm"),
+        help="Home directory if different from ./.domyn_swarm",
     ),
 ):
-    swarm = DomynLLMSwarm.model_validate_json(state_file.read())  # validate the file
+    swarm = SwarmStateManager.load(jobid, home_directory)
     swarm.down()
     typer.echo("✅ Swarm shutdown request sent.")
+    swarm.delete_record()
 
 
 if __name__ == "__main__":

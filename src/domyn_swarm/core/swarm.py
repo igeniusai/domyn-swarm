@@ -190,6 +190,23 @@ class DomynLLMSwarm(BaseModel):
     def _persist(self):
         self._state_mgr.save()
 
+    @classmethod
+    def from_state(cls, jobid: int, home_directory: Path) -> "DomynLLMSwarm":
+        """Initialize a swarm from a saved state.
+
+        Args:
+            jobid (int): Job id.
+            home_directory (Path): Domyn-swarm home directory.
+
+        Returns:
+            DomynLLMSwarm: Loaded swarm.
+        """
+        return SwarmStateManager.load(jobid, home_directory)
+
+    def delete_record(self) -> None:
+        """Delete swarm from the DB"""
+        self._state_mgr.delete_record()
+
     def submit_job(
         self,
         job: SwarmJob,
@@ -324,13 +341,6 @@ class DomynLLMSwarm(BaseModel):
             raise RuntimeError("Failed to submit job to compute backend.")
 
         return job_handle.meta.get("pid") if detach else None
-
-    @classmethod
-    def from_state(cls, state_file: Path) -> "DomynLLMSwarm":
-        """
-        Load a swarm from a saved state file (swarm_*.json).
-        """
-        return SwarmStateManager.load(state_file)
 
     def cleanup(self):
         if self._deployment and self.serving_handle:

@@ -18,13 +18,13 @@ class SlurmEndpointConfig(BaseModel):
     nginx_timeout: str | int = "60s"
     port: int = 9000
     nginx_image: str | utils.EnvPath = Field(
-        default_factory=default_for("slurm.driver.nginx_image", utils.EnvPath(""))
+        default_factory=default_for("slurm.endpoint.nginx_image", utils.EnvPath(""))
     )
     poll_interval: int = 10  # sacct polling cadence (s)
 
 
 class SlurmConfig(BaseModel):
-    type: Literal["slurm"]
+    type: Literal["slurm"] = "slurm"
     partition: str = Field(default_factory=default_for("slurm.partition", ""))
     account: str = Field(default_factory=default_for("slurm.account", ""))
     qos: str = Field(default_factory=default_for("slurm.qos", ""))

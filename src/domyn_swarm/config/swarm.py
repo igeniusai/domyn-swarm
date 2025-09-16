@@ -167,8 +167,11 @@ class DomynLLMSwarmConfig(BaseModel):
         backends = data.get("backends", [])
         if backends:
             for backend in backends:
+                if not isinstance(backend, dict):
+                    backend = backend.model_dump()
                 if backend.get("type") == "slurm" and "requires_ray" not in backend:
                     backend["requires_ray"] = requires_ray
+
         data["backends"] = backends
 
         return data

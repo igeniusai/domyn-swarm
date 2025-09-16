@@ -2,6 +2,7 @@
 # domyn-swarm
 
 ![CI](https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg)
+![Static Badge](https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
 
@@ -142,15 +143,14 @@ domyn-swarm up -c config.yaml \
 * `-r/--replicas` — override number of replicas
 * `--reverse-proxy` — (TBD) launch an Nginx running on the login node you're logged, so that you can access Ray dashboard via SSH tunneling
 
-Produces `swarm_<jobid>.json` in your log directory.
 
 ### `domyn-swarm down`
 
 ```bash
-domyn-swarm down logs/swarm_16803892.json
+domyn-swarm down 16803892
 ```
 
-Stops the LB and all replica jobs via `scancel`.
+Take a job id as input. It stops the LB and all replica jobs via `scancel`.
 
 ### `domyn-swarm submit job`
 
@@ -159,7 +159,7 @@ Typed DataFrame → DataFrame jobs:
 ```bash
 domyn-swarm submit job \
   my_module:CustomCompletionJob \
-  --state swarm_16803892.json \
+  --jobid 16803892 \
   --job-kwargs '{"temperature":0.2,"checkpoint_interval":16}' \
   --input prompts.parquet \
   --output answers.parquet
@@ -186,12 +186,12 @@ Free-form script on the head node:
 
 ```bash
 domyn-swarm submit script \
-  --state logs/swarm_16803892.json \
+  --jobid 16803892 \
   path/to/script.py -- --foo 1 --bar 2
 ```
 
 * **script\_file**: your `.py` file (must exist)
-* **--config** or **--state** (one only)
+* **--config** or **--jobid** (one only)
 * **args…** after `--` are forwarded to your script
 
 ---
