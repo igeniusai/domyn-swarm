@@ -1,0 +1,39 @@
+-- Select the configuration
+SELECT
+    hf_home,
+    model,
+    revision,
+    replicas,
+    gpus_per_replica,
+    gpus_per_node,
+    replicas_per_node,
+    nodes,
+    cpus_per_task,
+    requires_ray,
+    mem_per_cpu,
+    partition,
+    account,
+    vllm_image,
+    nginx_image,
+    lb_wait,
+    lb_port,
+    home_directory,
+    log_directory,
+    max_concurrent_requests,
+    poll_interval,
+    template_path,
+    nginx_template_path,
+    vllm_args,
+    vllm_port,
+    ray_port,
+    ray_dashboard_port,
+    venv_path,
+    time_limit,
+    exclude_nodes,
+    node_list,
+    mail_user,
+    model
+FROM
+    swarm
+WHERE
+    jobid = :jobid;
