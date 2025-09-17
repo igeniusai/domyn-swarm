@@ -60,7 +60,7 @@ class DomynLLMSwarmConfig(BaseModel):
         default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
     )
 
-    backend: BackendConfig = Field(
+    backend: BackendConfig | None = Field(
         description="List of backend configurations",
     )
     _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
@@ -85,9 +85,9 @@ class DomynLLMSwarmConfig(BaseModel):
     def get_deployment_plan(self) -> DeploymentPlan | None:
         return self._plan
 
-    @field_validator("backends")
+    @field_validator("backend")
     @classmethod
-    def not_empty(cls, v: list[BackendConfig]) -> list[BackendConfig]:
+    def not_empty(cls, v: BackendConfig | None) -> BackendConfig:
         if not v:
             raise ValueError("At least one backend must be configured")
         return v
