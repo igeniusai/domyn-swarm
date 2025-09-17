@@ -7,12 +7,12 @@ args: "--block-size 32 --enable-expert-parallel --reasoning-parser deepseek_r1 -
 lb_wait: 3600
 env:
   HF_HOME: /leonardo_scratch/fast/iGen_train/shared_hf_cache/
-backends:
-  - type: slurm
-    partition: boost_usr_prod
-    account: igen_train
-    qos: qos_llm_min
-    endpoint:
-      port: 9001
-      cpus_per_task: 4
-      wall_time: "36:00:00"
+backend:
+  type: slurm
+  partition: boost_usr_prod
+  account: igen_train
+  qos: qos_llm_min
+  endpoint:
+    port: 9001
+    cpus_per_task: 4
+    wall_time: "36:00:00"

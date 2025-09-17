@@ -1,7 +1,7 @@
 import io
 import math
 import os
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import yaml
 from pydantic import (
@@ -15,7 +15,7 @@ from pydantic import (
 from rich import print as rprint
 
 from domyn_swarm import utils
-from domyn_swarm.config.backend import BackendConfig, BackendsConfig
+from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.helpers.io import is_folder, path_exists, to_path
@@ -60,13 +60,10 @@ class DomynLLMSwarmConfig(BaseModel):
         default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
     )
 
-    backends: list[BackendConfig] = Field(
+    backend: BackendConfig = Field(
         description="List of backend configurations",
-        default_factory=list,
     )
-    default_backend: Optional[Literal["first"]] | Optional[int] = None
     _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
-    _backend_config: BackendConfig | None = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
 
@@ -76,17 +73,12 @@ class DomynLLMSwarmConfig(BaseModel):
         If `backends` is provided, set a runtime plan now.
         This keeps BC: legacy configs with no `backends` continue to use `platform`.
         """
-        if self.backends:
-            idx = 0
-            if isinstance(self.default_backend, int):
-                idx = self.default_backend
-
+        if self.backend:
             # Build deployment plans with `self` as context (to access replicas, hf_home, vllm args, etc.)
-            plans = BackendsConfig(backends=self.backends).build_all(self)
-            if not plans:
+            self._plan = self.backend.build(self)
+            if not self._plan:
                 raise ValueError("At least one backend must be configured")
-            self._plan = plans[idx]
-            self._backend_config = self.backends[idx]
+
         return self
 
     # Convenience accessor
@@ -164,15 +156,14 @@ class DomynLLMSwarmConfig(BaseModel):
         data["cpus_per_task"] = cpus_per_task
 
         # Update backend configurations with computed values
-        backends = data.get("backends", [])
-        if backends:
-            for backend in backends:
-                if not isinstance(backend, dict):
-                    backend = backend.model_dump()
-                if backend.get("type") == "slurm" and "requires_ray" not in backend:
-                    backend["requires_ray"] = requires_ray
+        backend = data.get("backend", [])
+        if backend:
+            if not isinstance(backend, dict):
+                backend = backend.model_dump()
+            if backend.get("type") == "slurm" and "requires_ray" not in backend:
+                backend["requires_ray"] = requires_ray
 
-        data["backends"] = backends
+        data["backend"] = backend
 
         return data
 

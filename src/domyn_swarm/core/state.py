@@ -180,7 +180,7 @@ class SwarmStateManager:
         """
         cfg = self.swarm.cfg.model_dump(mode="json", exclude={"driver": True})
         model = self.swarm.model_dump(mode="json", exclude={"cfg": True})
-        driver = self.swarm.cfg._backend_config.endpoint.model_dump()  # type: ignore
+        driver = self.swarm.cfg.backend.endpoint.model_dump()  # type: ignore
         driver = {f"endpoint_{k}": v for k, v in driver.items()}
 
         return model | driver | cfg

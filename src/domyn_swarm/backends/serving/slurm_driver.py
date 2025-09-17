@@ -28,16 +28,12 @@ class SlurmDriver:
         """Submit the replica array job to Slurm.
         Returns the job ID of the submitted job."""
         env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(
-                self.cfg._backend_config.template_path.parent
-            ),
+            loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
             trim_blocks=True,
             lstrip_blocks=True,
         )
-        script_txt = env.get_template(
-            self.cfg._backend_config.template_path.name
-        ).render(
+        script_txt = env.get_template(self.cfg.backend.template_path.name).render(
             cfg=self.cfg,
             job_name=job_name,
             path_exists=path_exists,
@@ -49,10 +45,10 @@ class SlurmDriver:
             fh.write(script_txt)
             script_path = fh.name
 
-        os.makedirs(self.cfg._backend_config.log_directory / job_name, exist_ok=True)
+        os.makedirs(self.cfg.backend.log_directory / job_name, exist_ok=True)
         sbatch_cmd = ["sbatch", "--parsable"]
         array_spec = None
-        if self.cfg._backend_config.requires_ray:
+        if self.cfg.backend.requires_ray:
             array_spec = f"0-{replicas - 1}%{replicas}"
         elif nodes and nodes >= 1 and replicas > 1:
             array_spec = f"0-{nodes - 1}%{nodes}"
@@ -68,17 +64,13 @@ class SlurmDriver:
         out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
 
-        os.makedirs(
-            self.cfg._backend_config.home_directory / "swarms" / job_id, exist_ok=True
-        )
+        os.makedirs(self.cfg.backend.home_directory / "swarms" / job_id, exist_ok=True)
         return int(job_id)
 
     def submit_endpoint(self, job_name: str, dep_jobid: int, replicas: int) -> int:
         """Submit the load balancer job to Slurm with a dependency on the replica array job."""
         env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(
-                self.cfg._backend_config.template_path.parent
-            ),
+            loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
             trim_blocks=True,
             lstrip_blocks=True,

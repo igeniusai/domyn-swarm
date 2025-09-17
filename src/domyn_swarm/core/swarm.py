@@ -319,8 +319,8 @@ class DomynLLMSwarm(BaseModel):
             "JOB_KWARGS": job_kwargs,
         }
 
-        if self.cfg._backend_config and self.cfg._backend_config.env:
-            env.update(self.cfg._backend_config.env)
+        if self.cfg.backend and self.cfg.backend.env:
+            env.update(self.cfg.backend.env)
         if env_overrides:
             env.update(env_overrides)
 
@@ -374,11 +374,11 @@ class DomynLLMSwarm(BaseModel):
             lb_node = handle.meta.get("lb_node")
             if not lb_jobid or not lb_node:
                 raise RuntimeError("LB Job ID/Node missing in Slurm handle.")
-            assert self.cfg._backend_config is not None and isinstance(
-                self.cfg._backend_config, SlurmConfig
+            assert self.cfg.backend is not None and isinstance(
+                self.cfg.backend, SlurmConfig
             )
             return SlurmComputeBackend(
-                cfg=self.cfg._backend_config, lb_jobid=lb_jobid, lb_node=lb_node
+                cfg=self.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node
             )
         elif self._plan and self._plan.platform == "lepton":
             return self._plan.compute

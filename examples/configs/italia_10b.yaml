@@ -9,12 +9,12 @@ env:
   HF_HOME: /leonardo_work/iGen_train/shared_hf_cache_2/
 
 time_limit: "200:00:00"
-backends:
-  - type: slurm
-    partition: boost_usr_prod
-    account: igen_train
-    qos: qos_llm_min
-    endpoint:
-      port: 9002
-      wall_time: "200:00:00"
-      cpus_per_task: 31
+backend:
+  type: slurm
+  partition: boost_usr_prod
+  account: igen_train
+  qos: qos_llm_min
+  endpoint:
+    port: 9002
+    wall_time: "200:00:00"
+    cpus_per_task: 31
