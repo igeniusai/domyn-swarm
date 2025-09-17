@@ -15,14 +15,12 @@ def dummy_config(tmp_path):
         template_path=tmp_path / "template.sh.j2",
         log_directory=tmp_path / "logs",
         home_directory=tmp_path,
-        backends=[
-            SlurmConfig(
-                type="slurm",
-                partition="debug",
-                account="test_account",
-                qos="test_qos",
-            ).model_dump()
-        ],
+        backend=SlurmConfig(
+            type="slurm",
+            partition="debug",
+            account="test_account",
+            qos="test_qos",
+        ).model_dump(),
     )
 
 
