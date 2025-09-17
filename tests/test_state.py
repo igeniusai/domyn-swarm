@@ -47,20 +47,18 @@ class TestSwarmStateManager:
                 cpus_per_task=2,
                 mem_per_cpu="1GB",
                 wait_endpoint_s=1200,
-                backends=[
-                    SlurmConfig(
-                        type="slurm",
-                        requires_ray=False,
-                        endpoint=SlurmEndpointConfig(
-                            cpus_per_task=1,
-                            mem="1GB",
-                            threads_per_core=1,
-                            wall_time="24:00:00",
-                            enable_proxy_buffering=True,
-                            nginx_timeout="60s",
-                        ),
-                    )
-                ],
+                backends=SlurmConfig(
+                    type="slurm",
+                    requires_ray=False,
+                    endpoint=SlurmEndpointConfig(
+                        cpus_per_task=1,
+                        mem="1GB",
+                        threads_per_core=1,
+                        wall_time="24:00:00",
+                        enable_proxy_buffering=True,
+                        nginx_timeout="60s",
+                    ),
+                ),
             ),
             serving_handle=ServingHandle(
                 id="1234",
