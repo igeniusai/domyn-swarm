@@ -83,6 +83,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
 
         created = client.job.create(job)
+        print(dir(created))
         job_id = created.metadata.id_ if created and created.metadata else None
         if not job_id:
             raise RuntimeError("Failed to create Lepton job")
@@ -109,9 +110,9 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     def default_python(self, cfg) -> str:
         return "python"
 
-    def default_image(self, cfg) -> Optional[str]:
+    def default_image(self, cfg: LeptonConfig) -> Optional[str]:
         # if you populated cfg.lepton.job.image, reuse it
-        return cfg.lepton.job.image if getattr(cfg, "lepton", None) else None
+        return cfg.job.image if getattr(cfg, "job", None) else None
 
     def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
         affinity = LeptonResourceAffinity(
