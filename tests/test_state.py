@@ -47,7 +47,7 @@ class TestSwarmStateManager:
                 cpus_per_task=2,
                 mem_per_cpu="1GB",
                 wait_endpoint_s=1200,
-                backends=SlurmConfig(
+                backend=SlurmConfig(
                     type="slurm",
                     requires_ray=False,
                     endpoint=SlurmEndpointConfig(
