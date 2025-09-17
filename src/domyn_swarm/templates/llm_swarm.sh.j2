@@ -2,29 +2,29 @@
 ###############################################################################
 #  SLURM DIRECTIVES
 ###############################################################################
-#SBATCH --account=iGen_train
+#SBATCH --account={{ cfg.backend.account }}
 {% if cfg.mail_user %}
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user={{ cfg.mail_user }}
+#SBATCH --mail-user={{ cfg.backend.mail_user }}
 {% endif %}
 #SBATCH --qos=qos_llm_min
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
-#SBATCH --partition={{ cfg.partition }}
+#SBATCH --partition={{ cfg.backend.partition }}
 #SBATCH --nodes={{ cfg.nodes }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem=0
-#SBATCH --time={{ cfg.time_limit }}
+#SBATCH --time={{ cfg.backend.time_limit }}
 {% if cfg.exclude_nodes %}
-#SBATCH --exclude={{ cfg.exclude_nodes }}
+#SBATCH --exclude={{ cfg.backend.exclude_nodes }}
 {% endif %}
 {% if cfg.node_list %}
-#SBATCH --nodelist={{ cfg.node_list | default('') }}
+#SBATCH --nodelist={{ cfg.backend.node_list | default('') }}
 {% endif %}
-#SBATCH --output={{ cfg.log_directory }}/{{ job_name }}/%x.%j.out
-#SBATCH --error={{ cfg.log_directory }}/{{ job_name }}/%x.%j.err
+#SBATCH --output={{ cfg.backend.log_directory }}/{{ job_name }}/%x.%j.out
+#SBATCH --error={{ cfg.backend.log_directory }}/{{ job_name }}/%x.%j.err
 
 set -euo pipefail
 
@@ -34,12 +34,12 @@ module load cuda/12.6
 ###############################################################################
 #  ENVIRONMENT VARIABLES
 ###############################################################################
-export VLLM_IMAGE="{{ cfg.vllm_image }}"
-export HF_HOME="{{ cfg.hf_home }}"
+export VLLM_IMAGE="{{ cfg.image }}"
+export HF_HOME="{{ cfg.env.HF_HOME }}"
 export REPLICAS={{ cfg.replicas }}
 export GPUS_PER_REPLICA={{ cfg.gpus_per_replica }}
-{% if not cfg.requires_ray %}
-export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
+{% if not cfg.backend.requires_ray %}
+export REPLICAS_PER_NODE={{ cfg.backend.replicas_per_node }}
 {% endif %}
 export HF_HUB_OFFLINE=1
 export PYTHONNOUSERSITE=1
@@ -56,10 +56,10 @@ export REQUIRED_GPUS=$(( REPLICAS * GPUS_PER_REPLICA ))
 # Job-specific variables
 REPL_ID=${SLURM_ARRAY_TASK_ID:-0}
 REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
-{% if not cfg.requires_ray %}
+{% if not cfg.backend.requires_ray %}
 GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
 {% endif %}
-export LOG_DIR={{ cfg.log_directory }}/${REPL_JOB_ID}/${REPL_ID}
+export LOG_DIR={{ cfg.backend.log_directory }}/${REPL_JOB_ID}/${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -69,8 +69,8 @@ mkdir -p "$LOG_DIR"
 NODES=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 HEAD_NODE=${NODES[0]}
 INSTANCE_TAG="{{ job_name }}_${REPL_ID}_head"
-HEAD_PORT="{{ cfg.ray_port }}"
-REST_PORT="{{ cfg.vllm_port }}"
+HEAD_PORT="{{ cfg.backend.ray_port }}"
+REST_PORT="{{ cfg.port }}"
 
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
 
@@ -83,7 +83,7 @@ MOUNTS=$MOUNTS,{{ cfg.model }}
 ###############################################################################
 #  SINGLE-NODE or SHARED-NODES DEPLOYMENT
 ###############################################################################
-{% if not cfg.requires_ray %}
+{% if not cfg.backend.requires_ray %}
 echo "[single-node] Running colocated replicas..."
 
 function start_vllm_replica() {
@@ -102,7 +102,7 @@ function start_vllm_replica() {
      {% if 'tensor-parallel-size' not in cfg.vllm_args %}
      --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min  }} \
      {% endif %}
-     {{ cfg.vllm_args }} \
+     {{ cfg.args }} \
      --port $port \
      >> "$log_dir/vllm.log" 2>&1 &
 }
@@ -119,7 +119,7 @@ function wait_for_vllm_ready() {
 
     if [[ $code == 200 ]]; then
       echo "[head] $endpoint is READY ✅"
-      local head_file="{{ cfg.home_directory }}/swarms/${REPL_JOB_ID}/${replica_id}.head"
+      local head_file="{{ cfg.backend.home_directory }}/swarms/${REPL_JOB_ID}/${replica_id}.head"
       echo "$endpoint" > "$head_file"
       break
     fi
@@ -136,7 +136,7 @@ declare -a hosts=()
 
 for ((i=0; i<REPLICAS_PER_NODE; i++)); do
   GLOBAL_ID=$(( GLOBAL_BASE + i ))
-  VLLM_PORT=$(( {{ cfg.vllm_port }} + GLOBAL_ID ))
+  VLLM_PORT=$(( {{ cfg.port }} + GLOBAL_ID ))
 
   global_ids+=("$GLOBAL_ID")
   ports+=("$VLLM_PORT")
@@ -187,13 +187,13 @@ export NCCL_CUMEM_ENABLE=1
 
 function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
-  echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env
+  echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.backend.log_directory }}/{{ job_name }}/${REPL_ID}.env
 
   singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
-                --env-file {{ cfg.log_directory }}/{{ job_name }}/${REPL_ID}.env \
+                --env-file {{ cfg.backend.log_directory }}/{{ job_name }}/${REPL_ID}.env \
                 --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
                 --disable-usage-stats --head --block \
-                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.ray_dashboard_port }} --include-dashboard=true
+                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.backend.ray_dashboard_port }} --include-dashboard=true
 }
 
 function wait_for_ray_ready() {
@@ -235,11 +235,11 @@ function start_vllm_server() {
   singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
            vllm serve {{ cfg.model }} \
-           {% if 'tensor-parallel-size' not in cfg.vllm_args %}
+           {% if 'tensor-parallel-size' not in cfg.args %}
            --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
            {% endif %}
            --distributed-executor-backend ray \
-           {{ cfg.vllm_args | default('') }} \
+           {{ cfg.args | default('') }} \
            --port $REST_PORT \
            >> "$LOG_DIR/vllm_head.log" 2>&1 &
 }
@@ -261,7 +261,7 @@ function wait_for_vllm_server_ready() {
   done
 
   echo "[head] REST ready → http://$HEAD_NODE:$REST_PORT"
-  local head_file="{{ cfg.home_directory }}/swarms/${SLURM_ARRAY_JOB_ID}/${REPL_ID}.head"
+  local head_file="{{ cfg.backend.home_directory }}/swarms/${SLURM_ARRAY_JOB_ID}/${REPL_ID}.head"
   echo "$HEAD_NODE:$REST_PORT" > "$head_file"
 }
 

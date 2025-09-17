@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import threading
+import warnings
 from pathlib import Path
 from typing import Optional, Type, Union
 
@@ -16,7 +17,8 @@ import pandas as pd
 from domyn_swarm.helpers.data import compute_hash, parquet_hash
 from domyn_swarm.helpers.io import load_dataframe, save_dataframe
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.jobs import SwarmJob  # base class
+from domyn_swarm.jobs import SwarmJob
+from domyn_swarm.jobs.compat import run_job_unified  # base class
 
 logger = setup_logger("domyn_swarm.jobs.run", level=logging.INFO)
 
@@ -26,7 +28,7 @@ def _load_cls(path: str) -> type[SwarmJob]:
     return getattr(importlib.import_module(mod), cls)
 
 
-def run_swarm_in_threads(
+async def run_swarm_in_threads(
     df: pd.DataFrame,
     job_cls: Type["SwarmJob"],
     *,
@@ -52,7 +54,25 @@ def run_swarm_in_threads(
     Returns:
         A single combined DataFrame with all outputs.
     """
+    warnings.warn(
+        "run_swarm_in_threads is deprecated; sharding handled by run_job_unified.",
+        DeprecationWarning,
+    )
 
+    def make_job():
+        return job_cls(**job_kwargs)
+
+    return await run_job_unified(
+        make_job,
+        df,
+        input_col=job_kwargs.get("input_column_name", "messages"),
+        output_cols=[job_kwargs.get("output_column_name", "result")],
+        nshards=num_threads or 1,
+        store_uri=None,  # disables new-style path
+        checkpoint_every=job_kwargs.get("checkpoint_interval", 16),
+        tag=tag,
+        checkpoint_dir=str(checkpoint_dir),
+    )
     MAX_PARALLELISM = os.cpu_count()
     if num_threads is None:
         num_threads = MAX_PARALLELISM if MAX_PARALLELISM is not None else 1
@@ -134,6 +154,12 @@ def parse_args(cli_args=None):
         default=Path(".checkpoints"),
         help="Directory to store checkpoint files",
     )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=16,
+        help="How often to checkpoint progress (in records)",
+    )
 
     if not cli_args:
         return parser.parse_args()
@@ -154,39 +180,42 @@ def build_job_from_args(args) -> tuple[Type[SwarmJob], dict]:
 
 async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     args = parse_args(cli_args)
-
     in_path: Path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
-    out_path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
-
+    out_path: Path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
     job_cls, job_kwargs = build_job_from_args(args)
-    logger.info(
-        f"[bold yellow]Instantiating job {job_cls.__name__} with params: {job_kwargs}"
-    )
-    job = job_cls(**job_kwargs)
-
-    logger.info(f"[bold yellow]Reading input dataset from {in_path}")
+    df_in = load_dataframe(in_path, limit=args.limit)
     tag = parquet_hash(in_path) + compute_hash(str(out_path))
 
-    df_in = load_dataframe(in_path, limit=args.limit)
+    def make_job():
+        return job_cls(**job_kwargs)
 
-    if args.nthreads <= 1:
-        df_out: pd.DataFrame = await job.run(
-            df_in, tag, checkpoint_dir=args.checkpoint_dir
-        )
-    else:
-        logger.info(
-            f"[bold green]Running job in multithreaded mode (num_threads={args.nthreads})"
-        )
-        df_out: pd.DataFrame = run_swarm_in_threads(
-            df_in,
-            job_cls,
-            job_kwargs=job_kwargs,
-            tag=tag,
-            num_threads=args.nthreads,
-            checkpoint_dir=args.checkpoint_dir,
-        )
+    # Resolve output columns for new-style (fallback to legacy CLI flag)
+    output_cols = None
+    if hasattr(job_cls, "output_column_name"):
+        o = getattr(job_cls, "output_column_name")
+        output_cols = o if isinstance(o, list) else [o]
+    elif "output_column_name" in job_kwargs:
+        o = job_kwargs["output_column_name"]
+        output_cols = o if isinstance(o, list) else [o]
 
-    logger.info(f"[bold green]Saving output dataset to {out_path}")
+    # Map legacy --nthreads to shards
+    nshards = getattr(args, "nthreads", 1)
+
+    # Derive a default store URI from checkpoint dir (local file://); keeps legacy alive
+    ckp_base = Path(args.checkpoint_dir) / f"{job_cls.__name__}_{tag}.parquet"
+    store_uri = f"file://{ckp_base}"
+
+    df_out = await run_job_unified(
+        make_job,
+        df_in,
+        input_col=job_kwargs.get("input_column_name", "messages"),
+        output_cols=output_cols,
+        nshards=nshards,
+        store_uri=store_uri,  # used by new-style
+        checkpoint_every=args.checkpoint_interval,
+        tag=tag,  # used by old-style
+        checkpoint_dir=args.checkpoint_dir,  # used by old-style
+    )
 
     save_dataframe(df_out, out_path)
 

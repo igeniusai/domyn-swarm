@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+from domyn_swarm.config.slurm import SlurmConfig
 
 
 class SrunCommandBuilder:
     """Builder for constructing srun commands with various configurations."""
 
-    def __init__(self, cfg: DomynLLMSwarmConfig, jobid: int, nodelist: str):
+    def __init__(self, cfg: SlurmConfig, jobid: int, nodelist: str):
         self.cfg = cfg
         self.jobid = jobid
         self.nodelist = nodelist
@@ -42,8 +42,8 @@ class SrunCommandBuilder:
             f"--nodelist={self.nodelist}",
             f"--ntasks={ntasks}",
             "--overlap",
-            f"--mem={self.cfg.driver.mem}",
-            f"--cpus-per-task={self.cfg.driver.cpus_per_task}",
+            f"--mem={self.cfg.endpoint.mem}",
+            f"--cpus-per-task={self.cfg.endpoint.cpus_per_task}",
         ]
 
         if self.env:

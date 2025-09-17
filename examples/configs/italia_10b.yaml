@@ -1,0 +1,20 @@
+model: /leonardo_scratch/fast/iGen_train/nvidia_checkpoints/Italia-10B-Instruct-16k-mix6-phase2-ttc-hf/
+revision: main
+gpus_per_replica: 2
+replicas: 8
+args: "--dtype bfloat16 --gpu-memory-utilization 0.8 --max-model-len 8192 --max-num-seqs 64"
+port: 9500
+lb_wait: 3600
+env:
+  HF_HOME: /leonardo_work/iGen_train/shared_hf_cache_2/
+
+time_limit: "200:00:00"
+backend:
+  type: slurm
+  partition: boost_usr_prod
+  account: igen_train
+  qos: qos_llm_min
+  endpoint:
+    port: 9002
+    wall_time: "200:00:00"
+    cpus_per_task: 31

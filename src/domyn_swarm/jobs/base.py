@@ -20,19 +20,20 @@ Sub-classes included:
 
 import abc
 import dataclasses
+import inspect
 import logging
 import os
 import threading
 from pathlib import Path
-from typing import Callable
+from typing import Any, Awaitable, Callable
 
 import pandas as pd
 from openai import AsyncOpenAI
 from tqdm import tqdm
 
+from ..checkpoint.manager import CheckpointManager
 from ..helpers.logger import setup_logger
 from .batching import BatchExecutor
-from .checkpointing import CheckpointManager
 
 logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
 
@@ -47,6 +48,8 @@ class SwarmJob(abc.ABC):
     - Uses a pluggable LLM client (OpenAI, etc.) via a factory.
     """
 
+    api_version: int = 1
+
     def __init__(
         self,
         *,
@@ -55,12 +58,7 @@ class SwarmJob(abc.ABC):
         provider: str = "openai",
         input_column_name: str = "messages",
         output_column_name: str | list = "result",
-        checkpoint_dir: Path | str = ".checkpoints/",
         checkpoint_interval: int = 16,
-        # TODO: deprecated, remove in future versions
-        batch_size: int | None = None,
-        # TODO: deprecated, remove in future versions
-        parallel: int | None = None,
         max_concurrency: int = 2,
         retries: int = 5,
         timeout: float = 600,
@@ -77,9 +75,7 @@ class SwarmJob(abc.ABC):
             provider: LLM provider (default: "openai").
             input_column_name: Name of the input column in the DataFrame.
             output_column_name: Name of the output column(s) in the DataFrame.
-            batch_size: Size of each batch for processing. (deprecated, use `checkpoint_interval`).
             checkpoint_interval: Number of items to process before checkpointing.
-            parallel: Number of concurrent requests to process. (deprecated, use `max_concurrency`).
             max_concurrency: Maximum number of concurrent requests to process.
             retries: Number of retries for failed requests.
             timeout: Request timeout in seconds.
@@ -94,27 +90,11 @@ class SwarmJob(abc.ABC):
         if not model:
             raise ValueError("Model name must be specified")
 
-        if parallel is not None:
-            logger.warning(
-                "The `parallel` parameter is deprecated. Use `max_concurrent_requests` instead."
-            )
-            self.max_concurrency = parallel
-
-        if batch_size is not None:
-            logger.warning(
-                "The `batch_size` parameter is deprecated. Use `checkpoint_interval` instead."
-            )
-            self.checkpoint_interval = batch_size
-
         self.model = model
         self.provider = provider
         self.input_column_name = input_column_name
         self.output_column_name = output_column_name
         self.checkpoint_interval = checkpoint_interval
-        # TODO: deprecated, remove in future versions
-        self.batch_size = batch_size
-        # TODO: deprecated, remove in future versions
-        self.parallel = parallel
         self.max_concurrency = max_concurrency
         self.retries = retries
         self.timeout = timeout
@@ -126,6 +106,7 @@ class SwarmJob(abc.ABC):
             organization="-",
             project="-",
             timeout=timeout,
+            default_headers={"Authorization": f"Bearer {os.getenv('API_TOKEN', '')}"},
             **(client_kwargs or {}),
         )
         self._callbacks: dict[str, Callable] = {}
@@ -207,3 +188,36 @@ class SwarmJob(abc.ABC):
             if isinstance(v, (str, int, float, bool, list, dict, type(None)))
             and k not in {"endpoint", "model", "client", "_callbacks"}
         }
+
+    async def _call_unit(self, item: Any) -> Any:
+        """
+        Bridge: run `transform_items` on a single element and return the single result.
+        Ensures the contract (len(out) == 1).
+        """
+        out = self.transform_items([item])
+        if inspect.isawaitable(out):
+            out = await out
+        if not isinstance(out, list) or len(out) != 1:
+            raise RuntimeError(
+                "transform_items(items) must return a list of the same length as `items`."
+            )
+        return out[0]
+
+    async def transform_items(self, items: list[Any]) -> list[Any]:
+        """Pure transform: items -> results (same order). No I/O or checkpointing."""
+        raise NotImplementedError("Sub-classes must implement `transform_items`.")
+
+    async def transform_streaming(
+        self,
+        items: list[Any],
+        *,
+        on_flush: Callable[[list[int], list[Any]], Awaitable[None]],
+        checkpoint_every: int,
+    ):
+        # Wrap your existing BatchExecutor (fixed per earlier comments)
+        executor = BatchExecutor(self.max_concurrency, checkpoint_every, self.retries)
+        return await executor.run(
+            items,
+            self._call_unit,
+            on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+        )

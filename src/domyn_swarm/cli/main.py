@@ -1,5 +1,4 @@
 import logging
-import subprocess
 from importlib import metadata
 from pathlib import Path
 from typing import Optional
@@ -11,14 +10,16 @@ from rich.panel import Panel
 from rich.table import Table
 from typing_extensions import Annotated
 
-from domyn_swarm import _start_swarm
-from domyn_swarm.cli.pool import pool_app
-from domyn_swarm.cli.submit import submit_app
-from domyn_swarm.core.state import SwarmStateManager
-from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.helpers.reverse_proxy import is_endpoint_healthy
-from domyn_swarm.models.swarm import _load_swarm_config
-from domyn_swarm.slurm import get_job_status
+from ..cli.pool import pool_app
+from ..cli.submit import submit_app
+from ..config.swarm import _load_swarm_config
+from ..core.state import SwarmStateManager
+from ..core.swarm import (
+    _start_swarm,
+)
+from ..helpers.logger import setup_logger
+from ..helpers.reverse_proxy import is_endpoint_healthy
+from ..helpers.slurm import get_job_status
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
@@ -81,8 +82,16 @@ def launch_up(
             help="Number of replicas for the swarm allocation. Defaults to 1.",
         ),
     ] = None,
+    platform: Annotated[
+        str,
+        typer.Option(
+            "--platform",
+            "-p",
+            help="Platform to use for the swarm allocation. E.g., 'slurm', 'lepton'. Defaults to 'slurm'.",
+        ),
+    ] = "slurm",
 ):
-    cfg = _load_swarm_config(config, replicas=replicas)
+    cfg = _load_swarm_config(config, replicas=replicas, platform=platform)
     _start_swarm(name, cfg, reverse_proxy=reverse_proxy)
 
 
@@ -112,9 +121,12 @@ def check_status(
     If a name is provided, it will check the status of that specific allocation.
     """
     swarm = SwarmStateManager.load(jobid, home_directory)
+    if swarm.serving_handle is None:
+        raise ValueError("Swarm does not have a serving handle.")
+
     name = name or swarm.name
-    load_balancer_jobid = swarm.lb_jobid
-    array_jobid = swarm.jobid
+    load_balancer_jobid = swarm.serving_handle.meta.get("lb_jobid")
+    array_jobid = swarm.serving_handle.meta.get("jobid")
     endpoint = swarm.endpoint
     replicas = swarm.cfg.replicas
 
@@ -169,16 +181,8 @@ def down(
     ),
 ):
     swarm = SwarmStateManager.load(jobid, home_directory)
-    lb = swarm.lb_jobid
-    arr = swarm.jobid
-
-    console.print(f"🔴  Cancelling LB  job {lb}")
-    subprocess.run(["scancel", str(lb)], check=False)
-
-    console.print(f"🔴  Cancelling array job {arr}")
-    subprocess.run(["scancel", str(arr)], check=False)
-
-    typer.echo("✅  Swarm shutdown request sent.")
+    swarm.down()
+    typer.echo("✅ Swarm shutdown request sent.")
     swarm.delete_record()
 
 

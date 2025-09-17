@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from domyn_swarm import DomynLLMSwarm
+    from ..core.swarm import DomynLLMSwarm
 
-from domyn_swarm import utils
-from domyn_swarm.exceptions import JobNotFoundError
-from domyn_swarm.helpers.logger import setup_logger
+from ..backends.compute.lepton import LeptonComputeBackend
+from ..backends.compute.slurm import SlurmComputeBackend
+from ..exceptions import JobNotFoundError
+from ..helpers.logger import setup_logger
+from ..utils import EnvPath
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -53,8 +55,8 @@ class SwarmStateManager:
         Args:
             swarm (DomynLLMSwarm): Swarm.
         """
-        self.swarm = swarm
-        self.db_path = utils.EnvPath(self.swarm.cfg.home_directory) / self.DB_NAME
+        self.swarm: DomynLLMSwarm = swarm
+        self.db_path = EnvPath(self.swarm.cfg.home_directory) / self.DB_NAME
         self._create_db_if_missing()
 
     def save(self) -> None:
@@ -65,10 +67,10 @@ class SwarmStateManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(query, data)
 
-        logger.debug(f"State saved for job {self.swarm.jobid}.")
+        logger.debug(f"State saved for swarm {self.swarm.name}.")
 
     @classmethod
-    def load(cls, jobid: int, home_directory: Path) -> "DomynLLMSwarm":
+    def load(cls, jobid: int, home_directory: Path):
         """Load a swarm from the DB.
 
         Args:
@@ -82,7 +84,7 @@ class SwarmStateManager:
         Returns:
             DomynLLMSwarm: Swarm.
         """
-        from domyn_swarm import DomynLLMSwarm
+        from .. import DomynLLMSwarm
 
         select_cfg = _read_query("select_cfg.sql")
         select_driver = _read_query("select_driver.sql")
@@ -105,15 +107,50 @@ class SwarmStateManager:
         swarm_dict["cfg"] = dict(cfg_row)
         swarm_dict["cfg"]["driver"] = dict(driver_row)
 
-        return DomynLLMSwarm.model_validate(swarm_dict)
+        swarm = DomynLLMSwarm.model_validate(swarm_dict, by_alias=True)
+
+        if swarm.serving_handle is None:
+            raise ValueError("Swarm does not have a serving handle.")
+
+        platform = swarm._platform
+
+        if (
+            platform == "slurm"
+            and swarm.serving_handle
+            and (
+                swarm.serving_handle.meta.get("jobid") is None
+                or swarm.serving_handle.meta.get("lb_jobid") is None
+            )
+        ):
+            raise ValueError("State file does not contain valid job IDs")
+
+        if (
+            platform == "slurm"
+            and swarm.serving_handle.meta.get("lb_node")
+            and swarm.serving_handle.meta.get("lb_jobid")
+        ):
+            lb_jobid = swarm.serving_handle.meta.get("lb_jobid")
+            lb_node = swarm.serving_handle.meta.get("lb_node")
+            if lb_jobid is None or lb_node is None:
+                raise ValueError("State file does not contain valid LB job info")
+            backend = SlurmComputeBackend(
+                cfg=swarm.cfg, lb_jobid=lb_jobid, lb_node=lb_node
+            )
+        elif platform == "lepton":
+            backend = LeptonComputeBackend()
+        else:
+            raise ValueError(f"Unsupported platform: {platform}")
+
+        swarm._deployment.compute = backend
+        return swarm
 
     def update_lb_data(self) -> None:
         """Update the load balancer info."""
         query = _read_query(fname="update_lb.sql")
         data = {
-            "jobid": self.swarm.jobid,
-            "lb_port": self.swarm.cfg.lb_port,
-            "lb_node": self.swarm.lb_node,
+            "jobid": self.swarm.serving_handle.meta.get("jobid"),  # type: ignore
+            "lb_port": self.swarm.serving_handle.meta.get("lb_port"),  # type: ignore
+            "lb_node": self.swarm.serving_handle.meta.get("lb_node"),  # type: ignore
             "endpoint": self.swarm.endpoint,
         }
         with sqlite3.connect(self.db_path) as cnx:
@@ -123,7 +160,7 @@ class SwarmStateManager:
         """Delete a record from the DB."""
         query = _read_query("delete_record.sql")
         with sqlite3.connect(self.db_path) as cnx:
-            cnx.execute(query, {"jobid": self.swarm.jobid})
+            cnx.execute(query, {"jobid": self.swarm.serving_handle.meta.get("jobid")})  # type: ignore
 
     def _create_db_if_missing(self) -> None:
         """Create a new SQLite DB if it doesn't exist."""
@@ -143,7 +180,7 @@ class SwarmStateManager:
         """
         cfg = self.swarm.cfg.model_dump(mode="json", exclude={"driver": True})
         model = self.swarm.model_dump(mode="json", exclude={"cfg": True})
-        driver = self.swarm.cfg.driver.model_dump()
-        driver = {f"driver_{k}": v for k, v in driver.items()}
+        driver = self.swarm.cfg.backend.endpoint.model_dump()  # type: ignore
+        driver = {f"endpoint_{k}": v for k, v in driver.items()}
 
         return model | driver | cfg

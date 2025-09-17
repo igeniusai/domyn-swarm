@@ -1,0 +1,21 @@
+model: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+revision: main
+replicas: 1
+wait_endpoint_s: 1800
+image: vllm/vllm-openai
+args: "--reasoning-parser deepseek_r1 --pipeline-parallel-size 1 --gpu-memory-utilization 0.95 --max-num-seqs 256 --max-model-len 16384"
+port: 8080
+backend:
+  type: lepton
+  workspace_id: j90afpem
+  endpoint:
+    image: vllm/vllm-openai
+    allowed_dedicated_node_groups:
+      - nv-domyn-nebius-h200-01-lznuhuob
+    resource_shape: gpu.4xh200
+    env:
+      HF_HOME: /mnt/lepton-shared-fs/hf_home/
+  job:
+    allowed_dedicated_node_groups:
+      - nv-domyn-nebius-h200-01-lznuhuob
+    image: igeniusai/domyn-swarm:latest

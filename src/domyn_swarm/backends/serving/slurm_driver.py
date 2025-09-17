@@ -1,53 +1,59 @@
 import os
 import subprocess
 import tempfile
+from typing import Any
 
 import jinja2
 
 from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 logger = setup_logger(__name__)
 
 
 class SlurmDriver:
-    def __init__(self, cfg: DomynLLMSwarmConfig):
+    def __init__(self, cfg: Any):
         self.cfg = cfg
 
-    def submit_replicas(self, job_name: str) -> int:
+    def submit_replicas(
+        self,
+        job_name: str,
+        replicas: int,
+        nodes: int,
+        gpus_per_node: int,
+        gpus_per_replica: int,
+        replicas_per_node: int,
+    ) -> int:
         """Submit the replica array job to Slurm.
         Returns the job ID of the submitted job."""
         env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
+            loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
             trim_blocks=True,
             lstrip_blocks=True,
         )
-        script_txt = env.get_template(self.cfg.template_path.name).render(
+        script_txt = env.get_template(self.cfg.backend.template_path.name).render(
             cfg=self.cfg,
             job_name=job_name,
             path_exists=path_exists,
             is_folder=is_folder,
-            cuda_visible_devices=get_device_slices(
-                self.cfg.gpus_per_node, self.cfg.gpus_per_replica
-            ),
+            cuda_visible_devices=get_device_slices(gpus_per_node, gpus_per_replica),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
             fh.write(script_txt)
             script_path = fh.name
 
-        os.makedirs(self.cfg.log_directory / job_name, exist_ok=True)
+        os.makedirs(self.cfg.backend.log_directory / job_name, exist_ok=True)
         sbatch_cmd = ["sbatch", "--parsable"]
         array_spec = None
-        if self.cfg.requires_ray:
-            array_spec = f"0-{self.cfg.replicas - 1}%{self.cfg.replicas}"
-        elif self.cfg.nodes and self.cfg.nodes >= 1 and self.cfg.replicas > 1:
-            array_spec = f"0-{self.cfg.nodes - 1}%{self.cfg.nodes}"
+        if self.cfg.backend.requires_ray:
+            array_spec = f"0-{replicas - 1}%{replicas}"
+        elif nodes and nodes >= 1 and replicas > 1:
+            array_spec = f"0-{nodes - 1}%{nodes}"
             sbatch_cmd.append("--nodes=1")
-            sbatch_cmd.append(f"--ntasks-per-node={self.cfg.replicas_per_node}")
+            sbatch_cmd.append(f"--ntasks-per-node={replicas_per_node}")
 
         if array_spec is not None:
             sbatch_cmd.extend(["--array", array_spec])
@@ -58,19 +64,19 @@ class SlurmDriver:
         out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
 
-        os.makedirs(self.cfg.home_directory / "swarms" / job_id, exist_ok=True)
+        os.makedirs(self.cfg.backend.home_directory / "swarms" / job_id, exist_ok=True)
         return int(job_id)
 
-    def submit_lb(self, job_name: str, dep_jobid: int) -> int:
+    def submit_endpoint(self, job_name: str, dep_jobid: int, replicas: int) -> int:
         """Submit the load balancer job to Slurm with a dependency on the replica array job."""
         env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self.cfg.template_path.parent),
+            loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
             trim_blocks=True,
             lstrip_blocks=True,
         )
         lb_script_txt = env.get_template("lb.sh.j2").render(
-            cfg=self.cfg, job_name=job_name, dep_jobid=dep_jobid
+            cfg=self.cfg, job_name=job_name, dep_jobid=dep_jobid, replicas=replicas
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
@@ -97,8 +103,29 @@ class SlurmDriver:
             ["squeue", "-j", str(jobid), "-h", "-O", "NodeList:2048"],
             text=True,
         ).strip()
-        head_node = subprocess.check_output(
+        nodes = subprocess.check_output(
             ["scontrol", "show", "hostnames", nodespec],
             text=True,
-        ).splitlines()[0]
+        ).splitlines()
+
+        if not nodes:
+            raise RuntimeError(f"Could not find nodes for job ID {jobid}")
+        head_node = nodes[0]
+        logger.info(f"Job ID {jobid} is running on head node {head_node}")
+
         return head_node
+
+    def get_job_state(self, jobid: int) -> str:
+        """Return Slurm job state (e.g., RUNNING, PENDING, FAILED, CANCELLED, TIMEOUT, UNKNOWN)."""
+        try:
+            out = subprocess.check_output(
+                ["squeue", "-j", str(jobid), "-h", "-o", "%T"], text=True
+            ).strip()
+            if out:
+                state = out.split()[0]
+                if state == "State":
+                    return "UNKNOWN"
+                return state
+            return "UNKNOWN"
+        except Exception:
+            return "UNKNOWN"

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from domyn_swarm.jobs.checkpointing import CheckpointManager
+from domyn_swarm.checkpoint.manager import CheckpointManager
 
 
 def test_checkpoint_manager_filters_and_flushes(tmp_path):

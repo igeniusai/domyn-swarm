@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 
 from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
+from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.core.state import SwarmStateManager, _read_query
 from domyn_swarm.exceptions import JobNotFoundError
-from domyn_swarm.models.driver import DriverConfig
+from domyn_swarm.platform.protocols import ServingHandle
 
 
 def test_read_query() -> None:
@@ -42,24 +43,35 @@ class TestSwarmStateManager:
                 gpus_per_replica=1,
                 replicas_per_node=1,
                 nodes=1,
+                port=1000,
                 cpus_per_task=2,
-                home_directory=tmp_path,
-                requires_ray=False,
                 mem_per_cpu="1GB",
-                lb_port=1000,
-                lb_wait=1200,
-                driver=DriverConfig(
-                    cpus_per_task=1,
-                    mem="1GB",
-                    threads_per_core=1,
-                    wall_time="24:00:00",
-                    enable_proxy_buffering=True,
-                    nginx_timeout="60s",
+                wait_endpoint_s=1200,
+                backends=[
+                    SlurmConfig(
+                        type="slurm",
+                        requires_ray=False,
+                        endpoint=SlurmEndpointConfig(
+                            cpus_per_task=1,
+                            mem="1GB",
+                            threads_per_core=1,
+                            wall_time="24:00:00",
+                            enable_proxy_buffering=True,
+                            nginx_timeout="60s",
+                        ),
+                    )
+                ],
+            ),
+            serving_handle=ServingHandle(
+                id="1234",
+                url="http://lb:9003",
+                meta=dict(
+                    lb_jobid=1234,
+                    jobid=5678,
+                    port=9003,
+                    name="swarm",
                 ),
             ),
-            jobid=1,
-            lb_jobid=2,
-            lb_node="n1",
             endpoint="http://lb:9003",
             delete_on_exit=True,
         )

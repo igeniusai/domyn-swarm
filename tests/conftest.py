@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pandas as pd
 import pytest
@@ -60,13 +60,3 @@ def mock_client(monkeypatch):
     mock = AsyncMock()
     monkeypatch.setattr("openai.OpenAI", lambda *args, **kwargs: mock)
     return mock
-
-
-@pytest.fixture
-def dummy_swarm_lb_health_checker():
-    return Mock(
-        jobid=123,
-        lb_jobid=456,
-        cfg=Mock(lb_port=8080, poll_interval=0.01),
-        lb_node=None,
-    )

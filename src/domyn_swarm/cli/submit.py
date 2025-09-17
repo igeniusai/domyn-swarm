@@ -4,13 +4,17 @@ from typing import List, Optional
 
 import typer
 
-from domyn_swarm import DomynLLMSwarm, _load_job, utils
+from domyn_swarm import DomynLLMSwarm, utils
+from domyn_swarm.config.settings import get_settings
+from domyn_swarm.config.swarm import _load_swarm_config
+from domyn_swarm.core.swarm import _load_job
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.models.swarm import _load_swarm_config
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
 submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+
+settings = get_settings()
 
 
 @submit_app.command("script")
@@ -69,18 +73,9 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    jobid: int | None = typer.Option(None, "--jobid", exists=True, help="Job ID."),
-    home_directory: Path = typer.Option(
-        Path("./.domyn_swarm"),
-        "--home-directory",
-        help="Home directory if different from ./.domyn_swarm",
-    ),
-    # TODO: deprecated, remove in future versions
-    batch_size: int | None = typer.Option(
+    jobid: Optional[int] = typer.Option(
         None,
-        "--batch-size",
-        "-b",
-        help="Batch size for processing input DataFrame (default: 32). Deprecated, use --checkpoint-interval instead.",
+        "--jobid",
     ),
     checkpoint_dir: Path = typer.Option(
         ".checkpoints/",
@@ -93,13 +88,6 @@ def submit_job(
         "--checkpoint-interval",
         "-ci",
         help="Batch size for processing input DataFrame (default: 32)",
-    ),
-    # TODO: deprecated, remove in future versions
-    parallel: int | None = typer.Option(
-        None,
-        "--parallel",
-        "-p",
-        help="Number of concurrent requests to process (default: 32). Deprecated, use --max-concurrent-requests instead.",
     ),
     max_concurrency: int = typer.Option(
         32,
@@ -140,6 +128,9 @@ def submit_job(
         "-m",
         help="Email address to receive job notifications. If set, email notifications will be enabled.",
     ),
+    platform: str = typer.Option(
+        "slurm", "--platform", "-p", help="Platform to use for the swarm allocation"
+    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
@@ -148,62 +139,57 @@ def submit_job(
         logger.error("Either --config or --jobid must be provided, not both.")
         raise typer.Exit(1)
 
-    if parallel is not None:
-        logger.warning(
-            "The --parallel option is deprecated. Use --max-concurrency instead."
-        )
-        max_concurrency = parallel
-
-    if batch_size is not None:
-        logger.warning(
-            "The --batch-size option is deprecated. Use --checkpoint-interval instead."
-        )
-        checkpoint_interval = batch_size
-
     if config:
-        cfg = _load_swarm_config(config)
-        with DomynLLMSwarm(cfg=cfg) as swarm:
-            job = _load_job(
-                job_class,
-                job_kwargs,
-                endpoint=swarm.endpoint,
-                model=swarm.model,
-                # TODO: deprecated, remove in future versions
-                batch_size=checkpoint_interval,
-                checkpoint_interval=checkpoint_interval,
-                # TODO: deprecated, remove in future versions
-                parallel=max_concurrency,
-                max_concurrency=max_concurrency,
-                retries=retries,
-                timeout=timeout,
-                input_column_name=input_column,
-                output_column_name=output_column,
+        cfg = _load_swarm_config(config, platform=platform)
+        swarm_ctx = DomynLLMSwarm(cfg=cfg)
+        try:
+            with swarm_ctx as swarm:
+                job = _load_job(
+                    job_class,
+                    job_kwargs,
+                    endpoint=swarm.endpoint,
+                    model=swarm.model,
+                    checkpoint_interval=checkpoint_interval,
+                    max_concurrency=max_concurrency,
+                    retries=retries,
+                    timeout=timeout,
+                    input_column_name=input_column,
+                    output_column_name=output_column,
+                )
+                swarm.submit_job(
+                    job,
+                    input_path=input,
+                    output_path=output,
+                    num_threads=num_threads,
+                    limit=limit,
+                    detach=detach,
+                    mail_user=mail_user,
+                    checkpoint_dir=checkpoint_dir,
+                )
+        except KeyboardInterrupt:
+            abort = typer.confirm(
+                "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
             )
-            swarm.submit_job(
-                job,
-                input_path=input,
-                output_path=output,
-                num_threads=num_threads,
-                limit=limit,
-                detach=detach,
-                mail_user=mail_user,
-                checkpoint_dir=checkpoint_dir,
-            )
+            if abort:
+                try:
+                    swarm_ctx.cleanup()
+                except Exception:
+                    pass
+                typer.echo("Swarm allocation cancelled by user")
+                raise typer.Abort()
+            else:
+                typer.echo("Continuing to wait for job to complete …")
     elif jobid is None:
         raise RuntimeError("Job ID is null.")
 
     else:
-        swarm = DomynLLMSwarm.from_state(jobid, home_directory)
+        swarm = DomynLLMSwarm.from_state(jobid, settings.home_dir)
         job = _load_job(
             job_class,
             job_kwargs,
             endpoint=swarm.endpoint,
             model=swarm.model,
-            # TODO: deprecated, remove in future versions
-            batch_size=checkpoint_interval,
             checkpoint_interval=checkpoint_interval,
-            # TODO: deprecated, remove in future versions
-            parallel=max_concurrency,
             max_concurrency=max_concurrency,
             retries=retries,
             timeout=timeout,

@@ -1,30 +1,30 @@
 #!/bin/bash
-#SBATCH --account=iGen_train
-{% if cfg.mail_user %}
+#SBATCH --account={{ cfg.backend.account }}
+{% if cfg.backend.mail_user %}
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user={{ cfg.mail_user }}
+#SBATCH --mail-user={{ cfg.backend.mail_user }}
 {% endif %}
-#SBATCH --qos=qos_llm_min
+#SBATCH --qos={{ cfg.backend.qos }}
 
 #SBATCH --exclusive
 #SBATCH --job-name={{ job_name }}-lb
-#SBATCH --partition={{ cfg.partition }}
+#SBATCH --partition={{ cfg.backend.partition }}
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task={{ cfg.driver.cpus_per_task }}
-#SBATCH --mem={{ cfg.driver.mem }}
-#SBATCH --threads-per-core={{ cfg.driver.threads_per_core }}
-#SBATCH --time={{ cfg.driver.wall_time }}
-#SBATCH --output={{ cfg.log_directory }}/lb_%j.out
-#SBATCH --error={{ cfg.log_directory }}/lb_%j.err
+#SBATCH --cpus-per-task={{ cfg.backend.endpoint.cpus_per_task }}
+#SBATCH --mem={{ cfg.backend.endpoint.mem }}
+#SBATCH --threads-per-core={{ cfg.backend.endpoint.threads_per_core }}
+#SBATCH --time={{ cfg.backend.endpoint.wall_time }}
+#SBATCH --output={{ cfg.backend.log_directory }}/lb_%j.out
+#SBATCH --error={{ cfg.backend.log_directory }}/lb_%j.err
 
 set -eu
-REPLICAS={{ cfg.replicas }}
-HOME_DIR="{{ cfg.home_directory }}"
+REPLICAS={{ replicas }}
+HOME_DIR="{{ cfg.backend.home_directory }}"
 HOST_DIR="${HOME_DIR}/swarms"
 WAIT_SEC={{ cfg.lb_wait | default(600) }}
-NGINX_IMG={{ cfg.nginx_image }}
+NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
-PORT={{ cfg.lb_port }}
+PORT={{ cfg.backend.endpoint.port }}
 
 
 ###############################################################################
@@ -59,7 +59,7 @@ done
 
 {% endraw %}
 
-mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
+mkdir -p "{{ cfg.backend.log_directory }}/$DEP_JOBID/"
 
 {
     echo "pid /tmp/nginx.pid;"
@@ -73,15 +73,15 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
     done
     echo "  }"
 
-    {% if cfg.requires_ray %}
+    {% if cfg.backend.requires_ray %}
     ray_host=$(sed -n '1s/:.*//p' "$HOST_DIR/${DEP_JOBID}/0.head")
     echo "  upstream ray {"
-    echo "    server $ray_host:{{ cfg.ray_dashboard_port }};"
+    echo "    server $ray_host:{{ cfg.backend.ray_dashboard_port }};"
     echo "    keepalive 8;"
     echo "  }"
 
     echo "  upstream ray_control {"
-    echo "    server $ray_host:{{ cfg.ray_port }};"
+    echo "    server $ray_host:{{ cfg.backend.ray_port }};"
     echo "    keepalive 8;"
     echo "  }"
     {% endif %}
@@ -91,16 +91,16 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
     listen $PORT;
     location / {
       proxy_pass http://llm;
-      proxy_connect_timeout       {{ cfg.driver.nginx_timeout }};
-      proxy_send_timeout          {{ cfg.driver.nginx_timeout }};
-      proxy_read_timeout          {{ cfg.driver.nginx_timeout }};
-      send_timeout                {{ cfg.driver.nginx_timeout }};
+      proxy_connect_timeout       {{ cfg.backend.endpoint.nginx_timeout }};
+      proxy_send_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
+      proxy_read_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
+      send_timeout                {{ cfg.backend.endpoint.nginx_timeout }};
       proxy_set_header Connection "";
       sendfile on;
       tcp_nopush on;
       tcp_nodelay on;
       keepalive_timeout 65;
-      {% if cfg.driver.enable_proxy_buffering %}
+      {% if cfg.backend.endpoint.enable_proxy_buffering %}
       # ───── Proxy Response Buffering ─────
       proxy_buffer_size 64k;
       proxy_buffers 16 512k;
@@ -123,7 +123,7 @@ mkdir -p "{{ cfg.log_directory }}/$DEP_JOBID/"
       proxy_read_timeout 2s;
       proxy_cache_bypass \$http_upgrade;
     }
-    {% if cfg.requires_ray %}
+    {% if cfg.backend.requires_ray %}
     location ^~ /ray/ {
       proxy_pass              http://ray/;
       proxy_read_timeout      300s;
@@ -146,7 +146,7 @@ mkdir -p "$CACHE_DIR"
 singularity instance start --writable-tmpfs \
     -B "$HOST_DIR/${DEP_JOBID}/nginx.conf":/etc/nginx/nginx.conf:ro \
     -B "$CACHE_DIR":/var/cache/nginx \
-    -B {{ cfg.log_directory }}/$DEP_JOBID:/var/log/nginx \
+    -B {{ cfg.backend.log_directory }}/$DEP_JOBID:/var/log/nginx \
     "$NGINX_IMG" "$INSTANCE_NAME"
 
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM

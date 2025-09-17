@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from typing import Any, Generator, cast
 
 from domyn_swarm import DomynLLMSwarm
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 
 
 @contextmanager

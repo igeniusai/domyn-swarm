@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "blake3>=1.0.5",
+    "fsspec>=2025.3.0",
     "huggingface-hub>=0.32.6",
     "jinja2>=3.1.6",
     "openai>=1.88.0",
@@ -13,6 +14,7 @@ dependencies = [
     "polars>=1.31.0",
     "pyarrow>=20.0.0",
     "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
     "pyyaml>=6.0.2",
     "requests>=2.32.4",
     "rich>=14.0.0",
@@ -45,6 +47,11 @@ domyn-swarm = "domyn_swarm.cli:app"
 
 [project.entry-points."uv.run"]
 domyn-swarm = "domyn_swarm.cli:app"
+
+[project.optional-dependencies]
+lepton = [
+    "leptonai>=0.26.2",
+]
 
 [tool.commitizen]
 name = "cz_conventional_commits"

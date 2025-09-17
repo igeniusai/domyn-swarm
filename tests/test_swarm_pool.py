@@ -2,8 +2,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.swarm_pool import create_swarm_pool
-from domyn_swarm.models.swarm import DomynLLMSwarmConfig
 
 
 def test_create_swarm_pool_with_configs():

@@ -4,7 +4,7 @@ import yaml
 from typer.testing import CliRunner
 
 from domyn_swarm.cli.pool import pool_app
-from domyn_swarm.models.pool import SwarmPoolElement
+from domyn_swarm.config.pool import SwarmPoolElement
 
 
 def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
