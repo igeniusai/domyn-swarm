@@ -54,7 +54,6 @@ class DomynLLMSwarmConfig(BaseModel):
 
     args: str = ""
     port: int = 8000
-    venv_path: utils.EnvPath | None = None
 
     home_directory: utils.EnvPath = Field(
         default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))

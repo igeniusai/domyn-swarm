@@ -1,13 +1,16 @@
 import shlex
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
 from rich import print as rprint
 from rich.syntax import Syntax
 
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
+
+if TYPE_CHECKING:
+    from domyn_swarm.config.slurm import SlurmConfig
 
 
 @dataclass
@@ -22,7 +25,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
       `wait()` will join that process.
     """
 
-    cfg: Any
+    cfg: "SlurmConfig"
     lb_jobid: int
     lb_node: str
 
@@ -92,7 +95,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             except Exception:
                 pass
 
-    def default_python(self, cfg) -> str:
+    def default_python(self, cfg: "SlurmConfig") -> str:
         if cfg.venv_path and cfg.venv_path.is_dir():
             return str(cfg.venv_path / "bin" / "python")
         return super().default_python(cfg)

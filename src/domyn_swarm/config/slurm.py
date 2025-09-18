@@ -63,6 +63,7 @@ class SlurmConfig(BaseModel):
     log_directory: utils.EnvPath = Field(
         default_factory=lambda data: data["home_directory"] / "logs"
     )
+    venv_path: utils.EnvPath | None = None
     env: dict[str, str] | None = None  # Additional env vars for all jobs
 
     def model_post_init(self, context):
