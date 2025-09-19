@@ -39,6 +39,7 @@ logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 def version(short: bool = False):
     v = get_version()
     print(v if short else f"domyn-swarm CLI Version: {v}")
+    raise typer.Exit()
 
 
 @app.command("up", short_help="Launch a swarm allocation with a configuration")
