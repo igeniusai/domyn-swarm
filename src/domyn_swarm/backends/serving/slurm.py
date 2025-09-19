@@ -1,3 +1,4 @@
+import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
@@ -62,8 +63,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         return probe.wait_ready(handle, timeout_s)
 
     def delete(self, handle: ServingHandle) -> None:
-        import subprocess
-
         jobid = handle.meta.get("jobid")
         lb_jobid = handle.meta.get("lb_jobid")
         if jobid:

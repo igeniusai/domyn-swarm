@@ -9,6 +9,8 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from domyn_swarm.config.slurm import SlurmConfig
+
 if TYPE_CHECKING:
     from ..core.swarm import DomynLLMSwarm
 
@@ -133,8 +135,11 @@ class SwarmStateManager:
             lb_node = swarm.serving_handle.meta.get("lb_node")
             if lb_jobid is None or lb_node is None:
                 raise ValueError("State file does not contain valid LB job info")
+            assert swarm.cfg.backend is not None and isinstance(
+                swarm.cfg.backend, SlurmConfig
+            )
             backend = SlurmComputeBackend(
-                cfg=swarm.cfg, lb_jobid=lb_jobid, lb_node=lb_node
+                cfg=swarm.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node
             )
         elif platform == "lepton":
             backend = LeptonComputeBackend()
