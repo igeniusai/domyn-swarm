@@ -10,6 +10,7 @@ from leptonai.api.v1.types.deployment import (
     LeptonDeploymentStatus,
     LeptonDeploymentUserSpec,
 )
+from requests import RequestException
 
 from domyn_swarm.helpers.lepton import (
     get_env_var_by_name,
@@ -163,7 +164,15 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         - If state looks 'ready', do a quick HTTP probe to ensure the endpoint is actually up.
         - Map to ServingPhase and return a ServingStatus with details.
         """
-        client = self._client()
+        try:
+            client = self._client()
+        except Exception as e:
+            return ServingStatus(
+                phase=ServingPhase.UNKNOWN,
+                url=handle.url,
+                detail={"reason": "lepton_client_failed", "error": str(e)},
+            )
+
         name = handle.meta.get("name", handle.id)
 
         try:
@@ -215,7 +224,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
                 r = requests.get(f"{url.rstrip('/')}/v1/models", timeout=1.5)
                 http_code = r.status_code
                 http_ok = r.status_code == 200
-            except requests.RequestException:
+            except RequestException:
                 http_ok = False
 
         if http_ok:

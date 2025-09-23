@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import requests
+from requests import RequestException
 
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.backends.serving.slurm_readiness import (
@@ -132,7 +133,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
                 model_ok = (expected in names) if expected else http_ok
             except Exception:
                 model_ok = http_ok
-        except requests.RequestException:
+        except RequestException:
             http_ok = model_ok = False
 
         if http_ok and model_ok:
