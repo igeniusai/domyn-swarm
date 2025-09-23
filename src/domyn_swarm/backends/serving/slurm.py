@@ -2,10 +2,21 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
+import requests
+
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
-from domyn_swarm.backends.serving.slurm_readiness import SlurmReadiness
+from domyn_swarm.backends.serving.slurm_readiness import (
+    SLURM_BAD_STATES,
+    SLURM_WAIT_STATES,
+    SlurmReadiness,
+)
 from domyn_swarm.config.slurm import SlurmConfig
-from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
+from domyn_swarm.platform.protocols import (
+    ServingBackend,
+    ServingHandle,
+    ServingPhase,
+    ServingStatus,
+)
 
 
 @dataclass
@@ -82,3 +93,61 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             raise RuntimeError(
                 f"Swarm not ready (jobid/lb_jobid/lb_node/endpoint): {jobid}/{lb_jobid}/{lb_node}/{endpoint}"
             )
+
+    def status(self, handle: ServingHandle) -> ServingStatus:
+        rep = self.driver.get_job_state(handle.meta["jobid"])
+        lb = self.driver.get_job_state(handle.meta["lb_jobid"])
+
+        # 1) Scheduler view
+        if rep in SLURM_BAD_STATES or lb in SLURM_BAD_STATES:
+            return ServingStatus(
+                ServingPhase.FAILED, handle.url, {"rep": rep, "lb": lb}
+            )
+        if (
+            rep in SLURM_WAIT_STATES
+            or lb in SLURM_WAIT_STATES
+            or rep == "UNKNOWN"
+            or lb == "UNKNOWN"
+        ):
+            return ServingStatus(
+                ServingPhase.PENDING, handle.url, {"rep": rep, "lb": lb}
+            )
+
+        # 2) Endpoint probe (non-blocking, small timeout)
+        lb_node = handle.meta.get("lb_node") or self.driver.get_node_from_jobid(
+            handle.meta["lb_jobid"]
+        )
+        base = f"http://{lb_node}:{self.cfg.endpoint.port}"
+        try:
+            r = requests.get(f"{base}/v1/models", timeout=1.5)
+            http_ok = r.status_code == 200
+            # Optional: verify expected model is listed
+            model_ok = False
+            try:
+                data = r.json()
+                names = {
+                    m.get("id") for m in data.get("data", []) if isinstance(m, dict)
+                }
+                expected = handle.meta.get("model")  # if you stored it
+                model_ok = (expected in names) if expected else http_ok
+            except Exception:
+                model_ok = http_ok
+        except requests.RequestException:
+            http_ok = model_ok = False
+
+        if http_ok and model_ok:
+            # cache url if we didn’t earlier
+            if not handle.url:
+                handle.url = base
+            return ServingStatus(
+                ServingPhase.RUNNING,
+                handle.url or base,
+                {"rep": rep, "lb": lb, "http": 200},
+            )
+
+        # Slurm says RUNNING but HTTP not ready → still initializing
+        return ServingStatus(
+            ServingPhase.INITIALIZING,
+            handle.url,
+            {"rep": rep, "lb": lb, "http": "unready"},
+        )
