@@ -130,3 +130,27 @@ def test_ensure_ready_delegates_to_serving(mocker):
     out = dep.ensure_ready()
     serving.ensure_ready.assert_called_once_with(h)
     assert out == "READY"
+
+
+def test_status_raises_without_handle(mocker):
+    serving = mocker.Mock()
+    compute = mocker.Mock()
+    dep = Deployment(serving=serving, compute=compute)
+
+    with pytest.raises(RuntimeError, match="No serving handle"):
+        dep.status()
+
+
+def test_status_delegates_to_serving(mocker):
+    serving = mocker.Mock()
+    compute = mocker.Mock()
+    dep = Deployment(serving=serving, compute=compute)
+
+    h = SimpleNamespace(id="ep4", url="http://ok", meta={})
+    dep._handle = h
+    st = SimpleNamespace(phase="RUNNING", url="http://ok", info={})
+    serving.status.return_value = st
+
+    out = dep.status()
+    serving.status.assert_called_once_with(h)
+    assert out == st
