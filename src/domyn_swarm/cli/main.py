@@ -1,6 +1,5 @@
 import logging
 from importlib import metadata
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -66,14 +65,6 @@ def launch_up(
             help="Enable reverse proxy for the swarm allocation",
         ),
     ] = False,
-    name: Annotated[
-        Optional[str],
-        typer.Option(
-            "--name",
-            "-n",
-            help="Name of the swarm allocation. If not provided, a random name will be generated.",
-        ),
-    ] = None,
     replicas: Annotated[
         Optional[int],
         typer.Option(
@@ -92,7 +83,7 @@ def launch_up(
     ] = "slurm",
 ):
     cfg = _load_swarm_config(config, replicas=replicas, platform=platform)
-    _start_swarm(name, cfg, reverse_proxy=reverse_proxy)
+    _start_swarm(cfg, reverse_proxy=reverse_proxy)
 
 
 @app.command(
@@ -100,11 +91,6 @@ def launch_up(
     short_help="Check the status of the swarm allocation given its state file",
 )
 def check_status(
-    jobid: int = typer.Argument(..., exists=True, help="Job ID."),  # TODO: string
-    home_directory: Path = typer.Argument(
-        default=Path("./.domyn_swarm"),
-        help="Home directory if different from ./.domyn_swarm",
-    ),
     name: Annotated[
         Optional[str],
         typer.Option(
@@ -120,11 +106,10 @@ def check_status(
     This command will read the DB and print the status of the swarm allocation.
     If a name is provided, it will check the status of that specific allocation.
     """
-    swarm = SwarmStateManager.load(jobid, home_directory)
+    swarm = SwarmStateManager.load(deployment_name=name)
     if swarm.serving_handle is None:
         raise ValueError("Swarm does not have a serving handle.")
 
-    name = name or swarm.name
     load_balancer_jobid = swarm.serving_handle.meta.get("lb_jobid")
     array_jobid = swarm.serving_handle.meta.get("jobid")
     endpoint = swarm.endpoint
@@ -174,13 +159,9 @@ def check_status(
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
-    jobid: int = typer.Argument(..., exists=True, help="Job ID."),
-    home_directory: Path = typer.Argument(
-        default=Path("./.domyn_swarm"),
-        help="Home directory if different from ./.domyn_swarm",
-    ),
+    name: int = typer.Argument(..., exists=True, help="Job name."),
 ):
-    swarm = SwarmStateManager.load(jobid, home_directory)
+    swarm = SwarmStateManager.load(deployment_name=name)
     swarm.down()
     typer.echo("✅ Swarm shutdown request sent.")
     swarm.delete_record()

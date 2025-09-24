@@ -1,4 +1,5 @@
 model: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+name: deepseek-r1
 revision: main
 replicas: 1
 wait_endpoint_s: 1800
