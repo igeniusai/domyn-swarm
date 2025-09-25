@@ -24,8 +24,7 @@ def test_cli_up_requires_config(tmp_path, monkeypatch):
 
         return DummyCfg()
 
-    def dummy_start_swarm(name, cfg, reverse_proxy):
-        assert name is None
+    def dummy_start_swarm(cfg, reverse_proxy):
         assert cfg.replicas == 1
         assert reverse_proxy is False
 
