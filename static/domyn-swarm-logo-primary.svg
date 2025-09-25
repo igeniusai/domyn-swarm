@@ -12,15 +12,7 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
-      <style>
-        @media (prefers-color-scheme: dark) {
-          img {
-            filter: invert(1);
-            background: none;
-          }
-        }
-      </style>  
-<sodipodi:namedview
+  <sodipodi:namedview
      id="namedview10"
      pagecolor="#ffffff"
      bordercolor="#000000"
@@ -38,14 +30,6 @@
      inkscape:window-y="38"
      inkscape:window-maximized="1"
      inkscape:current-layer="svg10" />
-  <rect
-     style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:2.05786;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
-     id="rect10"
-     width="1623.1855"
-     height="210.85617"
-     x="-0.14293997"
-     y="0.082868151"
-     ry="0.049528964" />
   <path
      d="M867.564 78.9725C864.545 72.0898 860.07 66.875 854.137 63.2859C848.225 59.5701 841.005 57.7122 832.475 57.7122C823.946 57.7122 817.126 59.5067 811.194 63.0748C805.43 66.6639 800.954 71.3509 797.787 77.1146L795.718 60.1823H770.32V164.246H799.223V108.72C799.223 103.062 800.194 98.3117 802.115 94.4692C804.184 90.4789 807.014 87.4387 810.582 85.3697C814.15 83.174 818.161 82.0761 822.552 82.0761C829.857 82.0761 835.157 84.2718 838.45 88.6843C841.892 92.9491 843.623 99.0717 843.623 107.052V164.246H872.315V104.371C872.315 94.3214 870.731 85.8553 867.564 78.9725Z"
      fill="black"
