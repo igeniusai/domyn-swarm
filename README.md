@@ -1,13 +1,8 @@
 <p align="center">
-   <style>
-      @media (prefers-color-scheme: dark) {
-         .logo {
-         filter: invert(1);
-         background: none;
-         }
-      }
-   </style>
-   <img class=logo src="static/domyn-swarm-logo-primary.svg" alt="domyn-swarm", height=100></a>
+   <picture>
+      <source srcset="static/domyn-swarm-logo-white.svg" media="(prefers-color-scheme: dark)">
+      <img src="static/domyn-swarm-logo-primary.svg" alt="domyn-swarm", height=100>
+   </picture>
 </p>
 <p align="center">
 <img src="https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg" alt="CI">
