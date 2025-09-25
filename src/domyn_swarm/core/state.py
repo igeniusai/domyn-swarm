@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 import dataclasses
 
+from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.platform.protocols import ServingHandle
 
@@ -112,31 +113,9 @@ class SwarmStateManager:
         serving_handle = ServingHandle(**handle_dict)
         swarm.serving_handle = serving_handle
         platform = swarm._platform
-
-        if (
-            platform == "slurm"
-            and swarm.serving_handle
-            and (
-                swarm.serving_handle.meta.get("jobid") is None
-                or swarm.serving_handle.meta.get("lb_jobid") is None
-            )
-        ):
-            raise ValueError("State file does not contain valid job IDs")
-
-        if (
-            platform == "slurm"
-            and swarm.serving_handle.meta.get("lb_node")
-            and swarm.serving_handle.meta.get("lb_jobid")
-        ):
-            lb_jobid = swarm.serving_handle.meta.get("lb_jobid")
-            lb_node = swarm.serving_handle.meta.get("lb_node")
-            if lb_jobid is None or lb_node is None:
-                raise ValueError("State file does not contain valid LB job info")
-            assert swarm.cfg.backend is not None and isinstance(
-                swarm.cfg.backend, SlurmConfig
-            )
-            backend = SlurmComputeBackend(
-                cfg=swarm.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node
+        if platform == "slurm":
+            backend = cls._get_slurm_backend(
+                handle=swarm.serving_handle, slurm_cfg=swarm.cfg.backend
             )
         elif platform == "lepton":
             backend = LeptonComputeBackend()
@@ -194,3 +173,31 @@ class SwarmStateManager:
             "serving_handle": serving_handle,
             "creation_dt": datetime.now(),
         }
+
+    @classmethod
+    def _get_slurm_backend(
+        cls, handle: ServingHandle, slurm_cfg: BackendConfig | None
+    ) -> SlurmComputeBackend:
+        """Mostly done for the type checker.
+
+        Args:
+            handle (ServingHandle): Serving handle.
+            slurm_cfg (BackendConfig | None): Slurm configs.
+
+        Raises:
+            ValueError: Null JobID.
+            ValueError: Null LB info.
+
+        Returns:
+            SlurmComputeBackend: Slurm backend.
+        """
+        jobid = handle.meta.get("jobid")
+        lb_jobid = handle.meta.get("lb_jobid")
+        lb_node = handle.meta.get("lb_node")
+        if jobid is None:
+            raise ValueError("State file does not contain valid job IDs")
+        if lb_jobid is None or lb_node is None:
+            raise ValueError("State file does not contain valid LB job info")
+        assert isinstance(slurm_cfg, SlurmConfig)
+
+        return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)
