@@ -31,11 +31,15 @@ import pandas as pd
 from openai import AsyncOpenAI
 from tqdm import tqdm
 
+from domyn_swarm.config.settings import get_settings
+
 from ..checkpoint.manager import CheckpointManager
 from ..helpers.logger import setup_logger
 from .batching import BatchExecutor
 
 logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
+
+settings = get_settings()
 
 
 class SwarmJob(abc.ABC):
@@ -100,13 +104,18 @@ class SwarmJob(abc.ABC):
         self.timeout = timeout
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
 
+        headers = {}
+        if settings.api_token:
+            logger.info("Using API_TOKEN from environment for authentication")
+            headers["Authorization"] = f"Bearer {settings.api_token}"
+
         self.client = client or AsyncOpenAI(
             base_url=f"{self.endpoint}/v1",
             api_key="-",
             organization="-",
             project="-",
             timeout=timeout,
-            default_headers={"Authorization": f"Bearer {os.getenv('API_TOKEN', '')}"},
+            default_headers=headers,
             **(client_kwargs or {}),
         )
         self._callbacks: dict[str, Callable] = {}
