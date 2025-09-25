@@ -8,6 +8,7 @@
 <p align="center">
 <img src="https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg" alt="CI">
 <img src="https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green" alt="Python">
+<img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License - Apache 2.0">
 <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff">
 <img src="https://microsoft.github.io/pyright/img/pyright_badge.svg" alt="Pyright">
 </p>
