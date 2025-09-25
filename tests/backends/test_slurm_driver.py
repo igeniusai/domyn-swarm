@@ -10,6 +10,7 @@ from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 @pytest.fixture
 def dummy_config(tmp_path):
     return DomynLLMSwarmConfig(
+        image="/path/to/vllm.sif",
         model="gpt-4",
         replicas=2,
         template_path=tmp_path / "template.sh.j2",
