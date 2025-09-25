@@ -149,10 +149,10 @@ class SwarmStateManager:
         return settings.home_dir / cls.DB_NAME
 
     def _get_record(self, deployment_name: str) -> dict[str, Any]:
-        """Get a table record
+        """Get a table record.
 
         Args:
-            deployment_name (str): Deployment name
+            deployment_name (str): Deployment name.
 
         Returns:
             dict[str, Any]: Flattened record.

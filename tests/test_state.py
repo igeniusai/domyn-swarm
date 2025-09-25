@@ -32,9 +32,16 @@ class TestSwarmStateManager:
         """
 
         def mock_db_path(_x=None) -> Path:
+            """Mock DB path.
+
+            Args:
+                _x (Any, optional): mocked argument. Defaults to None.
+
+            Returns:
+                Path: Temporary DB path.
+            """
             return tmp_path / SwarmStateManager.DB_NAME
 
-        # db_path = tmp_path / SwarmStateManager.DB_NAME
         monkeypatch.setattr(SwarmStateManager, "_get_db_path", mock_db_path)
         return DomynLLMSwarm(
             name="swarm",
