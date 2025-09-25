@@ -3,7 +3,7 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
-from domyn_swarm.config.slurm import SlurmConfig
+from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 
 
@@ -20,6 +20,9 @@ def dummy_config(tmp_path):
             partition="debug",
             account="test_account",
             qos="test_qos",
+            endpoint=SlurmEndpointConfig(
+                nginx_image="/path/to/nginx.sif",
+            ),
         ).model_dump(),
     )
 
