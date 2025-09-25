@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-      <source srcset="https://raw.githubusercontent.com/igeniusai/domyn-swarm/refs/heads/62-add-logo/static/domyn-swarm-logo-white.svg?token=GHSAT0AAAAAADHXUAKROQAIQ3WDWTZQOZSU2GVLDKA" media="(prefers-color-scheme: dark)">
-      <source srcset="https://raw.githubusercontent.com/igeniusai/domyn-swarm/refs/heads/62-add-logo/static/domyn-swarm-logo-primary.svg?token=GHSAT0AAAAAADHXUAKRRQP3U3WVTZPIQF642GVLC2A" media="(prefers-color-scheme: light)">
-      <img src="https://raw.githubusercontent.com/igeniusai/domyn-swarm/refs/heads/62-add-logo/static/domyn-swarm-logo-primary.svg?token=GHSAT0AAAAAADHXUAKRRQP3U3WVTZPIQF642GVLC2A" alt="domyn-swarm" height="100">
+      <source srcset="static/domyn-swarm-logo-white.svg" media="(prefers-color-scheme: dark)">
+      <source srcset="static/domyn-swarm-logo-primary.svg" media="(prefers-color-scheme: light)">
+      <img src="static/domyn-swarm-logo-primary.svg" alt="domyn-swarm" height="100">
    </picture>
 </p>
 <p align="center">
