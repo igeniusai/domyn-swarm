@@ -159,12 +159,12 @@ def check_status(
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
-    name: int = typer.Argument(..., exists=True, help="Job name."),
+    name: str = typer.Argument(..., exists=True, help="Job name."),
 ):
     swarm = SwarmStateManager.load(deployment_name=name)
     swarm.down()
     typer.echo("✅ Swarm shutdown request sent.")
-    swarm.delete_record()
+    swarm.delete_record(deployment_name=name)
 
 
 if __name__ == "__main__":

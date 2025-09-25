@@ -94,7 +94,8 @@ class DomynLLMSwarm(BaseModel):
         self.endpoint = handle.url
         self._deployment.compute = self._make_compute_backend(handle)
 
-        self._persist()
+        self._persist(deployment_name)
+
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -166,25 +167,33 @@ class DomynLLMSwarm(BaseModel):
         #         stderr=sys.stderr,
         #     )
 
-    def _persist(self):
-        self._state_mgr.save()
+    def _persist(self, deployment_name: str):
+        """Save the state.
+
+        Args:
+            deployment_name (str): Deployment name.
+        """
+        self._state_mgr.save(deployment_name)
 
     @classmethod
-    def from_state(cls, jobid: int, home_directory: Path) -> "DomynLLMSwarm":
+    def from_state(cls, deployment_name: str) -> "DomynLLMSwarm":
         """Initialize a swarm from a saved state.
 
         Args:
-            jobid (int): Job id.
-            home_directory (Path): Domyn-swarm home directory.
+            deployment_name (str): Deployment name.
 
         Returns:
             DomynLLMSwarm: Loaded swarm.
         """
-        return SwarmStateManager.load(jobid, home_directory)
+        return SwarmStateManager.load(deployment_name)
 
-    def delete_record(self) -> None:
-        """Delete swarm from the DB"""
-        self._state_mgr.delete_record()
+    def delete_record(self, deployment_name: str) -> None:
+        """Delete swarm from the DB
+
+        Args:
+            deployment_name (str): Deployment name.
+        """
+        self._state_mgr.delete_record(deployment_name)
 
     def submit_job(
         self,
