@@ -92,13 +92,13 @@ def launch_up(
 )
 def check_status(
     name: Annotated[
-        Optional[str],
+        str,
         typer.Option(
             "--name",
             "-n",
             help="Name of the swarm allocation to check status for. If not provided, checks all allocations.",
         ),
-    ] = None,
+    ],
 ) -> None:
     """
     Check the status of the swarm allocation.
