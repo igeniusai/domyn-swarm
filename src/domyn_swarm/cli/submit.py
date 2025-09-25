@@ -183,7 +183,7 @@ def submit_job(
         raise RuntimeError("Job ID is null.")
 
     else:
-        swarm = DomynLLMSwarm.from_state(jobid, settings.home_dir)
+        swarm = DomynLLMSwarm.from_state(jobid, settings.home)
         job = _load_job(
             job_class,
             job_kwargs,

@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # --- General -------------------------------------------------------------
     log_level: str = "INFO"
-    home_dir: Path = Field(default=Path("~/.domyn_swarm").expanduser(), alias="HOME")
+    home: Path = Field(default=Path("~/.domyn_swarm").expanduser())
     # Path to YAML with overridable defaults (used by your defaults loader)
     defaults_file: Optional[Path] = Field(default=None, alias="DOMYN_SWARM_DEFAULTS")
 
