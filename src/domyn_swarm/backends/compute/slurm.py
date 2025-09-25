@@ -98,7 +98,6 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
                 pass
 
     def default_python(self, cfg: "DomynLLMSwarmConfig") -> str:
-        assert isinstance(cfg.backend, SlurmConfig)
-        if cfg.backend.venv_path and cfg.backend.venv_path.is_dir():
-            return str(cfg.backend.venv_path / "bin" / "python")
+        if self.cfg.venv_path and self.cfg.venv_path.is_dir():
+            return str(self.cfg.venv_path / "bin" / "python")
         return super().default_python(cfg)
