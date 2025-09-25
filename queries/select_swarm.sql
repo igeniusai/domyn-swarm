@@ -1,13 +1,9 @@
 -- Select the swarm
 SELECT
-    name,
-    jobid,
-    lb_jobid,
-    lb_node,
-    endpoint,
-    delete_on_exit,
-    model
+    swarm,
+    cfg,
+    serving_handle
 FROM
     swarm
 WHERE
-    jobid = :jobid;
+    deployment_name = :deployment_name;
