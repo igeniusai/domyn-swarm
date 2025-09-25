@@ -1,10 +1,17 @@
-
-# domyn-swarm
-
-![CI](https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg)
-![Static Badge](https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
+<p align="center">
+  <picture>
+      <source srcset="https://raw.githubusercontent.com/igeniusai/domyn-swarm/refs/heads/62-add-logo/static/domyn-swarm-logo-white.svg?token=GHSAT0AAAAAADHXUAKROQAIQ3WDWTZQOZSU2GVLDKA" media="(prefers-color-scheme: dark)">
+      <source srcset="https://raw.githubusercontent.com/igeniusai/domyn-swarm/refs/heads/62-add-logo/static/domyn-swarm-logo-primary.svg?token=GHSAT0AAAAAADHXUAKRRQP3U3WVTZPIQF642GVLC2A" media="(prefers-color-scheme: light)">
+      <img src="https://raw.githubusercontent.com/igeniusai/domyn-swarm/refs/heads/62-add-logo/static/domyn-swarm-logo-primary.svg?token=GHSAT0AAAAAADHXUAKRRQP3U3WVTZPIQF642GVLC2A" alt="domyn-swarm" height="100">
+   </picture>
+</p>
+<p align="center">
+<img src="https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg" alt="CI">
+<img src="https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green" alt="Python">
+<img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License - Apache 2.0">
+<img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff">
+<img src="https://microsoft.github.io/pyright/img/pyright_badge.svg" alt="Pyright">
+</p>
 
 A simple CLI for launching and managing Slurm-backed LLM clusters (“swarms”) with optional replicas, load-balancing, and two high-level submission modes:
 
