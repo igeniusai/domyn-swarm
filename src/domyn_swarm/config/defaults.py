@@ -8,6 +8,7 @@ import yaml
 from . import get_settings
 
 T = TypeVar("T")
+_REQUIRED = object()  # sentinel
 
 # Search order (first hit wins)
 _DEFAULT_FILES = (
@@ -61,14 +62,18 @@ def _get_by_dots(d: dict[str, Any], key: str) -> Any:
     return cur
 
 
-def get_default(key: str, fallback: T) -> T:
-    """Return defaults.yaml[key] if present, else fallback."""
-    v = _get_by_dots(_load_defaults(), key)
-    return fallback if v is None else v  # Pydantic will validate/coerce
+def get_default(key: str, fallback: T | object = _REQUIRED) -> T:
+    """Return defaults.yaml[key]; raise if required and missing/empty."""
+    v: Any = _get_by_dots(_load_defaults(), key)
+    if v is None or (isinstance(v, str) and not v.strip()):
+        if fallback is _REQUIRED:
+            raise ValueError(f"Missing required default: {key}")
+        return fallback  # type: ignore[return-value]
+    return v  # type: ignore[return-value]
 
 
-def default_for(key: str, fallback: T) -> Callable[[], T]:
-    """Make a zero-arg factory usable in Field(default_factory=...)."""
+def default_for(key: str, fallback: T | object = _REQUIRED) -> Callable[[], T]:
+    """Factory for Field(default_factory=...). Raises if required default is absent/empty."""
 
     def _factory() -> T:
         return get_default(key, fallback)
