@@ -1,3 +1,4 @@
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -5,7 +6,11 @@ from typing import Any, Callable, Optional, TypeVar
 
 import yaml
 
+from domyn_swarm.helpers.logger import setup_logger
+
 from . import get_settings
+
+logger = setup_logger(__name__, level=logging.INFO)
 
 T = TypeVar("T")
 _REQUIRED = object()  # sentinel
@@ -37,6 +42,7 @@ def _find_defaults_file() -> Optional[Path]:
         except Exception:
             p = None
         if p and p.is_file():
+            logger.debug(f"Using defaults file: {p}")
             return p
     return None
 
@@ -65,9 +71,10 @@ def _get_by_dots(d: dict[str, Any], key: str) -> Any:
 def get_default(key: str, fallback: T | object = _REQUIRED) -> T:
     """Return defaults.yaml[key]; raise if required and missing/empty."""
     v: Any = _get_by_dots(_load_defaults(), key)
+    logger.debug(f"Default for {key!r}: {v!r} (fallback: {fallback!r})")
     if v is None or (isinstance(v, str) and not v.strip()):
         if fallback is _REQUIRED:
-            raise ValueError(f"Missing required default: {key}")
+            raise ValueError(f"Missing required configuration key: {key}")
         return fallback  # type: ignore[return-value]
     return v  # type: ignore[return-value]
 
