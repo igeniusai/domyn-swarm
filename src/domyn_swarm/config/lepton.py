@@ -1,20 +1,35 @@
 import secrets
 import string
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from leptonai.api.v1.types.deployment import (
-    EnvVar,
-    LeptonContainer,
-    LeptonDeploymentUserSpec,
-    LeptonResourceAffinity,
-    Mount,
-    ResourceRequirement,
-    TokenVar,
-)
-from leptonai.api.v1.types.job import LeptonJobUserSpec
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from domyn_swarm.config.plan import DeploymentPlan
+from domyn_swarm.utils.imports import _require_lepton
+
+if TYPE_CHECKING:
+    from leptonai.api.v1.types.deployment import Mount as _Mount
+
+    MountLike = _Mount  # editors see the real type
+else:
+    MountLike = Any  # runtime stays lightweight (no lepton import)
+
+
+def _default_mounts() -> list[dict[str, Any]] | list[MountLike]:
+    """Lazy default: return a ready Mount if SDK is present, else a dict."""
+    spec = {
+        "path": "/",
+        "from": "node-nfs:lepton-shared-fs",
+        "mount_path": "/mnt/lepton-shared-fs",
+        "mount_options": {"local_cache_size_mib": None, "read_only": None},
+    }
+    try:
+        from leptonai.api.v1.types.deployment import Mount  # type: ignore
+
+        return [Mount.model_validate(spec)]
+    except Exception:
+        return [spec]
+
 
 _DEFAULT_RESOURCE_SHAPES = {
     8: "gpu.8xh200",
@@ -29,36 +44,54 @@ class LeptonEndpointConfig(BaseModel):
     allowed_dedicated_node_groups: list[str] | None = None
     resource_shape: str = "gpu.8xh200"
     allowed_nodes: list[str] = Field(default_factory=list)
-    mounts: list[Mount] = [
-        Mount.model_validate(
-            {
-                "path": "/",
-                "from": "node-nfs:lepton-shared-fs",
-                "mount_path": "/mnt/lepton-shared-fs",
-                "mount_options": {"local_cache_size_mib": None, "read_only": None},
-            }
-        )
-    ]
+    mounts: list[MountLike] = Field(default_factory=_default_mounts)  # type: ignore
     env: dict[str, str] = Field(default_factory=dict)
     api_token_secret_name: str | None = None
+
+    @field_validator("mounts", mode="before")
+    @classmethod
+    def _coerce_mounts(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        try:
+            from leptonai.api.v1.types.deployment import Mount
+        except Exception:
+            return v
+        # Normalize to Mount instances
+        out = []
+        for item in v:
+            if isinstance(item, Mount):
+                out.append(item)
+            else:
+                out.append(Mount.model_validate(item))
+        return out
 
 
 class LeptonJobConfig(BaseModel):
     allowed_dedicated_node_groups: list[str] | None = None
-    image: str = "igenius/domyn-swarm:latest"
+    image: str = "igeniusai/domyn-swarm:latest"
     resource_shape: str = "gpu.8xh200"
     allowed_nodes: list[str] = Field(default_factory=list)
-    mounts: list[Mount] = [
-        Mount.model_validate(
-            {
-                "path": "/",
-                "from": "node-nfs:lepton-shared-fs",
-                "mount_path": "/mnt/lepton-shared-fs",
-                "mount_options": {"local_cache_size_mib": None, "read_only": None},
-            }
-        )
-    ]
+    mounts: list[MountLike] = Field(default_factory=_default_mounts)  # type: ignore
     env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("mounts", mode="before")
+    @classmethod
+    def _coerce_mounts(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        try:
+            from leptonai.api.v1.types.deployment import Mount
+        except Exception:
+            return v
+        # Normalize to Mount instances
+        out = []
+        for item in v:
+            if isinstance(item, Mount):
+                out.append(item)
+            else:
+                out.append(Mount.model_validate(item))
+        return out
 
 
 class LeptonConfig(BaseModel):
@@ -71,6 +104,17 @@ class LeptonConfig(BaseModel):
     def build(self, cfg_ctx) -> DeploymentPlan:
         from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
         from domyn_swarm.backends.serving.lepton import LeptonServingBackend
+
+        _require_lepton()
+        from leptonai.api.v1.types.deployment import (
+            EnvVar,
+            LeptonContainer,
+            LeptonDeploymentUserSpec,
+            LeptonResourceAffinity,
+            ResourceRequirement,
+            TokenVar,
+        )
+        from leptonai.api.v1.types.job import LeptonJobUserSpec
 
         serving = LeptonServingBackend(workspace=self.workspace_id)
         compute = LeptonComputeBackend(workspace=self.workspace_id)

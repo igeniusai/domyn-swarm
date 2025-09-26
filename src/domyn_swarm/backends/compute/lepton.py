@@ -1,22 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Mapping, Optional, Sequence
 
-from leptonai.api.v1.types.common import Metadata
-from leptonai.api.v1.types.deployment import (
-    EnvValue,
-    EnvVar,
-    LeptonContainer,
-    LeptonDeploymentState,
-)
-from leptonai.api.v1.types.job import (
-    LeptonJob,
-    LeptonJobState,
-    LeptonJobUserSpec,
-    LeptonResourceAffinity,
-)
-
 from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
+from domyn_swarm.utils.imports import _require_lepton
 
 
 @dataclass
@@ -42,6 +29,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     workspace: Optional[str] = None  # if multiple workspaces, else default
 
     def _client(self):
+        _require_lepton()
         try:
             from leptonai.api.v2.client import APIClient
         except Exception as e:
@@ -63,6 +51,18 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         shard_id: Optional[int] = None,
         extras: dict | None = None,
     ) -> JobHandle:
+        _require_lepton()
+        from leptonai.api.v1.types.common import Metadata
+        from leptonai.api.v1.types.deployment import (
+            EnvValue,
+            EnvVar,
+            LeptonContainer,
+        )
+        from leptonai.api.v1.types.job import (
+            LeptonJob,
+            LeptonJobUserSpec,
+        )
+
         client = self._client()
 
         container = LeptonContainer(
@@ -90,6 +90,14 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return JobHandle(id=job_id, status=JobStatus.PENDING, meta={"raw": created})
 
     def wait(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus:
+        _require_lepton()
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeploymentState,
+        )
+        from leptonai.api.v1.types.job import (
+            LeptonJobState,
+        )
+
         client = self._client()
 
         job = client.job.get(handle.id)
@@ -115,6 +123,12 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return cfg.job.image if getattr(cfg, "job", None) else None
 
     def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
+        _require_lepton()
+        from leptonai.api.v1.types.job import (
+            LeptonJobUserSpec,
+            LeptonResourceAffinity,
+        )
+
         affinity = LeptonResourceAffinity(
             allowed_dedicated_node_groups=cfg.job.allowed_dedicated_node_groups,
             allowed_nodes_in_node_group=cfg.job.allowed_nodes or None,

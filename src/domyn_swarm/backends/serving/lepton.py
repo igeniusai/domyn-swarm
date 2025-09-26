@@ -2,20 +2,13 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from leptonai.api.v1.types.common import Metadata, SecretItem
-from leptonai.api.v1.types.deployment import (
-    LeptonDeployment,
-    LeptonDeploymentState,
-    LeptonDeploymentStatus,
-    LeptonDeploymentUserSpec,
-)
-
 from domyn_swarm.helpers.lepton import (
     get_env_var_by_name,
     sanitize_tokens_in_deployment,
 )
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
+from domyn_swarm.utils.imports import _require_lepton
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -50,6 +43,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     workspace: Optional[str] = None  # if multiple workspaces, else default
 
     def _client(self):
+        _require_lepton()
         try:
             from leptonai.api.v2.client import APIClient
         except Exception as e:
@@ -65,6 +59,13 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         Create or update a Lepton deployment (serving endpoint).
         If the deployment already exists, it will be updated with the new spec.
         """
+        _require_lepton()
+        from leptonai.api.v1.types.common import Metadata, SecretItem
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentUserSpec,
+        )
+
         client = self._client()
 
         lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(
@@ -116,7 +117,14 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     def wait_ready(
         self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
     ) -> ServingHandle:
+        _require_lepton()
         import time
+
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentState,
+            LeptonDeploymentStatus,
+        )
 
         client = self._client()
         start = time.time()
