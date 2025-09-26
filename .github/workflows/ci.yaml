@@ -23,6 +23,8 @@ jobs:
           key: venv-${{ hashFiles('uv.lock') }}
       - name: Install dependencies
         run: uv sync --all-extras
+      - name: Verify lepton is present
+        run: uv run python -c "import importlib.util; print('leptonai?', importlib.util.find_spec('leptonai') is not None)"
       - name: Run tests
         run: uv run pytest -v --ignore=tests/test_state.py
       - name: Run hooks
