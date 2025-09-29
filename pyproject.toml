@@ -6,6 +6,11 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "Apache-2.0" }
 classifiers = ["License :: OSI Approved :: Apache Software License"]
+
+[project.urls]
+Homepage = "https://github.com/igeniusai/domyn-swarm"
+Issues = "https://github.com/igeniusai/domyn-swarm/issues"
+
 authors = [
     { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
     { name = "Alessandro Rognoni", email = "alessandro.rognoni@domyn.com" },

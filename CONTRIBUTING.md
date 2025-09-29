@@ -59,7 +59,7 @@ You can additionally sync optional dependency groups:
 ```bash
 uv sync --extra lepton
 
-# Sync all (includes audio_cuda12, deduplication_cuda12, image_cuda12, text_cuda12, video_cuda12)
+# Sync all extras
 uv sync --all-extras
 ```
 
