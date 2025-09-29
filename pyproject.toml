@@ -4,6 +4,12 @@ version = "0.15.0"
 description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes using simple configuration files"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
+license = { text = "Apache-2.0" }
+classifiers = ["License :: OSI Approved :: Apache Software License"]
+authors = [
+    { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
+    { name = "Alessandro Rognoni", email = "alessandro.rognoni@domyn.com" },
+]
 dependencies = [
     "blake3>=1.0.5",
     "fsspec>=2025.3.0",
@@ -37,6 +43,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.11.13",
 ]
+linting = ["pre-commit", "ruff>=0.11.13"]
 bench = [
     "datasets>=3.6.0",
     "vllm>=0.9.1",
