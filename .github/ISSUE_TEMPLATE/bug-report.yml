@@ -7,9 +7,10 @@ body:
       label: System Info
       description: |
         Please share your system info with us so we can better help you.
+        domyn-swarm version:
         The full command line used that causes issues:
         OS version:
-        Python and uv versions (if self-compiling, `cargo version`):
+        Python and uv versions:
         Model being used:
         Hardware used (GPUs, how many, on which cloud) (`nvidia-smi`):
         Deployment specificities (Kubernetes, EKS, AKS, any particular deployments):
