@@ -1,14 +1,14 @@
 import logging
-from importlib import metadata
 from pathlib import Path
 from typing import Optional
 
 import typer
-from rich import print as rprint
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from typing_extensions import Annotated
+
+from domyn_swarm.utils.version import get_version
 
 from ..cli.init import init_app
 from ..cli.pool import pool_app
@@ -41,20 +41,11 @@ console = Console()
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 
 
-def version_callback(value: bool):
-    if value:
-        version = metadata.version("domyn-swarm")
-        rprint(f"domyn-swarm CLI Version: [cyan]{version}[/cyan]")
-        raise typer.Exit()
-
-
 @app.command("version", short_help="Show the version of the domyn-swarm CLI")
-def main(
-    version: Annotated[
-        Optional[bool], typer.Option("--version", callback=version_callback)
-    ] = True,
-):
-    pass
+def version(short: bool = False):
+    v = get_version()
+    print(v if short else f"domyn-swarm CLI Version: {v}")
+    raise typer.Exit()
 
 
 @app.command("up", short_help="Launch a swarm allocation with a configuration")

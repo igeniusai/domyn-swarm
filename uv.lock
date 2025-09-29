@@ -611,6 +611,7 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "tenacity" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "typer" },
 ]
 
@@ -656,6 +657,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.4" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "tenacity", specifier = ">=9.1.2" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.1" },
     { name = "typer", specifier = ">=0.16.0" },
 ]
 provides-extras = ["lepton"]
