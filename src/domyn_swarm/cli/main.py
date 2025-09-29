@@ -10,6 +10,7 @@ from typing_extensions import Annotated
 
 from domyn_swarm.utils.version import get_version
 
+from ..cli.init import init_app
 from ..cli.pool import pool_app
 from ..cli.submit import submit_app
 from ..config.swarm import _load_swarm_config
@@ -30,6 +31,11 @@ app.add_typer(
     pool_app,
     name="pool",
     help="Submit a pool of swarm allocations from a YAML config.",
+)
+app.add_typer(
+    init_app,
+    name="init",
+    help="Initialize a new Domyn-Swarm configuration.",
 )
 console = Console()
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
