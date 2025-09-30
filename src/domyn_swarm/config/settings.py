@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     mail_user: Optional[str] = None  # DOMYN_SWARM_MAIL_USER
 
     # --- Lepton --------------------------------------------------------------
+    lepton_api_token: Optional[SecretStr] = Field(
+        default=None, alias="LEPTONAI_API_TOKEN"
+    )
     lepton_workspace_id: Optional[str] = Field(
         default=None, alias="LEPTON_WORKSPACE_ID"
     )

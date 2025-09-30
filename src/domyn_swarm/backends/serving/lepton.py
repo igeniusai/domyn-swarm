@@ -2,22 +2,18 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from leptonai.api.v1.types.common import Metadata, SecretItem
-from leptonai.api.v1.types.deployment import (
-    LeptonDeployment,
-    LeptonDeploymentState,
-    LeptonDeploymentStatus,
-    LeptonDeploymentUserSpec,
-)
-
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.helpers.lepton import (
     get_env_var_by_name,
     sanitize_tokens_in_deployment,
 )
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
+from domyn_swarm.utils.imports import _require_lepton, make_lepton_client
 
 logger = setup_logger(__name__, level=logging.INFO)
+
+settings = get_settings()
 
 
 @dataclass
@@ -49,14 +45,22 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
 
     workspace: Optional[str] = None  # if multiple workspaces, else default
 
+    _client_cached = None
+    workspace: Optional[str] = None  # if multiple workspaces, else default
+
     def _client(self):
-        try:
-            from leptonai.api.v2.client import APIClient
-        except Exception as e:
-            raise ImportError(
-                "Install leptonai and run `lep login` to use Lepton backends"
-            ) from e
-        return APIClient()
+        if self._client_cached is None:
+            _require_lepton()  # quick availability check
+            token = (
+                settings.lepton_api_token.get_secret_value()
+                if settings.lepton_api_token
+                else None
+            )
+            self._client_cached = make_lepton_client(
+                token=token,
+                workspace=getattr(self, "workspace", None),
+            )
+        return self._client_cached
 
     def create_or_update(
         self, name: str, spec: dict, extras: dict | None = None
@@ -65,6 +69,13 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         Create or update a Lepton deployment (serving endpoint).
         If the deployment already exists, it will be updated with the new spec.
         """
+        _require_lepton()
+        from leptonai.api.v1.types.common import Metadata, SecretItem
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentUserSpec,
+        )
+
         client = self._client()
 
         lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(
@@ -116,7 +127,14 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     def wait_ready(
         self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
     ) -> ServingHandle:
+        _require_lepton()
         import time
+
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentState,
+            LeptonDeploymentStatus,
+        )
 
         client = self._client()
         start = time.time()
