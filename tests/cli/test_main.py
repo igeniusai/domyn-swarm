@@ -6,12 +6,20 @@ runner = CliRunner()
 
 
 def test_cli_version(monkeypatch):
-    monkeypatch.setattr("domyn_swarm.cli.main.metadata.version", lambda _: "1.2.3")
+    monkeypatch.setattr("domyn_swarm.cli.main.get_version", lambda: "1.2.3")
 
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     assert "domyn-swarm CLI Version: " in result.stdout
     assert "1.2.3" in result.stdout
+
+
+def test_cli_version_short(monkeypatch):
+    monkeypatch.setattr("domyn_swarm.cli.main.get_version", lambda: "1.2.3")
+
+    result = runner.invoke(app, ["version", "--short"])
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "1.2.3"
 
 
 def test_cli_up_requires_config(tmp_path, monkeypatch):
