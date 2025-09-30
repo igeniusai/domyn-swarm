@@ -5,11 +5,32 @@ description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes 
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "Apache-2.0" }
-classifiers = ["License :: OSI Approved :: Apache Software License"]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 
-[project.urls]
-Homepage = "https://github.com/igeniusai/domyn-swarm"
-Issues = "https://github.com/igeniusai/domyn-swarm/issues"
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
+
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+
+    "Typing :: Typed",
+
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+    "Framework :: AsyncIO",
+    "Natural Language :: English",
+]
 
 authors = [
     { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
@@ -53,6 +74,13 @@ bench = [
     "datasets>=3.6.0",
     "vllm>=0.9.1",
 ]
+
+[project.urls]
+Homepage = "https://www.domyn.com/"
+Repository = "https://github.com/igeniusai/domyn-swarm"
+Issues = "https://github.com/igeniusai/domyn-swarm/issues"
+Changelog = "https://github.com/igeniusai/domyn-swarm/blob/main/CHANGELOG.md"
+
 
 [project.scripts]
 domyn-swarm = "domyn_swarm.cli:app"
