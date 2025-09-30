@@ -1,7 +1,7 @@
 [project]
 name = "domyn-swarm"
 version = "0.15.0"
-description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes using simple configuration files"
+description = "CLI and programmatic API to launch LLM inference endpoints on Slurm, using simple configuration files"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "Apache-2.0" }
@@ -33,6 +33,9 @@ classifiers = [
 ]
 
 authors = [
+    { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
+]
+maintainers = [
     { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
     { name = "Alessandro Rognoni", email = "alessandro.rognoni@domyn.com" },
 ]
