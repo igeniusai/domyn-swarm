@@ -132,10 +132,10 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
     def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
         _require_lepton()
-        from leptonai.api.v1.types.job import (
-            LeptonJobUserSpec,
+        from leptonai.api.v1.types.affinity import (
             LeptonResourceAffinity,
         )
+        from leptonai.api.v1.types.job import LeptonJobUserSpec
 
         affinity = LeptonResourceAffinity(
             allowed_dedicated_node_groups=cfg.job.allowed_dedicated_node_groups,

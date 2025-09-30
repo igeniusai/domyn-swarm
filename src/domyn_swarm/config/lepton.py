@@ -106,11 +106,11 @@ class LeptonConfig(BaseModel):
         from domyn_swarm.backends.serving.lepton import LeptonServingBackend
 
         _require_lepton()
+        from leptonai.api.v1.types.affinity import LeptonResourceAffinity
         from leptonai.api.v1.types.deployment import (
             EnvVar,
             LeptonContainer,
             LeptonDeploymentUserSpec,
-            LeptonResourceAffinity,
             ResourceRequirement,
             TokenVar,
         )
