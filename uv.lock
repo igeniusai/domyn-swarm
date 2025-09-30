@@ -639,6 +639,10 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
+linting = [
+    { name = "pre-commit" },
+    { name = "ruff" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -679,6 +683,10 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.14.1" },
     { name = "pytest-sugar", specifier = ">=1.0.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "ruff", specifier = ">=0.11.13" },
+]
+linting = [
+    { name = "pre-commit" },
     { name = "ruff", specifier = ">=0.11.13" },
 ]
 
