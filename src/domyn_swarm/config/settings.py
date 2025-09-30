@@ -26,10 +26,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     home: Path = Field(default=Path("~/.domyn_swarm").expanduser())
     # Path to YAML with overridable defaults (used by your defaults loader)
-    defaults_file: Optional[Path] = Field(default=None, alias="DOMYN_SWARM_DEFAULTS")
+    defaults_file: Optional[Path] = Field(
+        default_factory=lambda data: data["home"] / "defaults.yaml",
+        alias="DOMYN_SWARM_DEFAULTS",
+    )
 
     # --- Secrets / tokens ----------------------------------------------------
-    api_token: Optional[SecretStr] = Field(default=None, alias="API_TOKEN")
+    api_token: Optional[SecretStr] = Field(
+        default=None,
+        alias="API_TOKEN",
+        description="API token for authenticating with the domyn-swarm vllm server",
+    )
 
     # --- Slurm ---------------------------------------------------------------
     mail_user: Optional[str] = None  # DOMYN_SWARM_MAIL_USER

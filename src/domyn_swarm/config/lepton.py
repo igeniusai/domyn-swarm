@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.utils.imports import _require_lepton
 
 if TYPE_CHECKING:
@@ -96,7 +98,12 @@ class LeptonJobConfig(BaseModel):
 
 class LeptonConfig(BaseModel):
     type: Literal["lepton"]
-    workspace_id: str
+    workspace_id: str = Field(
+        default_factory=default_for(
+            "lepton.workspace_id", get_settings().lepton_api_token
+        ),
+        description="Lepton workspace ID",
+    )
     endpoint: LeptonEndpointConfig = LeptonEndpointConfig()
     job: LeptonJobConfig = LeptonJobConfig()
     env: dict[str, str] = Field(default_factory=dict)

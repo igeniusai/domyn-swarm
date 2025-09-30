@@ -41,13 +41,18 @@ or to install it globally:
 ## Quickstart
 
 1. **Prepare a YAML config**
-   Define your Slurm settings and model:
+   Define your Swarm settings and model:
 
    ```yaml
    # config.yaml
    model: "mistralai/Mistral-7B-Instruct"
    gpus_per_replica: 16
    replicas: 2
+   backend:
+      type: slurm
+      partition: boost_usr_prod
+      account: igen_train
+      qos: qos_llm_min
    ```
 
 > [!NOTE]
@@ -65,14 +70,14 @@ or to install it globally:
 
    * submit an **array job** with 2 replicas of your cluster
    * submit a **load-balancer** job that waits on all replicas
-   * print a `swarm_<jobid>.json` file containing the state related to configuration of the swarm
+   * create a sqlite db with an entry containing the state related to the swarm you just created
 
 3. **Run a typed job on the cluster**
    The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at [src/domyn_swarm/jobs.py](src/domyn_swarm/jobs.py)
 
 ```bash
    domyn-swarm submit job \
-    --state swarm_16803892.json \
+    --name swarm_16803892.json \
     --job-kwargs '{"temperature":0.3,"checkpoint_interval":16,"max_concurrency":8,"retries":2}' \
     --input examples/data/chat_completion.parquet \
     --output results.parquet
@@ -116,6 +121,28 @@ or to install it globally:
 
    Cancels both the LB job and the array job via `scancel`.
 
+### Lepton compatibility
+
+Together with slurm, we currently support [NVIDIA DGX Cloud Lepton](https://www.nvidia.com/en-us/data-center/dgx-cloud-lepton/) as cloud infrastructure to deploy endpoints and workloads.
+In order to use it, make sure you have installed domyn-swarm with the lepton extra
+
+```yaml
+backend:
+  type: lepton
+  workspace_id: j90afpem
+  endpoint:
+    image: vllm/vllm-openai
+    allowed_dedicated_node_groups:
+      - nv-domyn-nebius-h200-01-lznuhuob
+    resource_shape: gpu.4xh200
+    env:
+      HF_HOME: /mnt/lepton-shared-fs/hf_home/
+  job:
+    allowed_dedicated_node_groups:
+      - nv-domyn-nebius-h200-01-lznuhuob
+    image: igeniusai/domyn-swarm:latest
+```
+
 ---
 
 ## Commands
@@ -129,11 +156,13 @@ Options:
   --help                  Show this help and exit
 
 Commands:
+  version   Show the version of the domyn-swarm CLI
   up        Launch a new swarm allocation
   status    Check the status of the swarm allocation
   down      Shut down a swarm allocation
   submit    Submit a workload to a Domyn-Swarm allocation.
   pool      Submit a pool of swarm allocations from a YAML config.
+  init      Initialize a new Domyn-Swarm configuration.
 ```
 
 ### `domyn-swarm up`
@@ -142,11 +171,13 @@ Start a new allocation:
 
 ```bash
 domyn-swarm up -c config.yaml \
-  --replicas 3 \
+  --name my-beautiful-llm-swarm \
+  --replicas 3 \  # I'm overriding what's in the configuration file
   --reverse-proxy
 ```
 
 * `-c/--config` — path to your YAML
+* `-n/--name` - Name of the swarm allocation. If not provided, a random name will be generated.
 * `-r/--replicas` — override number of replicas
 * `--reverse-proxy` — (TBD) launch an Nginx running on the login node you're logged, so that you can access Ray dashboard via SSH tunneling
 
@@ -154,10 +185,10 @@ domyn-swarm up -c config.yaml \
 ### `domyn-swarm down`
 
 ```bash
-domyn-swarm down 16803892
+domyn-swarm down my-beautiful-llm-swarm
 ```
 
-Take a job id as input. It stops the LB and all replica jobs via `scancel`.
+Take a Swarm name as input. It stops the LB and all replica jobs via `scancel`.
 
 ### `domyn-swarm submit job`
 
@@ -166,7 +197,7 @@ Typed DataFrame → DataFrame jobs:
 ```bash
 domyn-swarm submit job \
   my_module:CustomCompletionJob \
-  --jobid 16803892 \
+  --name my-beautiful-llm-swarm \
   --job-kwargs '{"temperature":0.2,"checkpoint_interval":16}' \
   --input prompts.parquet \
   --output answers.parquet
@@ -193,7 +224,7 @@ Free-form script on the head node:
 
 ```bash
 domyn-swarm submit script \
-  --jobid 16803892 \
+  --name my-beautiful-llm-swarm \
   path/to/script.py -- --foo 1 --bar 2
 ```
 
@@ -203,46 +234,53 @@ domyn-swarm submit script \
 
 ---
 
-### Configuration: `DomynLLMSwarmConfig`
+### Core Configuration: `DomynLLMSwarmConfig`
 
 All runtime options for the swarm launcher live in a single YAML file that is loaded into the `DomynLLMSwarmConfig` dataclass.
 Below is an overview of every field, its purpose, and the default that will be used if you omit it.
 
 | Field                         | Type           | Default                                      | Purpose                                                                                                                                      |                                                                   |
 | ----------------------------- | -------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **model**                     | `str`          | **required**                                 | HF model ID or local path. Passed verbatim to `vllm serve`; must resolve to a local directory or an offline Hugging Face model in `hf_home`. |                                                                   |
-| **hf\_home**                  | `pathlib.Path` | `/leonardo_work/iGen_train/shared_hf_cache/` | Shared Hugging Face cache mounted on all workers.                                                                                            |                                                                   |
+| **model**                     | `str`          | **required**                                 | HF model ID or local path. Passed verbatim to `vllm serve`; must resolve to a local directory or an offline Hugging Face model in `HF_HOME`. |                                                                   |
 | **revision**                  | `str          \| null`                                       | `null`                                                                                                                                       | Git tag/commit for the model (if using HF).                       |
-| **replicas**                  | `int`          | `1`                                          | How many *independent* vLLM clusters to launch (useful for A/B tests).                                                                       |                                                                   |
+| **replicas**                  | `int`          | `1`                                          | How many *independent* vLLM clusters to launch (useful for A/B tests).                                                                       | |
+| **gpus_per_replica**          | `int`          | `4`                                          | How many GPUs should the replica use? This parameter will also be used to set `--tensor-parallel-size`| |
+| **gpus\_per\_node**           | `int`          | `4`                                          | GPUs allocated on each worker node. It depends on the platform: our Slurm infrastructure used 4 GPUs nodes, but yours may have 8.                                                                                                          |                                                                   |
 | **nodes**                     | `int`          | `math.ceil(replicas / replicas_per_node)` or `math.ceil((replicas * gpus_per_replica) / gpus_per_node)` for multi-gpu multi-node clusters                                          | Worker nodes per replica (one vLLM server per node).                                                                                         |                                                                   |
-| **gpus\_per\_node**           | `int`          | `4`                                          | GPUs allocated on each worker node.                                                                                                          |                                                                   |
 | **cpus\_per\_task**           | `int`          | `32 // replicas_per_node` or `32` for multi-gpu multi-node clusters                                   | vCPUs reserved per SLURM task.                                                                                                               |
-| **replicas\_per\_node**       | `int`          | `gpus_per_node // gpus_per_replica` if `gpus_per_replica` <= `gpus_per_node` else `None` | How many model instances can share the same node (you usually won't need to set this unless you want multiple replicas per GPU, e.g. 2 replicas for each gpu) |
-| **partition**                 | `str`          | `"boost_usr_prod"`                           | SLURM partition to submit to.                                                                                                                |                                                                   |
-| **account**                   | `str`          | `"iGen_train"`                               | SLURM account / charge code.                                                                                                                 |                                                                   |
-| **vllm\_image**               | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/vllm_0.9.1.sif`                                                                                   | Singularity image for vLLM workers.                               |
-| **nginx\_image**              | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif`                                                                                   | Image running NGINX + Dask side-services.                         |
-| **lb\_wait**                  | `int`          | `1200`                                       | Seconds to wait for the load balancer to become healthy.                                                                                     |                                                                   |
-| **lb\_port**                  | `int`          | `9000`                                       | External port exposed by the NGINX load balancer.                                                                                            |                                                                   |
-| **home\_directory**           | `pathlib.Path` | `./.domyn_swarm/`                            | Root folder for swarm state (auto-generated inside CWD).                                                                                     |                                                                   |
-| **log\_directory**            | `pathlib.Path \| null`                                       | `<home_directory>/logs`                                                                                                                      | Where SLURM stdout/stderr files are written.                      |
-| **max\_concurrent\_requests** | `int`          | `2000`                                       | Upper bound enforced by vLLM’s OpenAI gateway.                                                                                               |                                                                   |
-| **poll\_interval**            | `int`          | `10`                                         | Seconds between `sacct` polling cycles while waiting for jobs.                                                                               |                                                                   |
-| **template\_path**            | `pathlib.Path` | *(auto-filled)*                              | Internal path of the Jinja2 SLURM script template; no need to modify.                                                                        |                                                                   |
-| **nginx\_template\_path**     | `pathlib.Path` | *(auto-filled)*                              | Jinja2 template for the NGINX config.                                                                                                        |                                                                   |
-| **vllm\_args**                | `str`          | `""`                                         | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`.                                                         |                                                                   |
-| **vllm\_port**                | `int`          | `8000`                                       | Port where each worker’s OpenAI-compatible API listens.                                                                                      |                                                                   |
+| **replicas\_per\_node**       | `int`          | `gpus_per_node // gpus_per_replica` if `gpus_per_replica` <= `gpus_per_node` else `None` | How many model instances can share the same node (you won't need to set this unless you want multiple replicas per GPU, e.g. 2 replicas for each gpu) |
+| **image**               | `str          \| pathlib.Path`                               | `null`                                                                                   | Can be either the path to a Singularity Image to be used with a Slurm backend or a docker image, used with                                 |
+| **args**                | `str`          | `""`                                         | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`.                                                         |                                                                   |
+| **port**                | `int`          | `8000`                                       | Port where each worker’s OpenAI-compatible API listens.                                                                                      |                                                                   |
+| **home\_directory**           | `pathlib.Path` | value of `DOMYN_SWARM_HOME`                            | Root folder for swarm state (auto-generated inside CWD).                                                                                     |                                                                   |
+| **env**                 |  `dict` | `null` | A yaml dict of key values that will be set as environment variables |
+| **backend**                    | `BackendConfig` | *see below*                                  | Backend specific configurations, either Slurm or Lepton                                                             |                                                                   |
+
+### Backend Configuration: `BackendConfig`
+
+#### SlurmConfig
+
+| Field                         | Type           | Default                                      | Purpose                                                                                                                                      |                                                                   |
+| ----------------------------- | -------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **type** | `Literal["slurm"]` | "slurm" | Type of backend |
+| **partition**                 | `str`          | `null`                           | SLURM partition to submit to.                                                                                                                |                                                                   |
+| **account**                   | `str`          | `null`                               | SLURM account / charge code.                                                                                                                 |                                                                   |
+| **qos** | `str` | `null` | SLURM qos where the cluster and load balancer jobs will be submitted |
+| **requires_ray**              | `bool` | `null` | Set automatically to enforce the usage of Ray + vLLM for multi-node multi-gpu clusters |
 | **ray\_port**                 | `int`          | `6379`                                       | Port for Ray’s GCS/head node inside each replica.                                                                                            |                                                                   |
 | **ray\_dashboard\_port**      | `int`          | `8265`                                       | Ray dashboard (optional).                                                                                                                    |                                                                   |
 | **venv\_path**                | `pathlib.Path \| null`                                       | `null`                                                                                                                                       | Virtual-env used by the *driver* process (not the containers).    |
 | **time\_limit**               | `str`          | `"36:00:00"`                                 | Overall SLURM wall-clock limit for the allocation.                                                                                           |                                                                   |
 | **exclude\_nodes**            | `str          \| null`                                       | `null`                                                                                                                                       | Nodes to exclude, e.g. `"node[001-004]"` (pass-through to SLURM). |
 | **node\_list**                | `str          \| null`                                       | `null`                                                                                                                                       | Explicit node list, e.g. `"node[005-008]"`.                       |
-| **driver**                    | `DriverConfig` | *see below*                                  | Resource overrides for the lightweight “driver” job that orchestrates the swarm.                                                             |                                                                   |
+| **log\_directory**            | `pathlib.Path \| null`                                       | `<home_directory>/logs`                                                                                                                      | Where SLURM stdout/stderr files are written.                      |
+| **poll\_interval**            | `int`          | `10`                                         | Seconds between `sacct` polling cycles while waiting for jobs.                                                                               |                                                                   |
+| **template\_path**            | `pathlib.Path` | *(auto-filled)*                              | Internal path of the Jinja2 SLURM script template; no need to modify.                                                                        |                                                                   |
+| **nginx\_template\_path**     | `pathlib.Path` | *(auto-filled)*                              | Jinja2 template for the NGINX config.                                                                                                        |                                                                   |
 | **mail_user**                 | `str` | `null` | Send Slurm END,FAIL signal notification about the resources deployed by domyn-swarm (job and cluster) | myemail@gmail.com |
-| **requires_ray**              | `bool` | `null` | Set automatically to enforce the usage of Ray + vLLM for multi-node multi-gpu clusters |
+| **endpoint**                  | `SlurmEndpointConfig` | `null` |
 
-#### Nested: `DriverConfig`
+#### SlurmEndpointConfig
 
 | Field                  | Type  | Default      | Purpose                                                         |
 | ---------------------- | ----- | ------------ | --------------------------------------------------------------- |
@@ -251,18 +289,102 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **threads\_per\_core** | `int` | `1`          | SMT threads to request per physical core.                       |
 | **wall\_time**         | `str` | `"24:00:00"` | SLURM time limit for the driver job.                            |
 
+| **nginx\_image**              | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif`                                                                                   | Image running NGINX + Dask side-services.                         |
+| **lb\_wait**                  | `int`          | `1200`                                       | Seconds to wait for the load balancer to become healthy.                                                                                     |                                                                   |
+| **lb\_port**                  | `int`          | `9000`                                       | External port exposed by the NGINX load balancer.                                                                                            |                                                                   |
+
+
+#### LeptonConfig
+
+| Field          | Type                   | Default                  | Purpose                                                                                   |
+| -------------- | ---------------------- | ------------------------ | ----------------------------------------------------------------------------------------- |
+| `type`         | `Literal["lepton"]`    | *required*               | Discriminator to select the Lepton backend.                                               |
+| `workspace_id` | `str`                  | *required*               | Lepton workspace identifier used for deployments and jobs.                                |
+| `endpoint`     | `LeptonEndpointConfig` | `LeptonEndpointConfig()` | Serving endpoint configuration (image, shape, mounts, env, token secret).                 |
+| `job`          | `LeptonJobConfig`      | `LeptonJobConfig()`      | Batch job configuration (image, shape, mounts, env).                                      |
+| `env`          | `dict[str, str]`       | `{}`                     | Additional global environment variables applied to both endpoint and jobs where relevant. |
+
+---
+
+
+#### LeptonEndpointConfig
+
+| Field                           | Type                | Default                     | Purpose                                                                                                 |
+| ------------------------------- | ------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `image`                         | `str`               | `"vllm/vllm-openai:latest"` | Container image used to run the serving endpoint (vLLM‑compatible OpenAI server).                       |
+| `allowed_dedicated_node_groups` | `list[str] \| None` | `None`                      | Optional constraint to one or more Lepton dedicated node groups for the endpoint.                       |
+| `resource_shape`                | `str`               | `"gpu.8xh200"`              | Lepton resource shape for endpoint replicas (e.g., GPU type/count and memory).                          |
+| `allowed_nodes`                 | `list[str]`         | `[]`                        | Optional list of specific nodes (within a node group) where the endpoint is allowed to run.             |
+| `mounts`                        | `list[MountLike]`   | `_default_mounts()`         | Filesystem mounts injected into the endpoint container (validated to Lepton `Mount` if SDK is present). |
+| `env`                           | `dict[str, str]`    | `{}`                        | Environment variables for the endpoint container.                                                       |
+| `api_token_secret_name`         | `str \| None`       | `None`                      | Name of the Lepton secret that holds the API token exposed to jobs/clients.                             |
+
+**Notes**
+
+* A validator normalizes `mounts` to real Lepton `Mount` instances when the Lepton SDK is available; otherwise accepts dicts.
+
+---
+
+#### LeptonJobConfig
+
+| Field                           | Type                | Default                          | Purpose                                                                                            |
+| ------------------------------- | ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `allowed_dedicated_node_groups` | `list[str] \| None` | `None`                           | Optional constraint to one or more Lepton dedicated node groups for batch jobs.                    |
+| `image`                         | `str`               | `"igeniusai/domyn-swarm:latest"` | Container image used by Domyn‑Swarm driver jobs submitted to Lepton.                               |
+| `resource_shape`                | `str`               | `"gpu.8xh200"`                   | Lepton resource shape for the batch job execution.                                                 |
+| `allowed_nodes`                 | `list[str]`         | `[]`                             | Optional list of specific nodes where the job is allowed to run.                                   |
+| `mounts`                        | `list[MountLike]`   | `_default_mounts()`              | Filesystem mounts injected into the job container (validated to Lepton `Mount` if SDK is present). |
+| `env`                           | `dict[str, str]`    | `{}`                             | Environment variables for the job container.                                                       |
+
+**Notes**
+
+* Same mounts normalization behavior as the endpoint config.
+
+---
+
+
+**Terminology**
+
+* **MountLike**: either a Lepton SDK `Mount` object (when SDK is installed) or a dict with the same fields; validated at runtime.
+* **Resource shape**: Lepton preset describing accelerator type/count and other resources (e.g., `gpu.4xh200`).
+
+
 ---
 
 *Tip:* Any field omitted from your YAML file inherits the default above, so you can keep configuration files minimal—only override what you need.
 
+*Tip:* You can set some defaults for your specific environment by running `domyn-swarm init defaults`
+
 ---
+
+## Environment variables
+
+There is a variety of environment variables that you can set and will be picked up by `domyn-swarm` automatically
+
+**Overview**
+`Settings` centralizes configuration sourced from environment variables and optional `.env` files. By default it reads from:
+
+* `.env` in the current working directory
+* `~/.domyn_swarm/.env`
+
+Environment variables use the prefix `DOMYN_SWARM_` (case-insensitive) **unless an explicit alias is defined** (see the table below). Values are parsed and validated via Pydantic.
+
+| Name                    | Type                     | Purpose                                                              |
+| ----------------------- | ------------------------ | -------------------------------------------------------------------- |
+| `DOMYN_SWARM_LOG_LEVEL` | string                   | Global logging level (e.g., `DEBUG`, `INFO`, `WARNING`).             |
+| `DOMYN_SWARM_HOME`      | path                     | Home/state directory for domyn‑swarm files (e.g., `~/.domyn_swarm`). |
+| `DOMYN_SWARM_DEFAULTS`  | path (optional)          | Path to YAML with overridable defaults used by the defaults loader (e.g. `~/.domyn_swarm/defaults.yaml`).  |
+| `API_TOKEN`             | secret string (optional) | API token to authenticate with the vLLM‑compatible server.           |
+| `DOMYN_SWARM_MAIL_USER` | string (optional)        | Email address for Slurm job notifications.                           |
+| `LEPTONAI_API_TOKEN`    | secret string (optional) | Token for Lepton API authentication.                                 |
+| `LEPTON_WORKSPACE_ID`   | string (optional)        | Default Lepton workspace ID used for deployments/jobs.               |
 
 ## Python API (Programmatic usage)
 
 > [!NOTE]
 > This API is in constant evolution and you can expect breaking changes up to the final stable release
 
-In the [examples/] folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: [examples/scripts/custom_main.py].
+In the [examples](examples/) folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: [examples/scripts/custom_main.py](examples/scripts/custom_main.py).
 
 ### Define a custom job
 

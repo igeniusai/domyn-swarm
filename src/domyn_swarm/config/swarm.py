@@ -60,7 +60,7 @@ class DomynLLMSwarmConfig(BaseModel):
     )
 
     backend: BackendConfig | None = Field(
-        description="List of backend configurations",
+        description="Backend configuration for the swarm",
     )
     _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
 
