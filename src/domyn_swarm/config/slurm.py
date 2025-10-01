@@ -13,7 +13,7 @@ settings = get_settings()
 
 
 class SlurmEndpointConfig(BaseModel):
-    cpus_per_task: int = 2
+    cpus_per_task: int = 32
     mem: str = "16GB"
     threads_per_core: int = 1
     wall_time: str = "24:00:00"

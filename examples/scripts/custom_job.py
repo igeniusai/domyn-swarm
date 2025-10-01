@@ -25,25 +25,35 @@ PYTHONPATH=. python examples/scripts/custom_main.py
 """
 
 import random
-
-import pandas as pd
+from typing import Any
 
 from domyn_swarm.jobs import SwarmJob
 
 
 class MyCustomSwarmJob(SwarmJob):
+    """
+    Example custom job using the new SwarmJob API.
+
+    - Reads prompts from the `input_column_name` column (default: "messages")
+    - Produces three output columns: completion, score, current_model
+    - No checkpointing/I-O logic here: the runner handles that.
+    """
+
     def __init__(
         self,
         *,
-        endpoint=None,
-        model="",
-        input_column_name="messages",
-        output_column_name="result",
-        checkpoint_interval=16,
-        max_concurrency=2,
-        retries=5,
-        **extra_kwargs,
+        endpoint: str | None = None,
+        model: str = "",
+        input_column_name: str = "messages",
+        # We'll override outputs to three columns
+        output_column_name: str | list[str] = "result",
+        checkpoint_interval: int = 16,
+        max_concurrency: int = 2,
+        retries: int = 5,
+        timeout: float = 600,
+        **extra_kwargs: Any,
     ):
+        # Initialize the base job (creates self.client, stores kwargs, etc.)
         super().__init__(
             endpoint=endpoint,
             model=model,
@@ -52,26 +62,41 @@ class MyCustomSwarmJob(SwarmJob):
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
+            timeout=timeout,
             **extra_kwargs,
         )
+        # Our job returns 3 values per item
         self.output_column_name = ["completion", "score", "current_model"]
 
-    async def transform(self, df: pd.DataFrame):
+    async def transform_items(self, items: list[Any]) -> list[tuple[str, float, str]]:
         """
-        You can do whatever you want inside this function, as long as it returns a pd.DataFrame
+        Pure transform: items -> results (same order, same length).
+        Each item here is expected to be a prompt string.
+
+        Returns:
+            List of tuples: (completion_text, random_score, model_tag)
         """
+        # You can pass OpenAI params via job kwargs (e.g., temperature)
+        temperature = float(self.kwargs.get("temperature", 0.7))
 
-        async def _call(prompt: str) -> str:
-            from openai.types.completion import Completion
+        results: list[tuple[str, float, str]] = []
 
-            # Default client is pointing to the endpoint deployed by domyn-swarm and defined in the
-            # domyn-swarm config
-            resp: Completion = await self.client.completions.create(
-                model=self.model, prompt=prompt, **self.kwargs
+        # Note: The executor calls this for single items via `_call_unit`,
+        # but we support lists to keep the contract general.
+        for prompt in items:
+            # Async OpenAI client already configured to hit the swarm endpoint
+            resp = await self.client.completions.create(
+                model=self.model,
+                prompt=prompt,
+                **self.kwargs,  # forward any extra OpenAI parameters
             )
-            temperature = self.kwargs["temperature"]
+            completion_text = resp.choices[0].text or ""
+            results.append(
+                (
+                    completion_text,
+                    random.random(),  # demo score
+                    f"{self.model}_{temperature}",  # demo tag
+                )
+            )
 
-            return resp.choices[0].text, random.random(), self.model + f"_{temperature}"
-
-        # Call the endpoint batching the calls asynchronously in the background
-        await self.batched(df["messages"].tolist(), _call)
+        return results

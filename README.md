@@ -274,11 +274,10 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **exclude\_nodes**            | `str          \| null`                                       | `null`                                                                                                                                       | Nodes to exclude, e.g. `"node[001-004]"` (pass-through to SLURM). |
 | **node\_list**                | `str          \| null`                                       | `null`                                                                                                                                       | Explicit node list, e.g. `"node[005-008]"`.                       |
 | **log\_directory**            | `pathlib.Path \| null`                                       | `<home_directory>/logs`                                                                                                                      | Where SLURM stdout/stderr files are written.                      |
-| **poll\_interval**            | `int`          | `10`                                         | Seconds between `sacct` polling cycles while waiting for jobs.                                                                               |                                                                   |
 | **template\_path**            | `pathlib.Path` | *(auto-filled)*                              | Internal path of the Jinja2 SLURM script template; no need to modify.                                                                        |                                                                   |
-| **nginx\_template\_path**     | `pathlib.Path` | *(auto-filled)*                              | Jinja2 template for the NGINX config.                                                                                                        |                                                                   |
+| **nginx\_template\_path**     | `pathlib.Path` | *(auto-filled)*                              | Jinja2 template for the NGINX config. | |
 | **mail_user**                 | `str` | `null` | Send Slurm END,FAIL signal notification about the resources deployed by domyn-swarm (job and cluster) | myemail@gmail.com |
-| **endpoint**                  | `SlurmEndpointConfig` | `null` |
+| **endpoint**                  | `SlurmEndpointConfig` | `null` | |
 
 #### SlurmEndpointConfig
 
@@ -288,10 +287,10 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **mem**                | `str` | `"16GB"`     | Physical memory for the driver job.                             |
 | **threads\_per\_core** | `int` | `1`          | SMT threads to request per physical core.                       |
 | **wall\_time**         | `str` | `"24:00:00"` | SLURM time limit for the driver job.                            |
-
-| **nginx\_image**              | `str          \| pathlib.Path`                               | `/leonardo_work/iGen_train/fdambro1/images/nginx-dask.sif`                                                                                   | Image running NGINX + Dask side-services.                         |
-| **lb\_wait**                  | `int`          | `1200`                                       | Seconds to wait for the load balancer to become healthy.                                                                                     |                                                                   |
-| **lb\_port**                  | `int`          | `9000`                                       | External port exposed by the NGINX load balancer.                                                                                            |                                                                   |
+| **nginx\_image**       | `str \| pathlib.Path` | `null` | Path to a singularity image running NGINX as load balancer for the swarm.|
+| **nginx_timeout**      | `str \| int` | "60s" | HTTP timeout for NGINX proxy requests to model replicas. |
+| **port**           | `int` | `9000`       | External port exposed by the NGINX load balancer. |
+| **poll_interval**  | `int` | `10` | Seconds between status checks while waiting for the load balancer to become ready. |
 
 
 #### LeptonConfig
@@ -389,36 +388,83 @@ In the [examples](examples/) folder, you can see some examples of programmatic u
 ### Define a custom job
 
 ```python
-# custom_job.py
-# You can do whatever you want inside this function, as long as it returns a pd.DataFrame
-from domyn_swarm.jobs import SwarmJob
-import pandas as pd
 import random
+from typing import Any, List, Tuple
+
+import pandas as pd
+from domyn_swarm.jobs import SwarmJob
+
 
 class MyCustomSwarmJob(SwarmJob):
+    """
+    Example custom job using the new SwarmJob API.
 
-    def __init__(self, *, endpoint = None, model = "", input_column_name = "messages", output_column_name = "result", checkpoint_interval = 16, max_concurrency = 2, retries = 5, **extra_kwargs):
-        super().__init__(endpoint=endpoint, model=model, input_column_name=input_column_name, output_column_name=output_column_name, checkpoint_interval=checkpoint_interval, max_concurrency=max_concurrency, retries=retries, **extra_kwargs)
+    - Reads prompts from the `input_column_name` column (default: "messages")
+    - Produces three output columns: completion, score, current_model
+    - No checkpointing/I-O logic here: the runner handles that.
+    """
+
+    def __init__(
+        self,
+        *,
+        endpoint: str | None = None,
+        model: str = "",
+        input_column_name: str = "messages",
+        # We'll override outputs to three columns
+        output_column_name: str | list[str] = "result",
+        checkpoint_interval: int = 16,
+        max_concurrency: int = 2,
+        retries: int = 5,
+        timeout: float = 600,
+        **extra_kwargs: Any,
+    ):
+        # Initialize the base job (creates self.client, stores kwargs, etc.)
+        super().__init__(
+            endpoint=endpoint,
+            model=model,
+            input_column_name=input_column_name,
+            output_column_name=output_column_name,
+            checkpoint_interval=checkpoint_interval,
+            max_concurrency=max_concurrency,
+            retries=retries,
+            timeout=timeout,
+            **extra_kwargs,
+        )
+        # Our job returns 3 values per item
         self.output_column_name = ["completion", "score", "current_model"]
 
-    async def transform(self, df: pd.DataFrame):
+    async def transform_items(self, items: list[Any]) -> list[tuple[str, float, str]]:
         """
-        You can do whatever you want inside this function, as long as it returns a pd.DataFrame
+        Pure transform: items -> results (same order, same length).
+        Each item here is expected to be a prompt string.
+
+        Returns:
+            List of tuples: (completion_text, random_score, model_tag)
         """
+        # You can pass OpenAI params via job kwargs (e.g., temperature)
+        temperature = float(self.kwargs.get("temperature", 0.7))
 
-        async def _call(prompt: str) -> str:
-            from openai.types.completion import Completion
+        results: list[tuple[str, float, str]] = []
 
-            # Default client is pointing to the endpoint deployed by domyn-swarm and defined in the
-            # domyn-swarm config
-            resp: Completion = await self.client.completions.create(
-                model=self.model, prompt=prompt, **self.kwargs
+        # Note: The executor calls this for single items via `_call_unit`,
+        # but we support lists to keep the contract general.
+        for prompt in items:
+            # Async OpenAI client already configured to hit the swarm endpoint
+            resp = await self.client.completions.create(
+                model=self.model,
+                prompt=prompt,
+                **self.kwargs,  # forward any extra OpenAI parameters
             )
-            temperature = self.kwargs["temperature"]
+            completion_text = resp.choices[0].text or ""
+            results.append(
+                (
+                    completion_text,
+                    random.random(),                   # demo score
+                    f"{self.model}_{temperature}",     # demo tag
+                )
+            )
 
-            return resp.choices[0].text, random.random(), self.model + f"_{temperature}"
-
-        await self.batched(df["messages"].tolist(), _call)
+        return results
 ```
 
 ### Run a custom job via CLI

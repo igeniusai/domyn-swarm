@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-driver_test.py
+simple_driver.py
 ==============
 
 Runs inside the swarm allocation (node-0).  It
@@ -61,6 +61,3 @@ with out_path.open("w") as fout:
         fout.write(json.dumps({"prompt": p, "completion": txt}) + "\n")
 
 print(f"\n✅  All done. Results in {out_path}")
-
-# rm -rf /leonardo_work/iGen_train/shared_hf_cache/hub/.locks/
-# HF_HOME=/leonardo_work/iGen_train/shared_hf_cache/ uv run huggingface-cli download Qwen/Qwen3-235B-A22B --repo-type model --max-workers 4
