@@ -25,7 +25,7 @@ def submit_script(
         help="YAML that defines/creates a new swarm",
     ),
     name: str | None = typer.Option(
-        None, "-n", "--name", exists=True, help="Swarm job name."
+        None, "-n", "--name", exists=True, help="Swarm name."
     ),
     args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
@@ -67,7 +67,7 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    name: Optional[str] = typer.Option(None, "-n", "--name", help="Swarm job name."),
+    name: Optional[str] = typer.Option(None, "-n", "--name", help="Swarm name."),
     checkpoint_dir: Path = typer.Option(
         ".checkpoints/",
         "--checkpoint-dir",
@@ -171,7 +171,7 @@ def submit_job(
             else:
                 typer.echo("Continuing to wait for job to complete …")
     elif name is None:
-        raise RuntimeError("Swarm job name is null.")
+        raise RuntimeError("Swarm name is null.")
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
