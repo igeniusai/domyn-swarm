@@ -70,16 +70,8 @@ def launch_up(
             help="Number of replicas for the swarm allocation. Defaults to 1.",
         ),
     ] = None,
-    platform: Annotated[
-        str,
-        typer.Option(
-            "--platform",
-            "-p",
-            help="Platform to use for the swarm allocation. E.g., 'slurm', 'lepton'. Defaults to 'slurm'.",
-        ),
-    ] = "slurm",
 ):
-    cfg = _load_swarm_config(config, replicas=replicas, platform=platform)
+    cfg = _load_swarm_config(config, replicas=replicas)
     _start_swarm(cfg, reverse_proxy=reverse_proxy)
 
 

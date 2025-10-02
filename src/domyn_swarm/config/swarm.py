@@ -176,7 +176,6 @@ def _load_swarm_config(
     config_file: io.TextIOWrapper,
     *,
     replicas: int | None = None,
-    platform: str | None = "slurm",
 ) -> DomynLLMSwarmConfig:
     """Load YAML, inject driver_script if given, apply replicas override."""
     cfg_dict = yaml.safe_load(config_file)
