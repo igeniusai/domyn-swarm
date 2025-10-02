@@ -15,7 +15,7 @@ from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
-from domyn_swarm.platform.protocols import ServingHandle
+from domyn_swarm.platform.protocols import ServingHandle, ServingPhase, ServingStatus
 
 from ..core.state import SwarmStateManager
 
@@ -362,6 +362,14 @@ class DomynLLMSwarm(BaseModel):
             raise RuntimeError(
                 f"Unsupported platform for compute backend: {self._plan.platform}"
             )
+
+    def status(self) -> ServingStatus:
+        """Get the current status of the swarm."""
+        if self._deployment:
+            s = self._deployment.status()
+            if s is not None:
+                return s
+        return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
 
 
 def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:

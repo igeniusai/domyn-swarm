@@ -18,16 +18,16 @@ class SlurmEndpointConfig(BaseModel):
     nginx_timeout: str | int = "60s"
     port: int = 9000
     nginx_image: str | utils.EnvPath = Field(
-        default_factory=default_for("slurm.endpoint.nginx_image", utils.EnvPath(""))
+        default_factory=default_for("slurm.endpoint.nginx_image")
     )
     poll_interval: int = 10  # sacct polling cadence (s)
 
 
 class SlurmConfig(BaseModel):
     type: Literal["slurm"] = "slurm"
-    partition: str = Field(default_factory=default_for("slurm.partition", ""))
-    account: str = Field(default_factory=default_for("slurm.account", ""))
-    qos: str = Field(default_factory=default_for("slurm.qos", ""))
+    partition: str = Field(default_factory=default_for("slurm.partition"))
+    account: str = Field(default_factory=default_for("slurm.account"))
+    qos: str = Field(default_factory=default_for("slurm.qos"))
 
     requires_ray: bool | None = Field(
         description="Whether to use Ray for distributed execution",

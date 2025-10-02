@@ -48,6 +48,7 @@ class TestSwarmStateManager:
             cfg=DomynLLMSwarmConfig(
                 name="fake",
                 hf_home=".",
+                image="image",
                 model="Qwen/Qwen3-32B",
                 revision=None,
                 replicas=1,
@@ -61,9 +62,13 @@ class TestSwarmStateManager:
                 wait_endpoint_s=1200,
                 backend=SlurmConfig(
                     type="slurm",
+                    partition="partition",
+                    account="account",
+                    qos="qos",
                     requires_ray=False,
                     endpoint=SlurmEndpointConfig(
                         cpus_per_task=1,
+                        nginx_image="/path/to/vllm.sif",
                         mem="1GB",
                         threads_per_core=1,
                         wall_time="24:00:00",

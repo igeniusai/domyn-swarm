@@ -147,7 +147,7 @@ class SwarmStateManager:
     @classmethod
     def _get_db_path(cls) -> Path:
         settings = get_settings()
-        return settings.home_dir / cls.DB_NAME
+        return settings.home / cls.DB_NAME
 
     def _get_record(self, deployment_name: str) -> dict[str, Any]:
         """Get a table record.

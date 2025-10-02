@@ -1,9 +1,44 @@
 [project]
 name = "domyn-swarm"
 version = "0.15.0"
-description = "CLI utility command to launch Ray + vLLM clusters on Slurm nodes using simple configuration files"
+description = "CLI and programmatic API to launch LLM inference endpoints on Slurm, using simple configuration files"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
+
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+
+    "Typing :: Typed",
+
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+    "Framework :: AsyncIO",
+    "Natural Language :: English",
+]
+
+authors = [
+    { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
+]
+maintainers = [
+    { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
+    { name = "Alessandro Rognoni", email = "alessandro.rognoni@domyn.com" },
+]
 dependencies = [
     "blake3>=1.0.5",
     "fsspec>=2025.3.0",
@@ -20,6 +55,7 @@ dependencies = [
     "rich>=14.0.0",
     "tenacity>=9.1.2",
     "typer>=0.16.0",
+    "tomli>=2.0.1; python_version < '3.11'"
 ]
 
 [dependency-groups]
@@ -37,10 +73,18 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.11.13",
 ]
+linting = ["pre-commit", "ruff>=0.11.13"]
 bench = [
     "datasets>=3.6.0",
     "vllm>=0.9.1",
 ]
+
+[project.urls]
+Homepage = "https://www.domyn.com/"
+Repository = "https://github.com/igeniusai/domyn-swarm"
+Issues = "https://github.com/igeniusai/domyn-swarm/issues"
+Changelog = "https://github.com/igeniusai/domyn-swarm/blob/main/CHANGELOG.md"
+
 
 [project.scripts]
 domyn-swarm = "domyn_swarm.cli:app"

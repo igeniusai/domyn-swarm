@@ -55,7 +55,7 @@ class DomynLLMSwarmConfig(BaseModel):
     mem_per_cpu: str | None = None
     wait_endpoint_s: int = 1200  # seconds to wait for LB to be ready
 
-    image: str | utils.EnvPath = Field(default_factory=default_for("image", ""))
+    image: str | utils.EnvPath = Field(default_factory=default_for("image"))
 
     args: str = ""
     port: int = 8000

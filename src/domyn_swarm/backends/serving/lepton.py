@@ -2,22 +2,26 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from leptonai.api.v1.types.common import Metadata, SecretItem
-from leptonai.api.v1.types.deployment import (
-    LeptonDeployment,
-    LeptonDeploymentState,
-    LeptonDeploymentStatus,
-    LeptonDeploymentUserSpec,
-)
+import requests
+from requests import RequestException
 
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.helpers.lepton import (
     get_env_var_by_name,
     sanitize_tokens_in_deployment,
 )
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.platform.protocols import ServingBackend, ServingHandle
+from domyn_swarm.platform.protocols import (
+    ServingBackend,
+    ServingHandle,
+    ServingPhase,
+    ServingStatus,
+)
+from domyn_swarm.utils.imports import _require_lepton, make_lepton_client
 
 logger = setup_logger(__name__, level=logging.INFO)
+
+settings = get_settings()
 
 
 @dataclass
@@ -49,14 +53,22 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
 
     workspace: Optional[str] = None  # if multiple workspaces, else default
 
+    _client_cached = None
+    workspace: Optional[str] = None  # if multiple workspaces, else default
+
     def _client(self):
-        try:
-            from leptonai.api.v2.client import APIClient
-        except Exception as e:
-            raise ImportError(
-                "Install leptonai and run `lep login` to use Lepton backends"
-            ) from e
-        return APIClient()
+        if self._client_cached is None:
+            _require_lepton()  # quick availability check
+            token = (
+                settings.lepton_api_token.get_secret_value()
+                if settings.lepton_api_token
+                else None
+            )
+            self._client_cached = make_lepton_client(
+                token=token,
+                workspace=getattr(self, "workspace", None),
+            )
+        return self._client_cached
 
     def create_or_update(
         self, name: str, spec: dict, extras: dict | None = None
@@ -65,6 +77,13 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         Create or update a Lepton deployment (serving endpoint).
         If the deployment already exists, it will be updated with the new spec.
         """
+        _require_lepton()
+        from leptonai.api.v1.types.common import Metadata, SecretItem
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentUserSpec,
+        )
+
         client = self._client()
 
         lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(
@@ -116,7 +135,14 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     def wait_ready(
         self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
     ) -> ServingHandle:
+        _require_lepton()
         import time
+
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentState,
+            LeptonDeploymentStatus,
+        )
 
         client = self._client()
         start = time.time()
@@ -149,3 +175,100 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         endpoint = handle.url
         if not endpoint:
             raise RuntimeError(f"Swarm not ready (endpoint): {endpoint}")
+
+    def status(self, handle: ServingHandle) -> ServingStatus:
+        """
+        One-shot status:
+        - Ask Lepton for the deployment state.
+        - If state looks 'ready', do a quick HTTP probe to ensure the endpoint is actually up.
+        - Map to ServingPhase and return a ServingStatus with details.
+        """
+        from leptonai.api.v1.types.deployment import (
+            LeptonDeployment,
+            LeptonDeploymentState,
+        )
+
+        try:
+            client = self._client()
+        except Exception as e:
+            return ServingStatus(
+                phase=ServingPhase.UNKNOWN,
+                url=handle.url,
+                detail={"reason": "lepton_client_failed", "error": str(e)},
+            )
+
+        name = handle.meta.get("name", handle.id)
+
+        try:
+            dep: LeptonDeployment = client.deployment.get(name)
+        except Exception as e:
+            # Network/API issue – report unknown with context
+            return ServingStatus(
+                phase=ServingPhase.UNKNOWN,
+                url=handle.url,
+                detail={"reason": "lepton_get_failed", "error": str(e)},
+            )
+
+        state: Optional[LeptonDeploymentState] = (
+            dep.status.state if dep and dep.status else None
+        )
+        url = (
+            dep.status.endpoint.external_endpoint
+            if dep and dep.status and dep.status.endpoint
+            else handle.url
+        )
+
+        # Map Lepton state to coarse phase first (scheduler view)
+        if state in {
+            LeptonDeploymentState.Stopped,
+            getattr(LeptonDeploymentState, "Error", None),
+        }:
+            return ServingStatus(
+                phase=ServingPhase.FAILED,
+                url=url,
+                detail={"raw_state": getattr(state, "value", str(state))},
+            )
+        if state is None:
+            return ServingStatus(
+                phase=ServingPhase.UNKNOWN, url=url, detail={"raw_state": None}
+            )
+        if state != LeptonDeploymentState.Ready:
+            # Deploying / Scaling / Updating etc.
+            return ServingStatus(
+                phase=ServingPhase.PENDING,
+                url=url,
+                detail={"raw_state": getattr(state, "value", str(state))},
+            )
+
+        # State says Ready — verify HTTP is answering to avoid false positives
+        http_ok = False
+        http_code: Optional[int] = None
+        if url:
+            try:
+                r = requests.get(f"{url.rstrip('/')}/v1/models", timeout=1.5)
+                http_code = r.status_code
+                http_ok = r.status_code == 200
+            except RequestException:
+                http_ok = False
+
+        if http_ok:
+            # Cache the discovered URL back on the handle
+            handle.url = url
+            return ServingStatus(
+                phase=ServingPhase.RUNNING,
+                url=url,
+                detail={
+                    "raw_state": LeptonDeploymentState.Ready.value,
+                    "http": http_code,
+                },
+            )
+
+        # Lepton says Ready but HTTP not yet responding – treat as initializing
+        return ServingStatus(
+            phase=ServingPhase.INITIALIZING,
+            url=url,
+            detail={
+                "raw_state": LeptonDeploymentState.Ready.value,
+                "http": http_code or "unreachable",
+            },
+        )

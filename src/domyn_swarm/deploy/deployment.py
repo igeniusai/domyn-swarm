@@ -6,6 +6,7 @@ from domyn_swarm.platform.protocols import (
     JobHandle,
     ServingBackend,
     ServingHandle,
+    ServingStatus,
 )
 
 
@@ -84,3 +85,9 @@ class Deployment:
         if self._handle is None:
             raise RuntimeError("No serving handle to ensure readiness for")
         return self.serving.ensure_ready(self._handle)
+
+    def status(self) -> ServingStatus:
+        """Get the current status of the deployment."""
+        if self._handle is None:
+            raise RuntimeError("No serving handle to get status for")
+        return self.serving.status(self._handle)
