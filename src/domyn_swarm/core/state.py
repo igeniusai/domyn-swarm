@@ -4,8 +4,10 @@ State is managed with a SQLite DB, located in the
 domyn-swarm home directory.
 """
 
+import json
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,11 +16,16 @@ from domyn_swarm.config.slurm import SlurmConfig
 if TYPE_CHECKING:
     from ..core.swarm import DomynLLMSwarm
 
+import dataclasses
+
+from domyn_swarm.config.backend import BackendConfig
+from domyn_swarm.config.settings import get_settings
+from domyn_swarm.platform.protocols import ServingHandle
+
 from ..backends.compute.lepton import LeptonComputeBackend
 from ..backends.compute.slurm import SlurmComputeBackend
 from ..exceptions import JobNotFoundError
 from ..helpers.logger import setup_logger
-from ..utils import EnvPath
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -46,7 +53,6 @@ class SwarmStateManager:
     Attributes:
         DB_NAME (str): (classattribute) SQLite DB name.
         swarm (DomynLLMSwarm): Swarm.
-        db_path (Path): Path to the DB.
     """
 
     DB_NAME = "swarm.db"
@@ -58,88 +64,59 @@ class SwarmStateManager:
             swarm (DomynLLMSwarm): Swarm.
         """
         self.swarm: DomynLLMSwarm = swarm
-        self.db_path = EnvPath(self.swarm.cfg.home_directory) / self.DB_NAME
         self._create_db_if_missing()
 
-    def save(self) -> None:
-        """Save a swarm state."""
-        data = self._get_flat_data_dict()
+    def save(self, deployment_name: str) -> None:
+        """Save a swarm state.
+
+        Args:
+            deployment_name (str): Deployment name.
+        """
+        record = self._get_record(deployment_name)
+        db_path = self._get_db_path()
         query = _read_query("insert_record.sql")
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(query, data)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(query, record)
 
-        logger.debug(f"State saved for swarm {self.swarm.name}.")
+        logger.debug(f"State saved for swarm {deployment_name}.")
 
     @classmethod
-    def load(cls, jobid: int, home_directory: Path):
+    def load(cls, deployment_name: str):
         """Load a swarm from the DB.
 
         Args:
-            jobid (int): Job ID (primary key).
-            home_directory (Path): Domyn-swarm home directory.
-
-        Raises:
-            JobNotFoundError: A job with the same ID is not found
-                in the DB.
+            deployment_name (str): Deployment name.
 
         Returns:
             DomynLLMSwarm: Swarm.
         """
         from .. import DomynLLMSwarm
 
-        select_cfg = _read_query("select_cfg.sql")
-        select_driver = _read_query("select_driver.sql")
-        select_swarm = _read_query("select_swarm.sql")
+        db_path = cls._get_db_path()
+        query = _read_query("select_swarm.sql")
 
-        with sqlite3.connect(home_directory / cls.DB_NAME) as cnx:
+        with sqlite3.connect(db_path) as cnx:
             cnx.row_factory = sqlite3.Row
             cursor = cnx.cursor()
-            cursor.execute(select_cfg, {"jobid": jobid})
-            cfg_row = cursor.fetchone()
-            cursor.execute(select_driver, {"jobid": jobid})
-            driver_row = cursor.fetchone()
-            cursor.execute(select_swarm, {"jobid": jobid})
-            swarm_row = cursor.fetchone()
+            cursor.execute(query, {"deployment_name": deployment_name})
+            record = cursor.fetchone()
 
-        if not swarm_row:
-            raise JobNotFoundError(jobid)
+        if not record:
+            raise JobNotFoundError(deployment_name)
 
-        swarm_dict = dict(swarm_row)
-        swarm_dict["cfg"] = dict(cfg_row)
-        swarm_dict["cfg"]["driver"] = dict(driver_row)
+        swarm_dict = json.loads(record["swarm"])
+        swarm_dict["cfg"] = json.loads(record["cfg"])
+        handle_dict = json.loads(record["serving_handle"])
 
         swarm = DomynLLMSwarm.model_validate(swarm_dict, by_alias=True)
-
-        if swarm.serving_handle is None:
-            raise ValueError("Swarm does not have a serving handle.")
-
+        serving_handle = ServingHandle(**handle_dict)
+        swarm.serving_handle = serving_handle
+        swarm._deployment._handle = serving_handle
         platform = swarm._platform
-
-        if (
-            platform == "slurm"
-            and swarm.serving_handle
-            and (
-                swarm.serving_handle.meta.get("jobid") is None
-                or swarm.serving_handle.meta.get("lb_jobid") is None
-            )
-        ):
-            raise ValueError("State file does not contain valid job IDs")
-
-        if (
-            platform == "slurm"
-            and swarm.serving_handle.meta.get("lb_node")
-            and swarm.serving_handle.meta.get("lb_jobid")
-        ):
-            lb_jobid = swarm.serving_handle.meta.get("lb_jobid")
-            lb_node = swarm.serving_handle.meta.get("lb_node")
-            if lb_jobid is None or lb_node is None:
-                raise ValueError("State file does not contain valid LB job info")
-            assert swarm.cfg.backend is not None and isinstance(
-                swarm.cfg.backend, SlurmConfig
-            )
-            backend = SlurmComputeBackend(
-                cfg=swarm.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node
+        if platform == "slurm":
+            backend = cls._get_slurm_backend(
+                handle=swarm.serving_handle, slurm_cfg=swarm.cfg.backend
             )
         elif platform == "lepton":
             backend = LeptonComputeBackend()
@@ -149,43 +126,79 @@ class SwarmStateManager:
         swarm._deployment.compute = backend
         return swarm
 
-    def update_lb_data(self) -> None:
-        """Update the load balancer info."""
-        query = _read_query(fname="update_lb.sql")
-        data = {
-            "jobid": self.swarm.serving_handle.meta.get("jobid"),  # type: ignore
-            "lb_port": self.swarm.serving_handle.meta.get("lb_port"),  # type: ignore
-            "lb_node": self.swarm.serving_handle.meta.get("lb_node"),  # type: ignore
-            "endpoint": self.swarm.endpoint,
-        }
-        with sqlite3.connect(self.db_path) as cnx:
-            cnx.execute(query, data)
+    def delete_record(self, deployment_name: str) -> None:
+        """Delete a record from the DB.
 
-    def delete_record(self) -> None:
-        """Delete a record from the DB."""
+        Args:
+            deployment_name (str): Deployment name.
+        """
+        db_path = self._get_db_path()
         query = _read_query("delete_record.sql")
-        with sqlite3.connect(self.db_path) as cnx:
-            cnx.execute(query, {"jobid": self.swarm.serving_handle.meta.get("jobid")})  # type: ignore
+        with sqlite3.connect(db_path) as cnx:
+            cnx.execute(query, {"deployment_name": deployment_name})
 
     def _create_db_if_missing(self) -> None:
         """Create a new SQLite DB if it doesn't exist."""
+        db_path = self._get_db_path()
         query = _read_query(fname="create_table.sql")
-        with sqlite3.connect(self.db_path) as cnx:
+        with sqlite3.connect(db_path) as cnx:
             cnx.execute(query)
 
-    def _get_flat_data_dict(self) -> dict[str, Any]:
-        """Flatten configurations.
+    @classmethod
+    def _get_db_path(cls) -> Path:
+        settings = get_settings()
+        return settings.home / cls.DB_NAME
 
-        JSON configuration must be flattened to be placed in
-        a record of the DB. a 'driver_' prefix is added to
-        driver data to avoid field duplication.
+    def _get_record(self, deployment_name: str) -> dict[str, Any]:
+        """Get a table record.
+
+        Args:
+            deployment_name (str): Deployment name.
 
         Returns:
             dict[str, Any]: Flattened record.
         """
-        cfg = self.swarm.cfg.model_dump(mode="json", exclude={"driver": True})
-        model = self.swarm.model_dump(mode="json", exclude={"cfg": True})
-        driver = self.swarm.cfg.backend.endpoint.model_dump()  # type: ignore
-        driver = {f"endpoint_{k}": v for k, v in driver.items()}
+        cfg = self.swarm.cfg.model_dump_json()
+        swarm = self.swarm.model_dump_json(exclude={"cfg": True})
+        handle = self.swarm.serving_handle
+        if handle is None:
+            raise ValueError("Null Serving handle")
 
-        return model | driver | cfg
+        handle_dict = dataclasses.asdict(handle)
+        serving_handle = json.dumps(handle_dict)
+
+        return {
+            "deployment_name": deployment_name,
+            "swarm": swarm,
+            "cfg": cfg,
+            "serving_handle": serving_handle,
+            "creation_dt": datetime.now(),
+        }
+
+    @classmethod
+    def _get_slurm_backend(
+        cls, handle: ServingHandle, slurm_cfg: BackendConfig | None
+    ) -> SlurmComputeBackend:
+        """Mostly done for the type checker.
+
+        Args:
+            handle (ServingHandle): Serving handle.
+            slurm_cfg (BackendConfig | None): Slurm configs.
+
+        Raises:
+            ValueError: Null JobID.
+            ValueError: Null LB info.
+
+        Returns:
+            SlurmComputeBackend: Slurm backend.
+        """
+        jobid = handle.meta.get("jobid")
+        lb_jobid = handle.meta.get("lb_jobid")
+        lb_node = handle.meta.get("lb_node")
+        if jobid is None:
+            raise ValueError("State file does not contain valid job IDs")
+        if lb_jobid is None or lb_node is None:
+            raise ValueError("State file does not contain valid LB job info")
+        assert isinstance(slurm_cfg, SlurmConfig)
+
+        return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)

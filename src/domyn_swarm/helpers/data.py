@@ -2,7 +2,6 @@ import hashlib
 import math
 import mmap
 import sys
-import time
 from pathlib import Path
 from typing import List, Tuple
 
@@ -98,15 +97,6 @@ def compute_hash(s: str, algorithm="sha256"):
     h = hashlib.new(algorithm)
     h.update(s.encode("utf-8"))
     return h.hexdigest()
-
-
-def generate_swarm_name() -> str:
-    import random
-    import string
-
-    return f"""domyn-swarm-{int(time.time())}-{
-        "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    }"""
 
 
 def get_device_slices(gpus_per_node: int, gpus_per_replica: int) -> list[str]:

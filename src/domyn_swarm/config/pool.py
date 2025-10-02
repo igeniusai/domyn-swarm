@@ -26,9 +26,7 @@ class SwarmPool(BaseModel):
         pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(path.open()))
         return cls(
             swarms=[
-                DomynLLMSwarm(
-                    name=element.name, cfg=DomynLLMSwarmConfig.read(element.config_path)
-                )
+                DomynLLMSwarm(cfg=DomynLLMSwarmConfig.read(element.config_path))
                 for element in pool_config.pool
             ]
         )

@@ -1,26 +1,17 @@
 import importlib
 import json
 import logging
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import (
-    BaseModel,
-    Field,
-    PrivateAttr,
-    ValidationInfo,
-    computed_field,
-    field_validator,
-)
+from pydantic import BaseModel, PrivateAttr, computed_field
 
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
-from domyn_swarm.helpers.data import (
-    generate_swarm_name,
-)
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
@@ -43,7 +34,6 @@ class DomynLLMSwarm(BaseModel):
       • SLURM_NODEID 1…nodes run the vLLM servers
     """
 
-    name: str | None = Field(default_factory=generate_swarm_name)
     cfg: DomynLLMSwarmConfig
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
     delete_on_exit: Optional[bool] = (
@@ -53,15 +43,6 @@ class DomynLLMSwarm(BaseModel):
         None  # ServingHandle, set after deployment
     )
     _platform: str = PrivateAttr("")
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, v: str, info: ValidationInfo) -> str:
-        if v is None:
-            return cls.model_fields[info.field_name].get_default(
-                call_default_factory=True
-            )
-        return v
 
     @computed_field
     @property
@@ -95,8 +76,6 @@ class DomynLLMSwarm(BaseModel):
             return
 
     def __enter__(self):
-        if not self.name:
-            raise RuntimeError("Name is null.")
         assert self._deployment is not None
 
         serving_spec = dict(self._plan.serving_spec)
@@ -115,7 +94,8 @@ class DomynLLMSwarm(BaseModel):
         self.endpoint = handle.url
         self._deployment.compute = self._make_compute_backend(handle)
 
-        self._persist()
+        self._persist(deployment_name)
+
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -187,25 +167,33 @@ class DomynLLMSwarm(BaseModel):
         #         stderr=sys.stderr,
         #     )
 
-    def _persist(self):
-        self._state_mgr.save()
+    def _persist(self, deployment_name: str):
+        """Save the state.
+
+        Args:
+            deployment_name (str): Deployment name.
+        """
+        self._state_mgr.save(deployment_name)
 
     @classmethod
-    def from_state(cls, jobid: int, home_directory: Path) -> "DomynLLMSwarm":
+    def from_state(cls, deployment_name: str) -> "DomynLLMSwarm":
         """Initialize a swarm from a saved state.
 
         Args:
-            jobid (int): Job id.
-            home_directory (Path): Domyn-swarm home directory.
+            deployment_name (str): Deployment name.
 
         Returns:
             DomynLLMSwarm: Loaded swarm.
         """
-        return SwarmStateManager.load(jobid, home_directory)
+        return SwarmStateManager.load(deployment_name)
 
-    def delete_record(self) -> None:
-        """Delete swarm from the DB"""
-        self._state_mgr.delete_record()
+    def delete_record(self, deployment_name: str) -> None:
+        """Delete swarm from the DB
+
+        Args:
+            deployment_name (str): Deployment name.
+        """
+        self._state_mgr.delete_record(deployment_name)
 
     def submit_job(
         self,
@@ -325,11 +313,11 @@ class DomynLLMSwarm(BaseModel):
             env.update(env_overrides)
 
         logger.info(
-            f"Submitting job {job.__class__.__name__} to swarm {self.name} on {self._platform}:"
+            f"Submitting job {job.__class__.__name__} to swarm {self.cfg.name} on {self._platform}:"
         )
 
         job_handle = self._deployment.run(
-            name=f"{self.name.lower()}-job",  # type: ignore[arg-type]
+            name=f"{self.cfg.name}-job",  # type: ignore[arg-type]
             image=image,
             command=exe,
             env=env,
@@ -352,21 +340,9 @@ class DomynLLMSwarm(BaseModel):
         self.cleanup()
 
     def _deployment_name(self) -> str:
-        assert self.name is not None
-        raw = self.name.lower()
-        # per-platform constraints
-        if self._platform == "lepton":
-            maxlen = 36
-            # only letters, digits, dash/underscore; strip others
-            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
-            return cleaned[:maxlen] or "swarm"
-        elif self._platform == "slurm":
-            # Slurm is lenient, but keep it tidy
-            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
-            return cleaned[:80] or "swarm"
-        else:
-            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
-            return cleaned[:63] or "swarm"
+        unique_id = uuid.uuid4()
+        short_id = str(unique_id)[:8]
+        return f"{self.cfg.name}-{short_id}"
 
     def _make_compute_backend(self, handle: ServingHandle):
         if self._plan and self._plan.platform == "slurm":
@@ -403,13 +379,12 @@ def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
 
 
 def _start_swarm(
-    name: Optional[str],
     cfg: "DomynLLMSwarmConfig",
     *,
     reverse_proxy: bool = False,
 ) -> None:
     """Common context-manager + reverse proxy logic."""
-    with DomynLLMSwarm(cfg=cfg, name=name) as _:
+    with DomynLLMSwarm(cfg=cfg) as _:
         if reverse_proxy:
             warnings.warn("This feature is not currently enabled")
             # from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
