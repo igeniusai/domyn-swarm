@@ -80,7 +80,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         spec = LeptonJobUserSpec.model_validate(resources or {})
         spec.container = container
-        secret_name = extras.get("api_token") if extras else None
+        secret_name = extras.get("token_secret_name") if extras else None
 
         if spec.envs is None:
             spec.envs = []
@@ -91,7 +91,6 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
 
         created = client.job.create(job)
-        print(dir(created))
         job_id = created.metadata.id_ if created and created.metadata else None
         if not job_id:
             raise RuntimeError("Failed to create Lepton job")
@@ -128,7 +127,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
     def default_image(self, cfg: LeptonConfig) -> Optional[str]:
         # if you populated cfg.lepton.job.image, reuse it
-        return cfg.job.image if getattr(cfg, "job", None) else None
+        return cfg.job.image
 
     def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
         _require_lepton()

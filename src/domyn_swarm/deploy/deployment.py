@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from domyn_swarm.platform.protocols import (
@@ -28,15 +28,14 @@ class Deployment:
     serving: ServingBackend
     compute: ComputeBackend = None  # type: ignore[assignment]
 
-    extras: Optional[dict] = (
-        None  # for any extra metadata, e.g. workspace, resource shape, etc.
-    )
+    extras: dict = field(default_factory=dict)
     _handle: Optional[ServingHandle] = None
 
     def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
         """Create and wait for a serving endpoint to be ready."""
         handle = self.serving.create_or_update(name, serving_spec, extras=self.extras)
         handle = self.serving.wait_ready(handle, timeout_s, extras=self.extras)
+        self.extras.update(handle.meta)
         self._handle = handle
         return handle
 

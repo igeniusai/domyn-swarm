@@ -54,11 +54,11 @@ def make_lepton_client(*, token: Optional[str] = None, workspace: Optional[str] 
     _require_lepton()
     try:
         if token is not None and workspace is not None:
-            return _LeptonAPIClient(token=token, workspace=workspace)  # type: ignore[misc]
+            return _LeptonAPIClient(token=token, workspace_id=workspace)  # type: ignore[misc]
         if token is not None:
             return _LeptonAPIClient(token=token)  # type: ignore[misc]
         if workspace is not None:
-            return _LeptonAPIClient(workspace=workspace)  # type: ignore[misc]
+            return _LeptonAPIClient(workspace_id=workspace)  # type: ignore[misc]
         return _LeptonAPIClient()  # type: ignore[misc]
     except Exception as e:
         raise RuntimeError(

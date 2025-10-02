@@ -80,11 +80,11 @@ class ServingBackend(Protocol):
     """
 
     def create_or_update(
-        self, name: str, spec: dict, extras: dict | None = None
+        self, name: str, spec: dict, extras: dict
     ) -> ServingHandle: ...
 
     def wait_ready(
-        self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
+        self, handle: ServingHandle, timeout_s: int, extras: dict
     ) -> ServingHandle: ...
 
     def delete(self, handle: ServingHandle) -> None: ...

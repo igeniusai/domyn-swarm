@@ -241,7 +241,7 @@ class DomynLLMSwarm(BaseModel):
         deployment_name = self._deployment_name()
 
         logger.info(
-            f"Creating deployment {deployment_name} on {self._platform} ({name_hint})..."
+            f"Creating deployment [cyan]{deployment_name}[/cyan] on {self._platform} ({name_hint})..."
         )
 
         handle = self._deployment.up(
@@ -370,8 +370,8 @@ class DomynLLMSwarm(BaseModel):
         compute = self._deployment.compute
         assert compute is not None, "Compute backend not initialized"
         python_interpreter = compute.default_python(self.cfg)
-        image = compute.default_image(self.cfg)
-        resources = compute.default_resources(self.cfg)
+        image = compute.default_image(self.cfg.backend)
+        resources = compute.default_resources(self.cfg.backend)
         env_overrides = compute.default_env(self.cfg)
 
         exe = [
@@ -439,8 +439,8 @@ class DomynLLMSwarm(BaseModel):
 
         compute = self._deployment.compute
         python_interpreter = compute.default_python(self.cfg)
-        image = compute.default_image(self.cfg)
-        resources = compute.default_resources(self.cfg)
+        image = compute.default_image(self.cfg.backend)
+        resources = compute.default_resources(self.cfg.backend)
 
         env = {
             "ENDPOINT": self.endpoint,

@@ -39,9 +39,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
     cfg: SlurmConfig
     readiness: Optional[SlurmReadiness] = None
 
-    def create_or_update(
-        self, name: str, spec: dict, extras: dict | None = None
-    ) -> ServingHandle:
+    def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle:
         replicas = spec.get("replicas", 1)
         nodes = spec.get("nodes", 1)
         gpus_per_node = spec.get("gpus_per_node", 1)
@@ -64,7 +62,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         )
 
     def wait_ready(
-        self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
+        self, handle: ServingHandle, timeout_s: int, extras: dict
     ) -> ServingHandle:
         # Delegate to your health checker which sets endpoint when LB is alive
         probe = self.readiness or SlurmReadiness(
