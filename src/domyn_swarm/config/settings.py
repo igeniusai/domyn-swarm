@@ -29,7 +29,14 @@ class Settings(BaseSettings):
     defaults_file: Optional[Path] = Field(default=None, alias="DOMYN_SWARM_DEFAULTS")
 
     # --- Secrets / tokens ----------------------------------------------------
-    api_token: Optional[SecretStr] = Field(default=None, alias="API_TOKEN")
+    api_token: Optional[SecretStr] = Field(default=None)  # DOMYN_SWARM_API_TOKEN
+    vllm_api_key: Optional[SecretStr] = Field(
+        default_factory=lambda data: data.get("api_token"), alias="VLLM_API_KEY"
+    )
+    singularityenv_vllm_api_key: Optional[SecretStr] = Field(
+        default_factory=lambda data: data.get("vllm_api_key"),
+        alias="SINGULARITYENV_VLLM_API_KEY",
+    )
 
     # --- Slurm ---------------------------------------------------------------
     mail_user: Optional[str] = None  # DOMYN_SWARM_MAIL_USER
