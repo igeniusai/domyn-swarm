@@ -107,7 +107,7 @@ class DomynLLMSwarmConfig(BaseModel):
         if path_exists(v) and is_folder(v):
             rprint(f"Model saved to local folder {v} will be used")
         else:
-            hf_home = info.data["env"].get("hf_home") if info.data.get("env") else None
+            hf_home = info.data["env"].get("HF_HOME") if info.data.get("env") else None
             if not hf_home:
                 hf_home = os.getenv(
                     "HF_HOME",
