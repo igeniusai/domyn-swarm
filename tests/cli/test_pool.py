@@ -34,9 +34,9 @@ def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
             def read(path):
                 return f"cfg@{path}"
 
-        def dummy_swarm(name, cfg):
-            print(f"🧠 Constructing DomynLLMSwarm({name=}, {cfg=})")
-            return (name, cfg)
+        def dummy_swarm(cfg):
+            print(f"🧠 Constructing DomynLLMSwarm({cfg=})")
+            return cfg
 
         class DummyContext:
             def __init__(self, *args):
@@ -82,8 +82,5 @@ def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
         assert result.exit_code == 0
         assert "args" in captured
 
-        expected = (
-            ("swarm-a", "cfg@a.yaml"),
-            ("swarm-b", "cfg@b.yaml"),
-        )
+        expected = (("cfg@a.yaml"), ("cfg@b.yaml"))
         assert captured["args"] == expected

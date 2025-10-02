@@ -7,6 +7,8 @@ from rich import print as rprint
 from rich.syntax import Syntax
 
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
+from domyn_swarm.config.slurm import SlurmConfig
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
 
 if TYPE_CHECKING:
@@ -95,7 +97,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             except Exception:
                 pass
 
-    def default_python(self, cfg: "SlurmConfig") -> str:
-        if cfg.venv_path and cfg.venv_path.is_dir():
-            return str(cfg.venv_path / "bin" / "python")
+    def default_python(self, cfg: "DomynLLMSwarmConfig") -> str:
+        if self.cfg.venv_path and self.cfg.venv_path.is_dir():
+            return str(self.cfg.venv_path / "bin" / "python")
         return super().default_python(cfg)

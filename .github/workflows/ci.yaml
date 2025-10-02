@@ -51,7 +51,7 @@ jobs:
           extra_args: --all-files
 
       - name: Run tests
-        run: uv run pytest -v --ignore=tests/test_state.py
+        run: uv run pytest -v
 
   build-dev-image:
     # Build/push dev images only for branch pushes from the main repo (not PRs from forks)

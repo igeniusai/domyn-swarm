@@ -9,6 +9,17 @@ from domyn_swarm.platform.http_probe import wait_http_200
 from domyn_swarm.platform.protocols import ServingHandle
 from domyn_swarm.platform.readiness import ServingReadiness
 
+SLURM_BAD_STATES = {
+    "FAILED",
+    "CANCELLED",
+    "TIMEOUT",
+    "BOOT_FAIL",
+    "CANCELLED",
+    "NODE_FAIL",
+}
+
+SLURM_WAIT_STATES = {"PENDING", "CONFIGURING"}
+
 
 class SlurmReadiness(ServingReadiness):
     """
@@ -62,27 +73,17 @@ class SlurmReadiness(ServingReadiness):
             rep = self.driver.get_job_state(jobid)
             lb = self.driver.get_job_state(lb_jobid)
 
-            bad_states = {
-                "FAILED",
-                "CANCELLED",
-                "TIMEOUT",
-                "BOOT_FAIL",
-                "CANCELLED",
-                "NODE_FAIL",
-            }
-            wait_states = {"PENDING", "CONFIGURING"}
-
             if rep == "UNKNOWN" or lb == "UNKNOWN":
                 status.update(
                     f"[yellow]squeue UNKNOWN for job {jobid} or {lb_jobid}, retrying …"
                 )
-            elif rep in bad_states:
+            elif rep in SLURM_BAD_STATES:
                 raise RuntimeError(f"Replica array ended in {rep}")
-            elif lb in bad_states:
+            elif lb in SLURM_BAD_STATES:
                 raise RuntimeError(f"LB job ended in {lb}")
-            elif rep in wait_states:
+            elif rep in SLURM_WAIT_STATES:
                 status.update("[yellow]Waiting for replicas to start …")
-            elif lb in wait_states:
+            elif lb in SLURM_WAIT_STATES:
                 status.update("[yellow]Waiting for LB job to start …")
             elif rep == "RUNNING" and lb == "RUNNING":
                 return

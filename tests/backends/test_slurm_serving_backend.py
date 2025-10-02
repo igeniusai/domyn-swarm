@@ -4,7 +4,7 @@ import pytest
 
 import domyn_swarm.backends.serving.slurm as mod
 from domyn_swarm.backends.serving.slurm import SlurmServingBackend
-from domyn_swarm.platform.protocols import ServingHandle
+from domyn_swarm.platform.protocols import ServingHandle, ServingPhase
 
 
 class FakeDriver:
@@ -38,6 +38,13 @@ class FakeDriver:
 def mk_cfg(port=9000, poll=10):
     endpoint = SimpleNamespace(port=port, poll_interval=poll)
     return SimpleNamespace(endpoint=endpoint)
+
+
+def serving_handle(jobid=101, lb_jobid=202, lb_node=None, url=""):
+    meta = {"jobid": jobid, "lb_jobid": lb_jobid}
+    if lb_node:
+        meta["lb_node"] = lb_node
+    return ServingHandle(id=str(lb_jobid), url=url, meta=meta)
 
 
 # -------------------
@@ -210,3 +217,96 @@ def test_ensure_ready_ok():
     )
     # Should not raise
     be.ensure_ready(handle)
+
+
+def test_status_failed_on_bad_state(mocker):
+    # rep in BAD → FAILED
+    driver = mocker.Mock()
+    driver.get_job_state.side_effect = lambda jid: "FAILED" if jid == 101 else "RUNNING"
+    driver.get_node_from_jobid.return_value = "n1"
+
+    # requests shouldn't even matter here; but patch anyway
+    mocker.patch.object(mod, "requests", SimpleNamespace(get=mocker.Mock()))
+
+    be = SlurmServingBackend(driver=driver, cfg=mk_cfg())
+
+    h = serving_handle()
+    st = be.status(h)
+
+    assert st.phase == ServingPhase.FAILED
+    # job states checked
+    assert driver.get_job_state.call_count == 2
+
+
+def test_status_pending_when_waiting_or_unknown(mocker):
+    driver = mocker.Mock()
+    # replica PENDING, lb RUNNING → PENDING
+    driver.get_job_state.side_effect = (
+        lambda jid: "PENDING" if jid == 101 else "RUNNING"
+    )
+    driver.get_node_from_jobid.return_value = "n1"
+    mocker.patch.object(mod, "requests", SimpleNamespace(get=mocker.Mock()))
+
+    be = SlurmServingBackend(driver=driver, cfg=mk_cfg())
+
+    h = serving_handle()
+    st = be.status(h)
+    assert st.phase == ServingPhase.PENDING
+
+
+def test_status_initializing_when_http_not_ready(mocker):
+    from types import SimpleNamespace
+
+    import requests
+
+    # Slurm says both jobs are RUNNING
+    driver = mocker.Mock()
+    driver.get_job_state.side_effect = lambda jid: "RUNNING"
+    driver.get_node_from_jobid.return_value = "nX"
+
+    # Patch the module's requests.get to raise a real RequestException
+    get_mock = mocker.Mock(side_effect=requests.RequestException("boom"))
+    mocker.patch.object(mod, "requests", SimpleNamespace(get=get_mock))
+
+    be = SlurmServingBackend(driver=driver, cfg=mk_cfg(port=8123))
+
+    # No lb_node in handle → backend must resolve node via driver
+    h = serving_handle(lb_node=None)  # lb_jobid should be 202 per your helper
+    st = be.status(h)
+
+    # Node was looked up once
+    driver.get_node_from_jobid.assert_called_once_with(202)
+
+    # We attempted exactly one HTTP probe to /v1/models with a small timeout
+    get_mock.assert_called_once()
+    url_arg = get_mock.call_args.args[0]
+    assert url_arg == "http://nX:8123/v1/models"
+    assert get_mock.call_args.kwargs.get("timeout") in (1.0, 1.5, 2.0)
+
+    # Since HTTP isn’t ready yet, phase is INITIALIZING and URL is unchanged
+    assert st.phase == ServingPhase.INITIALIZING
+    assert h.url in ("", None)
+
+
+def test_status_running_sets_url_and_uses_existing_lb_node(mocker):
+    driver = mocker.Mock()
+    driver.get_job_state.side_effect = lambda jid: "RUNNING"
+    driver.get_node_from_jobid.return_value = "should_not_be_called"
+
+    # HTTP 200 OK
+    http_ok = SimpleNamespace(status_code=200)
+    req = mocker.Mock()
+    req.get.return_value = http_ok
+    mocker.patch.object(mod, "requests", req)
+
+    be = SlurmServingBackend(driver=driver, cfg=mk_cfg(port=9001))
+
+    # Provide lb_node so driver.get_node_from_jobid is NOT called
+    h = serving_handle(lb_node="nZZ")
+    st = be.status(h)
+
+    driver.get_node_from_jobid.assert_not_called()
+    assert st.phase == ServingPhase.RUNNING
+    assert h.url == "http://nZZ:9001"
+    req.get.assert_called_once()
+    assert req.get.call_args.kwargs.get("timeout") in (1.5, 1, 2)  # small timeout

@@ -23,3 +23,11 @@ def wait_http_200(
             pass
         sleep(poll_interval_s)
     raise RuntimeError(f"Timeout waiting for {url} to return 200 OK")
+
+
+def get_url_status(url: str, http_get: Callable = requests.get) -> int:
+    try:
+        r = http_get(url, timeout=5.0)
+        return r.status_code
+    except requests.RequestException:
+        return -1  # Indicate failure to reach the URL

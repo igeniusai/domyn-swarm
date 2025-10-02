@@ -14,6 +14,24 @@ class JobStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class ServingPhase(str, Enum):
+    """Standardized serving endpoint lifecycle phases across platforms."""
+
+    UNKNOWN = "UNKNOWN"
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    FAILED = "FAILED"
+    STOPPED = "STOPPED"
+    INITIALIZING = "INITIALIZING"
+
+
+@dataclass
+class ServingStatus:
+    phase: ServingPhase
+    url: str | None
+    detail: Optional[dict[str, Any]] = None
+
+
 @dataclass
 class ServingHandle:
     """Opaque handle for a serving endpoint on any platform.
@@ -72,6 +90,8 @@ class ServingBackend(Protocol):
     def delete(self, handle: ServingHandle) -> None: ...
 
     def ensure_ready(self, handle: ServingHandle): ...
+
+    def status(self, handle: ServingHandle) -> ServingStatus: ...
 
 
 @runtime_checkable

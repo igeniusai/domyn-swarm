@@ -9,7 +9,7 @@ async def transform(df: pd.DataFrame):
 
 you can either run this job using the CLI
 
-PYTHONPATH=. domyn-swarm submit job examples.scripts.custom_job:MyCustomSwarmJob \
+PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomSwarmJob \
    --config examples/configs/deepseek_r1_distill.yaml \
    --input examples/data/completion.parquet \
    --output results/output.parquet \

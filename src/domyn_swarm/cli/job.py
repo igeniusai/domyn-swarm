@@ -5,19 +5,16 @@ from typing import List, Optional
 import typer
 
 from domyn_swarm import DomynLLMSwarm, utils
-from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.core.swarm import _load_job
 from domyn_swarm.helpers.logger import setup_logger
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
-submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
-
-settings = get_settings()
+job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 
 
-@submit_app.command("script")
+@job_app.command("submit-script")
 def submit_script(
     script_file: Path = typer.Argument(..., exists=True, readable=True),
     config: Optional[typer.FileText] = typer.Option(
@@ -27,18 +24,15 @@ def submit_script(
         exists=True,
         help="YAML that defines/creates a new swarm",
     ),
-    jobid: int | None = typer.Option(None, "--jobid", exists=True, help="Job ID."),
-    home_directory: Path = typer.Option(
-        Path("./.domyn_swarm"),
-        "--home-directory",
-        help="Home directory if different from ./.domyn_swarm",
+    name: str | None = typer.Option(
+        None, "-n", "--name", exists=True, help="Swarm name."
     ),
     args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
     """
-    if config is not None and jobid is not None:
+    if config is not None and name is not None:
         logger.error("Either --config or --jobid must be provided, not both.")
         raise typer.Exit(1)
 
@@ -47,15 +41,15 @@ def submit_script(
         with DomynLLMSwarm(cfg=cfg) as swarm:
             swarm.submit_script(script_file, extra_args=args)
 
-    elif jobid is None:
-        raise RuntimeError("State is null.")
+    elif name is None:
+        raise RuntimeError("State is null")
 
     else:
-        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(jobid, home_directory)
+        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(deployment_name=name)
         swarm.submit_script(script_file, extra_args=args)
 
 
-@submit_app.command("job")
+@job_app.command("submit")
 def submit_job(
     job_class: str = typer.Argument(
         default="domyn_swarm.jobs:ChatCompletionJob",
@@ -73,10 +67,7 @@ def submit_job(
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    jobid: Optional[int] = typer.Option(
-        None,
-        "--jobid",
-    ),
+    name: Optional[str] = typer.Option(None, "-n", "--name", help="Swarm name."),
     checkpoint_dir: Path = typer.Option(
         ".checkpoints/",
         "--checkpoint-dir",
@@ -128,19 +119,16 @@ def submit_job(
         "-m",
         help="Email address to receive job notifications. If set, email notifications will be enabled.",
     ),
-    platform: str = typer.Option(
-        "slurm", "--platform", "-p", help="Platform to use for the swarm allocation"
-    ),
 ):
     """
     Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
     """
-    if config is not None and jobid is not None:
-        logger.error("Either --config or --jobid must be provided, not both.")
+    if config is not None and name is not None:
+        logger.error("Either --config or --name must be provided, not both.")
         raise typer.Exit(1)
 
     if config:
-        cfg = _load_swarm_config(config, platform=platform)
+        cfg = _load_swarm_config(config)
         swarm_ctx = DomynLLMSwarm(cfg=cfg)
         try:
             with swarm_ctx as swarm:
@@ -179,11 +167,11 @@ def submit_job(
                 raise typer.Abort()
             else:
                 typer.echo("Continuing to wait for job to complete …")
-    elif jobid is None:
-        raise RuntimeError("Job ID is null.")
+    elif name is None:
+        raise RuntimeError("Swarm name is null.")
 
     else:
-        swarm = DomynLLMSwarm.from_state(jobid, settings.home)
+        swarm = DomynLLMSwarm.from_state(deployment_name=name)
         job = _load_job(
             job_class,
             job_kwargs,

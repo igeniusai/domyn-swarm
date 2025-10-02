@@ -55,6 +55,10 @@ def _mk_cfg(venv_path=None):
     return SimpleNamespace(venv_path=venv_path)
 
 
+def _mk_swarm_cfg():
+    return SimpleNamespace(backend=_mk_cfg())
+
+
 # ----------------------------
 # submit(detach=True)
 # ----------------------------
@@ -151,7 +155,7 @@ def test_default_python_uses_venv_when_dir_exists(tmp_path: Path):
     cfg = _mk_cfg(venv_path=venv_dir)
 
     be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n")
-    out = be.default_python(cfg)
+    out = be.default_python(_mk_swarm_cfg())
     assert out == str(venv_dir / "bin" / "python")
 
 
