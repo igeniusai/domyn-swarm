@@ -55,7 +55,8 @@ dependencies = [
     "rich>=14.0.0",
     "tenacity>=9.1.2",
     "typer>=0.16.0",
-    "tomli>=2.0.1; python_version < '3.11'"
+    "tomli>=2.0.1; python_version < '3.11'",
+    "deprecated>=1.2.18",
 ]
 
 [dependency-groups]

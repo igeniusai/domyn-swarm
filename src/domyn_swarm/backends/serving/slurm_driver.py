@@ -46,7 +46,7 @@ class SlurmDriver:
             script_path = fh.name
 
         os.makedirs(self.cfg.backend.log_directory / job_name, exist_ok=True)
-        sbatch_cmd = ["sbatch", "--parsable"]
+        sbatch_cmd = ["sbatch", "--parsable", "--export=ALL"]
         array_spec = None
         if self.cfg.backend.requires_ray:
             array_spec = f"0-{replicas - 1}%{replicas}"

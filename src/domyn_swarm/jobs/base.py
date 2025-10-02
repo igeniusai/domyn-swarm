@@ -154,9 +154,14 @@ class SwarmJob(abc.ABC):
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
 
         headers = {}
-        if settings.api_token:
+        token = (
+            settings.api_token
+            or settings.vllm_api_key
+            or settings.singularityenv_vllm_api_key
+        )
+        if token:
             logger.info("Using API_TOKEN from environment for authentication")
-            headers["Authorization"] = f"Bearer {settings.api_token}"
+            headers["Authorization"] = f"Bearer {token.get_secret_value()}"
 
         self.client = client or AsyncOpenAI(
             base_url=f"{self.endpoint}/v1",
