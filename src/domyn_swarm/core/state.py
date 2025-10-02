@@ -112,6 +112,7 @@ class SwarmStateManager:
         swarm = DomynLLMSwarm.model_validate(swarm_dict, by_alias=True)
         serving_handle = ServingHandle(**handle_dict)
         swarm.serving_handle = serving_handle
+        swarm._deployment._handle = serving_handle
         platform = swarm._platform
         if platform == "slurm":
             backend = cls._get_slurm_backend(
