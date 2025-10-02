@@ -121,7 +121,16 @@ def submit_job(
     ),
 ):
     """
-    Run a **SwarmJob** (strongly-typed DataFrame-in → DataFrame-out) inside the swarm.
+    Submit a strongly-typed job to the swarm for DataFrame processing.
+
+    This command processes input data through a SwarmJob (DataFrame-in → DataFrame-out)
+    within the swarm environment. Jobs are defined by a class that handles the actual
+    processing logic, and the input/output are managed as DataFrames with configurable
+    column mappings.
+
+    The job can either create a new swarm from a configuration file or connect to an
+    existing swarm by name. Progress is tracked through checkpoints, and the operation
+    supports concurrent processing with configurable retry logic.
     """
     if config is not None and name is not None:
         logger.error("Either --config or --name must be provided, not both.")
