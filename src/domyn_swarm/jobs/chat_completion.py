@@ -113,7 +113,7 @@ class ChatCompletionJob(SwarmJob):
                     }
                 )
             else:
-                outs.append({"result": choice.message.content})
+                outs.append(choice.message.content)
         return outs
 
 
