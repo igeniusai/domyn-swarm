@@ -546,7 +546,6 @@ with DomynLLMSwarm(cfg=cfg) as swarm:
 We welcome issues and PRs! Please see:
 
 * `CONTRIBUTING.md` — how to propose changes, coding style, DCO/CLA (as applicable)
-* `CODE_OF_CONDUCT.md` — be kind and respectful
 
 ---
 
