@@ -5,6 +5,9 @@
       <img src="static/domyn-swarm-logo-primary.svg" alt="domyn-swarm" height="100">
    </picture>
 </p>
+
+> A simple, batteries‑included CLI and Python library for launching **LLM serving endpoints** and running **high‑throughput batch jobs** against them. First‑class support for **Slurm** (HPC) and **NVIDIA DGX Cloud Lepton**.
+
 <p align="center">
 <img src="https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg" alt="CI">
 <img src="https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green" alt="Python">
@@ -13,118 +16,150 @@
 <img src="https://microsoft.github.io/pyright/img/pyright_badge.svg" alt="Pyright">
 </p>
 
-A simple CLI for launching and managing Slurm-backed LLM clusters (“swarms”) with optional replicas, load-balancing, and two high-level submission modes:
+---
 
-* **script** – run any arbitrary Python file on the head node
-* **job** – run a strongly-typed `SwarmJob` (DataFrame → DataFrame) with built-in batching, retries and checkpointing
+## Why Domyn‑Swarm?
+
+Domyn‑Swarm gives you a **single, consistent workflow** to:
+
+* stand up a **scalable LLM endpoint** (vLLM, OpenAI‑compatible),
+* **submit jobs/scripts** that call that endpoint with **checkpointing, retries, and concurrency**, and
+* **tear it all down** cleanly — across HPC (Slurm) and cloud (Lepton) backends.
+
+It’s designed for **fast evaluation loops**, **robust batch inference**, and **easy backend extension**.
+
+---
+
+## Features
+
+* **One CLI** for **up → submit → status → down** across platforms
+* **Serving/Compute backends** behind clean protocols → easy to add new targets (e.g., AzureML)
+* **Health checks & readiness**:
+  * Slurm: array replicas + LB, HTTP probe on `/v1/models`
+  * Lepton: deployment state polling
+* **SwarmJob API** (DataFrame in → DataFrame out)
+  * Built‑in **batching**, **bounded concurrency**, **tenacity retries**, **checkpointing** (Parquet)
+  * **Compat layer** for older job shape
+* **Script runner** (submit any Python file to the compute backend)
+* **State persistence** (JSON today; SQLite path included)
+* **Optional extras**: `pip install domyn-swarm[lepton]` to enable DGX Cloud Lepton
+
+---
+
+## Supported backends
+
+* **Slurm** (HPC) — replicas, load balancer, `srun` job submission
+* **NVIDIA DGX Cloud Lepton** — endpoint + job via Lepton SDK (optional extra)
+
+Backends follow small protocols:
+
+* `ServingBackend`: `create_or_update → wait_ready → status → delete → ensure_ready`
+* `ComputeBackend`: `submit → wait → cancel` + `default_python / default_image / default_resources / default_env`
+
+---
 
 ## Installation
 
-`pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git`
+**PyPI (once published):**
 
-or, if using `uv`:
+```bash
+pip install domyn-swarm
+# Optional Lepton support
+pip install 'domyn-swarm[lepton]'
+```
 
-if you just want to install the package:
 
-`uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git`
+**From source (GitHub):**
 
-if you want to add it as a dependency:
+```bash
+pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git
+# or with uv
+uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git # git+ssh://git@github.com/igeniusai/domyn-swarm.git[lepton]
+uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git # Add --extra lepton
+uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git --python 3.12 domyn-swarm
+```
 
-`uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git`
-
-or to install it globally:
-
-`uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git --python 3.12 domyn-swarm`
+> Lepton users: install the extra and run `lep login` to initialize credentials.
 
 ---
 
 ## Quickstart
 
-1. **Prepare a YAML config**
-   Define your Swarm settings and model:
+### 1) Prepare a YAML config
 
-   ```yaml
-   # config.yaml
-   model: "mistralai/Mistral-7B-Instruct"
-   gpus_per_replica: 16
-   replicas: 2
-   backend:
-      type: slurm
-      partition: boost_usr_prod
-      account: igen_train
-      qos: qos_llm_min
-   ```
-
-> [!NOTE]
-> `model` can be either an HF model or a path to a directory with a model compatible with vllm. If using an HF id, make sure that the model is saved locally in your `HF_HOME`
-
-   You can find more examples in the [examples/configs](examples/configs) folder
-
-2. **Launch a fresh swarm**
-
-```bash
-   domyn-swarm up -c config.yaml
+```yaml
+# config.yaml
+model: "mistralai/Mistral-7B-Instruct"
+gpus_per_replica: 16
+replicas: 2
+backend:
+  type: slurm
+  partition: boost_usr_prod    # your HPC partition
+  account: igen_train          # your HPC account
+  qos: qos_llm_min             # qos for cluster + jobs
 ```
 
-   This will:
+> **Note**: `model` can be an HF ID or a local path. If HF, ensure it’s downloaded to your `HF_HOME`.
 
-   * submit an **array job** with 2 replicas of your cluster
-   * submit a **load-balancer** job that waits on all replicas
-   * create a sqlite db with an entry containing the state related to the swarm you just created
-
-3. **Run a typed job on the cluster**
-   The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at [src/domyn_swarm/jobs.py](src/domyn_swarm/jobs.py)
+### 2) Launch a swarm
 
 ```bash
-   domyn-swarm job submit \
-    --name my-swarm-name \
-    --job-kwargs '{"temperature":0.3,"checkpoint_interval":16,"max_concurrency":8,"retries":2}' \
-    --input examples/data/chat_completion.parquet \
-    --output results.parquet
+domyn-swarm up -c config.yaml
 ```
 
-   Under the hood this:
+This submits:
 
-   * reads `ENDPOINT=http://<lb-node>:9000`
-   * in a single `srun` on the Load Balancer node, invokes `domyn_swarm.jobs.run`
-   * streams prompts→answers in batches, retrying failures, checkpointing progress
+* an **array job** with 2 cluster replicas (vLLM servers)
+* a **load‑balancer** job (Nginx) that waits on all replicas
+* updates/creates a local **SQLite/JSON** state record for the swarm
 
-4. **Run a free-form Python script**
+### 3) Submit a typed job (DataFrame → DataFrame)
 
 ```bash
-   domyn-swarm job submit-script \
-     --name my-swarm-name \
-     examples/my_custom_driver.py -- --verbose --foo bar
+domyn-swarm job submit \
+  --name my-swarm-name \
+  --job-kwargs '{"temperature":0.3,"checkpoint_interval":16,"max_concurrency":8,"retries":2}' \
+  --input examples/data/chat_completion.parquet \
+  --output results.parquet
 ```
 
-   This runs:
+Under the hood, this spawns a driver that:
+
+* reads `ENDPOINT=http://<endpoint-node>:9000`
+* runs `python -m domyn_swarm.jobs.run ...` via `srun` (Slurm) or the platform equivalent
+* streams prompts→answers with batching, backoff retries, checkpointing
+
+### 4) Submit a free‑form Python script
 
 ```bash
-   srun … python my_custom_driver.py --verbose --foo bar
+domyn-swarm job submit-script \
+  --name my-swarm-name \
+  examples/my_custom_driver.py -- --verbose --foo bar
 ```
 
-   on the head node.
-
-5. **Check the status of your cluster**
+### 5) Check status (Slurm)
 
 ```bash
-   domyn-swarm status swarm_16803892.json
+domyn-swarm status --name my-swarm-name
 ```
 
-
-
-5. **Shut down your swarm**
+### 6) Shut down
 
 ```bash
-   domyn-swarm down swarm_16803892.json
+domyn-swarm down --name my-swarm-name
 ```
 
-   Cancels both the LB job and the array job via `scancel`.
+---
 
-### Lepton compatibility
+## Lepton (DGX Cloud) configuration
 
-Together with slurm, we currently support [NVIDIA DGX Cloud Lepton](https://www.nvidia.com/en-us/data-center/dgx-cloud-lepton/) as cloud infrastructure to deploy endpoints and workloads.
-In order to use it, make sure you have installed domyn-swarm with the lepton extra
+Install the extra and login first:
+
+```bash
+lep login
+```
+
+Example configuration:
 
 ```yaml
 backend:
@@ -142,6 +177,8 @@ backend:
       - nv-domyn-nebius-h200-01-lznuhuob
     image: igeniusai/domyn-swarm:latest
 ```
+
+> Secrets: the endpoint can be token‑protected; Domyn‑Swarm stores the secret name in the serving handle and passes it to jobs as env (`API_TOKEN` or secret ref).
 
 ---
 
@@ -482,82 +519,46 @@ PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomJob \
 ```python
 from pathlib import Path
 from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
-from examples.scripts.custom_job import MyCustomSwarmJob
-from rich import print as rprint
+from mypkg.jobs import MyCustomSwarmJob
 
-config_path = Path("examples/configs/deepseek_r1_distill.yaml")
-input_path = Path("examples/data/completion.parquet")
-output_path = Path("results/output.parquet")
-config = DomynLLMSwarmConfig.read(config_path)
+cfg = DomynLLMSwarmConfig.read("config.yaml")
 
-# This will allocate the resources and then submit the job
-with DomynLLMSwarm(cfg=config) as swarm:
-    job = MyCustomSwarmJob(
-            endpoint=swarm.endpoint,
-            model=swarm.model,
-            # 16 concurrent requests to the LLM
-            max_concurrency=16,  
-            # You can add custom keyword arguments, which you
-            # can reference in you transform implementation by calling
-            # self.kwargs
-            temperature=0.2
-    )
-    rprint(job.to_kwargs())
-
-    swarm.submit_job(job, input_path=input_path, output_path=output_path)
+with DomynLLMSwarm(cfg=cfg) as swarm:
+    job = MyCustomSwarmJob(endpoint=swarm.endpoint, model=swarm.model, max_concurrency=16, temperature=0.2)
+    swarm.submit_job(job, input_path=Path("prompts.parquet"), output_path=Path("answers.parquet"))
 ```
-
-### Run a custom script
-
-```shell
-# Make sure the class you've implemented is on the path
-
-# If you're using uv
-PYTHONPATH=. uv run examples/scripts/custom_main.py
-
-# or
-
-PYTHONPATH=. python examples/scripts/custom_main.py
-```
-
-### Use in a slurm script to be submitted with sbatch
-
-```slurm
-#SBATCH various options
-
-# You can either run the command directly
-domyn-swarm job submit .....
-
-# Or run a script which is using the programmatic API
-python path/to/custom_script.py
-```
-
-You can find more examples in [examples/api](examples/api)
 
 ---
 
-## Troubleshooting
+## Architecture (in brief)
 
-* **`JSONDecodeError` in `--job-kwargs`**
-  Quote your JSON properly in the shell (e.g. `'{"foo":1,"bar":2}'`).
-
-* **Nginx “permission denied”**
-  We bind-mount a writable `cache/` dir into `/var/cache/nginx`. Ensure your log directory is writable.
-
-* **Checkpoint files**
-  Look under `.checkpoints/` in your working directory. Delete or rename to reset progress.
-
-* **Model not found**
- If you get an error like this `("Error code: 404 - {'object': 'error', 'message': 'The model ``deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`` does not exist.', 'type': 'NotFoundError', 'param': None, 'code': 404}")`
- make sure you've downloaded the model locally so that vLLM can serve it. If the model is on HuggingFace, you can download it using `HF_HOME=$FAST/hf_shared_cache huggingface-cli download ORG/MODEL_NAME --repo-type model`, and you configure the hf_home value in the configuration file appropriately.
-
-* **502 Bad Gateway Error**
-  A possible reason why this happens is that the nginx http requests time out before one of the model replicas is able to return a response. In such a case, a possible fix is to increase the timeout time by including the following in your YAML config:
-  ```yaml
-  driver:
-     nginx_timeout: "8h"
-  ```
+* **DomynLLMSwarm** (context manager) → brings endpoint up/down, submits work
+* **Deployment** → pairs `ServingBackend` + `ComputeBackend`
+* **Serving (Slurm/Lepton)** → `create_or_update`, `wait_ready`, `status`, `delete`
+* **Compute (Slurm/Lepton)** → `submit`, `wait`, `cancel` (+ defaults helpers)
+* **SwarmJob API** → implement `transform_items(items)`; batching/retries/checkpointing provided by the framework
+* **State** → saved/loaded locally; rehydrate swarm for later submissions
 
 ---
 
-Happy swarming!
+## Contributing
+
+We welcome issues and PRs! Please see:
+
+* `CONTRIBUTING.md` — how to propose changes, coding style, DCO/CLA (as applicable)
+* `CODE_OF_CONDUCT.md` — be kind and respectful
+
+---
+
+## License
+
+Licensed under the **Apache License, Version 2.0**. See `LICENSE` and `NOTICE`.
+
+---
+
+## Acknowledgements
+
+* Built on **vLLM** and **Ray** (Apache‑2.0)
+* Optional **NVIDIA DGX Cloud Lepton** integration via the Lepton SDK
+
+Happy swarming! 🚀
