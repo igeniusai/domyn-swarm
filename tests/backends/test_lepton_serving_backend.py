@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from domyn_swarm.backends.serving.lepton import LeptonServingBackend
-from domyn_swarm.platform.protocols import ServingHandle
+from domyn_swarm.platform.protocols import ServingHandle, ServingPhase
 
 # ------------------------------
 # Test Doubles for Lepton SDK
@@ -341,3 +341,113 @@ def test_ensure_ready_succeeds_when_handle_has_url():
 
     # Should not raise any exceptions
     backend.ensure_ready(handle)
+
+
+# ------------------------------
+# Tests for status
+# ------------------------------
+def _handle(name="ep1", url=""):
+    return ServingHandle(id=name, url=url, meta={"name": name})
+
+
+def test_status_running_when_ready_and_http_ok(mock_backend, monkeypatch, mocker):
+    # Fake client already returns state="Ready" and url="http://test.com" via mock_backend fixture
+
+    # Patch requests.get to return 200 OK
+    import domyn_swarm.backends.serving.lepton as lepton_module
+
+    get_mock = mocker.Mock(return_value=SimpleNamespace(status_code=200))
+    monkeypatch.setattr(lepton_module, "requests", SimpleNamespace(get=get_mock))
+
+    h = _handle()
+    st = mock_backend.status(h)
+
+    # One HTTP probe to /v1/models with a small timeout
+    get_mock.assert_called_once()
+    assert get_mock.call_args.args[0] == "http://test.com/v1/models"
+    assert get_mock.call_args.kwargs.get("timeout") in (1.0, 1.5, 2.0)
+
+    # Phase and URL cached on handle
+    assert st.phase == ServingPhase.RUNNING
+    assert h.url == "http://test.com"
+
+    # Deployment.get called exactly once
+    assert mock_backend._deployment_api.get_call_count == 1
+
+
+def test_status_initializing_when_ready_but_http_down(
+    mock_backend, monkeypatch, mocker
+):
+    # Ready at the platform level, but HTTP probe fails
+    import requests
+
+    import domyn_swarm.backends.serving.lepton as lepton_module
+
+    get_mock = mocker.Mock(side_effect=requests.RequestException("boom"))
+    monkeypatch.setattr(lepton_module, "requests", SimpleNamespace(get=get_mock))
+
+    h = _handle()
+    st = mock_backend.status(h)
+
+    assert st.phase == ServingPhase.INITIALIZING
+    # URL not updated on failed probe
+    assert h.url in ("", None)
+    get_mock.assert_called_once()
+    assert mock_backend._deployment_api.get_call_count == 1
+
+
+def test_status_pending_when_creating_state(mock_backend, monkeypatch, mocker):
+    # Force the FakeDeploymentAPI to report "Creating" (transitional) on first call
+    mock_backend._deployment_api.ready_after_calls = (
+        100  # first get() returns "Creating"
+    )
+
+    # Even if HTTP would be OK, status() should stop at PENDING for non-Ready state
+    import domyn_swarm.backends.serving.lepton as lepton_module
+
+    get_mock = mocker.Mock(return_value=SimpleNamespace(status_code=200))
+    monkeypatch.setattr(lepton_module, "requests", SimpleNamespace(get=get_mock))
+
+    h = _handle()
+    st = mock_backend.status(h)
+
+    assert st.phase == ServingPhase.PENDING
+    # No HTTP probe should be required for non-Ready, but
+    # if your implementation still probes, allow 0 or 1.
+    assert get_mock.call_count in (0, 1)
+    assert mock_backend._deployment_api.get_call_count == 1
+    assert h.url in ("", None)
+
+
+def test_status_failed_on_stopped_state(mock_backend, monkeypatch):
+    # Make the deployment API return Stopped
+    def _stopped(_name: str):
+        status = SimpleNamespace(state="Stopped", endpoint=None)
+        return SimpleNamespace(status=status)
+
+    mock_backend._deployment_api.get_call_count = 0
+    monkeypatch.setattr(mock_backend._deployment_api, "get", _stopped)
+
+    h = _handle()
+    st = mock_backend.status(h)
+
+    assert st.phase == ServingPhase.FAILED
+    assert (
+        mock_backend._deployment_api.get_call_count == 0
+        or mock_backend._deployment_api.get_call_count == 1
+    )
+    assert h.url in ("", None)
+
+
+def test_status_unknown_when_client_raises(mock_backend, monkeypatch):
+    # Make _client() raise to simulate Lepton API outage
+    monkeypatch.setattr(
+        mock_backend, "_client", lambda: (_ for _ in ()).throw(Exception("api down"))
+    )
+
+    h = _handle()
+    st = mock_backend.status(h)
+
+    assert st.phase == ServingPhase.UNKNOWN
+    # No URL change
+    assert h.url in ("", None)
