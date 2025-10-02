@@ -1,13 +1,14 @@
 import io
 import math
 import os
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import yaml
 from pydantic import (
     BaseModel,
     Field,
     PrivateAttr,
+    StringConstraints,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -24,6 +25,10 @@ from domyn_swarm.helpers.io import is_folder, path_exists, to_path
 class DomynLLMSwarmConfig(BaseModel):
     # model / revision --------------------------------------------------------
     model: str
+    name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, to_lower=True, max_length=24),
+    ]
     revision: str | None = None
 
     # resources ---------------------------------------------------------------
@@ -102,7 +107,7 @@ class DomynLLMSwarmConfig(BaseModel):
         if path_exists(v) and is_folder(v):
             rprint(f"Model saved to local folder {v} will be used")
         else:
-            hf_home = info.data["env"].get("hf_home") if info.data.get("env") else None
+            hf_home = info.data["env"].get("HF_HOME") if info.data.get("env") else None
             if not hf_home:
                 hf_home = os.getenv(
                     "HF_HOME",

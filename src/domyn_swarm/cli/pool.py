@@ -25,7 +25,6 @@ def deploy_pool(
     pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(config.read()))
     named_swarms = [
         DomynLLMSwarm(
-            name=pool_element.name,
             cfg=DomynLLMSwarmConfig.read(pool_element.config_path),
         )
         for pool_element in pool_config.pool
