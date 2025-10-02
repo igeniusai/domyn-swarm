@@ -9,6 +9,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, PrivateAttr, computed_field
 
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
@@ -300,6 +301,13 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             exe.append(f"--limit={limit}")
 
+        settings = get_settings()
+        token = (
+            settings.api_token
+            or settings.vllm_api_key
+            or settings.singularityenv_vllm_api_key
+        )
+
         env = {
             "ENDPOINT": self.endpoint,
             "MODEL": self.model,
@@ -311,6 +319,9 @@ class DomynLLMSwarm(BaseModel):
             env.update(self.cfg.backend.env)
         if env_overrides:
             env.update(env_overrides)
+        if token:
+            env["API_TOKEN"] = token.get_secret_value()
+            env["VLLM_API_KEY"] = token.get_secret_value()
 
         logger.info(
             f"Submitting job {job.__class__.__name__} to swarm {self.cfg.name} on {self._platform}:"
