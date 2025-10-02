@@ -71,8 +71,8 @@ or to install it globally:
    The default class is `ChatCompletionJob` (`domyn_swarm.jobs:ChatCompletionJob`), which you can find at [src/domyn_swarm/jobs.py](src/domyn_swarm/jobs.py)
 
 ```bash
-   domyn-swarm submit job \
-    --state swarm_16803892.json \
+   domyn-swarm job submit \
+    --name my-swarm-name \
     --job-kwargs '{"temperature":0.3,"checkpoint_interval":16,"max_concurrency":8,"retries":2}' \
     --input examples/data/chat_completion.parquet \
     --output results.parquet
@@ -87,8 +87,8 @@ or to install it globally:
 4. **Run a free-form Python script**
 
 ```bash
-   domyn-swarm submit script \
-     --state swarm_16803892.json \
+   domyn-swarm job submit-script \
+     --name my-swarm-name \
      examples/my_custom_driver.py -- --verbose --foo bar
 ```
 
@@ -159,14 +159,14 @@ domyn-swarm down 16803892
 
 Take a job id as input. It stops the LB and all replica jobs via `scancel`.
 
-### `domyn-swarm submit job`
+### `domyn-swarm job submit`
 
 Typed DataFrame → DataFrame jobs:
 
 ```bash
-domyn-swarm submit job \
+domyn-swarm job submit \
   my_module:CustomCompletionJob \
-  --jobid 16803892 \
+  --name my-swarm-name \
   --job-kwargs '{"temperature":0.2,"checkpoint_interval":16}' \
   --input prompts.parquet \
   --output answers.parquet
@@ -187,13 +187,13 @@ domyn-swarm submit job \
 Internally uses checkpointing, batching, and retry logic.
 
 
-### `domyn-swarm submit script`
+### `domyn-swarm job submit-script`
 
 Free-form script on the head node:
 
 ```bash
-domyn-swarm submit script \
-  --jobid 16803892 \
+domyn-swarm job submit-script \
+  --name my-swarm-name \
   path/to/script.py -- --foo 1 --bar 2
 ```
 
@@ -302,7 +302,7 @@ class MyCustomSwarmJob(SwarmJob):
 ### Run a custom job via CLI
 
 ```shell
-PYTHONPATH=. domyn-swarm submit job examples.scripts.custom_job:MyCustomJob \
+PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomJob \
    --config examples/configs/deepseek_r1_distill.yaml \
    --input examples/data/completion.parquet \
    --output results/output.parquet \
@@ -358,7 +358,7 @@ PYTHONPATH=. python examples/scripts/custom_main.py
 #SBATCH various options
 
 # You can either run the command directly
-domyn-swarm submit job .....
+domyn-swarm job submit .....
 
 # Or run a script which is using the programmatic API
 python path/to/custom_script.py

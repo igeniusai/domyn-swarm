@@ -11,7 +11,6 @@ from domyn_swarm.utils.version import get_version
 
 from ..cli.init import init_app
 from ..cli.pool import pool_app
-from ..cli.submit import submit_app
 from ..config.swarm import _load_swarm_config
 from ..core.state import SwarmStateManager
 from ..core.swarm import (
@@ -20,11 +19,12 @@ from ..core.swarm import (
 from ..helpers.logger import setup_logger
 from ..helpers.reverse_proxy import is_endpoint_healthy
 from ..helpers.slurm import get_job_status
+from .job import job_app
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
 app.add_typer(
-    submit_app, name="submit", help="Submit a workload to a Domyn-Swarm allocation."
+    job_app, name="job", help="Submit a workload to a Domyn-Swarm allocation."
 )
 app.add_typer(
     pool_app,

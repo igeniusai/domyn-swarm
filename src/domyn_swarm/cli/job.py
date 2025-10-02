@@ -11,10 +11,10 @@ from domyn_swarm.helpers.logger import setup_logger
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
-submit_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 
 
-@submit_app.command("script")
+@job_app.command("submit-script")
 def submit_script(
     script_file: Path = typer.Argument(..., exists=True, readable=True),
     config: Optional[typer.FileText] = typer.Option(
@@ -49,7 +49,7 @@ def submit_script(
         swarm.submit_script(script_file, extra_args=args)
 
 
-@submit_app.command("job")
+@job_app.command("submit")
 def submit_job(
     job_class: str = typer.Argument(
         default="domyn_swarm.jobs:ChatCompletionJob",
