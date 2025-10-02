@@ -24,14 +24,170 @@ logger = setup_logger(__name__, level=logging.INFO)
 
 class DomynLLMSwarm(BaseModel):
     """
-    Context manager that:
-      1. renders and submits one Slurm job as a job array (each job is a replica of the same cluster)
-      2. waits for it to COMPLETED/FAILED via sacct
-      3. cleans up on error or ^C
+    A context manager for orchestrating distributed LLM serving swarms across compute platforms.
 
-    Inside the allocation:
-      • SLURM_NODEID 0 runs the LB (nginx) + user driver
-      • SLURM_NODEID 1…nodes run the vLLM servers
+    This class provides a unified interface for deploying, managing, and interacting with
+    large language model serving clusters on various compute backends (Slurm, cloud platforms).
+    It handles the complete lifecycle from resource allocation to cleanup, with built-in
+    state persistence and job submission capabilities.
+
+    Architecture Overview
+    ---------------------
+    The swarm consists of multiple components:
+    - Load balancer (nginx) for request distribution
+    - Multiple vLLM server instances for model serving
+    - Head node for job coordination and user script execution
+    - State management for persistence and recovery
+
+    Platform Support
+    ----------------
+    - **Slurm**: Deploys as job arrays with SLURM_NODEID-based role assignment
+      - Node 0: Load balancer + user driver
+      - Nodes 1-N: vLLM servers
+    - **Cloud platforms**: Via deployment abstractions (Lepton, etc.)
+
+    Attributes
+    ----------
+    cfg : DomynLLMSwarmConfig
+        Configuration object containing deployment parameters, resource requirements,
+        and platform-specific settings.
+    endpoint : str, optional
+        The public URL endpoint of the deployed swarm load balancer. Set after
+        successful deployment via the context manager.
+    delete_on_exit : bool, default False
+        Whether to automatically clean up all allocated resources when exiting
+        the context manager. Useful for temporary deployments.
+    serving_handle : ServingHandle, optional
+        Platform-specific handle for the serving deployment, containing metadata
+        like job IDs, node assignments, and status information.
+    model : str
+        The name/path of the LLM being served. Can be set after initialization
+        for dynamic model switching scenarios.
+
+    Methods
+    -------
+    submit_job(job, input_path, output_path, **kwargs)
+        Execute a SwarmJob within the allocated cluster resources.
+    submit_script(script_path, detach=False, extra_args=None)
+        Run arbitrary Python scripts on the head node with swarm environment.
+    status()
+        Query current deployment status and health information.
+    cleanup() / down()
+        Manually terminate and clean up all allocated resources.
+    from_state(deployment_name)
+        Restore a swarm from previously persisted state.
+    delete_record(deployment_name)
+        Remove deployment records from state storage.
+
+    Usage Patterns
+    --------------
+    **Basic Deployment:**
+    ```python
+    cfg = DomynLLMSwarmConfig(...)
+    with DomynLLMSwarm(cfg=cfg) as swarm:
+        # Swarm is now running and accessible at swarm.endpoint
+        result = swarm.submit_job(my_job, input_path="data.parquet",
+                                 output_path="results.parquet")
+    # Resources automatically cleaned up on exit
+    ```
+
+    **Persistent Deployment:**
+    ```python
+    swarm = DomynLLMSwarm(cfg=cfg, delete_on_exit=False)
+    with swarm:
+        # Do work...
+        pass
+    # Resources remain allocated
+
+    # Later, reconnect to existing deployment
+    swarm = DomynLLMSwarm.from_state("my-deployment-abc123")
+    ```
+
+    **Job Submission:**
+    ```python
+    with DomynLLMSwarm(cfg=cfg) as swarm:
+        # Synchronous execution
+        swarm.submit_job(
+            job=MyProcessingJob(),
+            input_path="batch.parquet",
+            output_path="predictions.parquet",
+            num_threads=8,
+            limit=1000  # Process first 1000 rows only
+        )
+
+        # Asynchronous execution
+        pid = swarm.submit_job(
+            job=LongRunningJob(),
+            input_path="large_dataset.parquet",
+            output_path="results.parquet",
+            detach=True
+        )
+    ```
+
+    **Script Execution:**
+    ```python
+    with DomynLLMSwarm(cfg=cfg) as swarm:
+        # Run analysis script on head node
+        swarm.submit_script(
+            Path("analysis.py"),
+            extra_args=["--mode", "evaluation"],
+            detach=False
+        )
+    ```
+
+    State Management
+    ----------------
+    The swarm automatically persists its state including:
+    - Deployment metadata and resource handles
+    - Configuration parameters
+    - Platform-specific identifiers (job IDs, node assignments)
+    - Endpoint URLs and connection information
+
+    This enables recovery from failures and reconnection to existing deployments
+    across process boundaries.
+
+    Error Handling
+    --------------
+    - **Resource allocation failures**: Raises RuntimeError with diagnostic info
+    - **Timeout during startup**: Controlled by cfg.wait_endpoint_s parameter
+    - **Job submission errors**: Propagates subprocess.CalledProcessError
+    - **Cleanup failures**: Logged but don't prevent context exit
+
+    Platform-Specific Behavior
+    ---------------------------
+    **Slurm:**
+    - Uses job arrays for multi-node allocation
+    - Leverages SLURM_NODEID for role assignment
+    - Supports srun-based job execution with resource isolation
+    - Integrates with Slurm job lifecycle (PENDING→RUNNING→COMPLETED)
+
+    **Cloud Platforms:**
+    - Abstract deployment via platform-specific drivers
+    - Resource scaling based on platform capabilities
+    - Native load balancing and health monitoring
+
+    Notes
+    -----
+    - The swarm must be used as a context manager for proper resource lifecycle
+    - All paths in job submission are resolved relative to the execution environment
+    - Environment variables (ENDPOINT, MODEL) are automatically set for submitted jobs
+    - Checkpoint directories are created automatically for job state persistence
+
+    See Also
+    --------
+    SwarmJob : Base class for jobs executable within the swarm
+    DomynLLMSwarmConfig : Configuration schema and validation
+    Deployment : Low-level deployment abstraction
+    SwarmStateManager : State persistence and recovery system
+
+    Examples
+    --------
+    >>> from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+    >>> cfg = DomynLLMSwarmConfig.from_yaml("config.yaml")
+    >>> with DomynLLMSwarm(cfg=cfg) as swarm:
+    ...     print(f"Swarm available at: {swarm.endpoint}")
+    ...     status = swarm.status()
+    ...     print(f"Status: {status.phase}")
     """
 
     cfg: DomynLLMSwarmConfig
@@ -101,71 +257,6 @@ class DomynLLMSwarm(BaseModel):
     def __exit__(self, exc_type, exc, tb):
         if self.delete_on_exit:
             self.cleanup()
-
-    def submit_script(
-        self,
-        script_path: Path,
-        detach: bool = False,
-        extra_args: list[str] | None = None,
-    ):
-        """
-        Submit a user script to the swarm allocation.
-        The script will be run on the head node (SLURM_NODEID 0).
-        """
-        pass
-
-        # if self.lb_jobid is None:
-        #     raise RuntimeError("LB Job ID is null.")
-
-        # if self.lb_node is None:
-        #     raise RuntimeError("LB Node is null.")
-
-        # if self.endpoint is None:
-        #     raise RuntimeError("Endpoint is null.")
-
-        # if self.cfg.venv_path is None:
-        #     raise RuntimeError("Venv path is None.")
-
-        # if self.jobid is None:
-        #     raise RuntimeError("No job submitted yet")
-        # if not script_path.is_file():
-        #     raise FileNotFoundError(f"Script not found: {script_path}")
-
-        # logger.info(f"Submitting user script {script_path} to job {self.jobid}")
-
-        # builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node).with_env(
-        #     {"ENDPOINT": self.endpoint, "MODEL": self.model}
-        # )
-
-        # if self.cfg.mail_user:
-        #     builder = builder.with_mail(self.cfg.mail_user)
-
-        # extra = [] if extra_args is None else extra_args
-        # cmd = builder.build(
-        #     [
-        #         str(self.cfg.venv_path / "bin" / "python"),
-        #         str(script_path),
-        #         *extra,
-        #     ]
-        # )
-
-        # if detach:
-        #     proc = subprocess.Popen(
-        #         cmd,
-        #         stdout=sys.stdout,
-        #         stderr=sys.stderr,
-        #         start_new_session=True,
-        #         close_fds=True,
-        #     )
-        #     logger.info(f"Detached process with PID {proc.pid}")
-        #     return proc.pid
-        # else:
-        #     subprocess.run(
-        #         cmd,
-        #         check=True,
-        #         stdout=sys.stdout,
-        #         stderr=sys.stderr,
-        #     )
 
     def _persist(self, deployment_name: str):
         """Save the state.
@@ -327,6 +418,99 @@ class DomynLLMSwarm(BaseModel):
 
         if job_handle is None:
             raise RuntimeError("Failed to submit job to compute backend.")
+
+        return job_handle.meta.get("pid") if detach else None
+
+    def _compose_runtime(self, extra_env: dict | None = None):
+        """Build interpreter/image/resources/env in one place."""
+        self._deployment.ensure_ready()
+        assert self._deployment.compute is not None, "Compute backend not initialized"
+
+        compute = self._deployment.compute
+        python_interpreter = compute.default_python(self.cfg)
+        image = compute.default_image(self.cfg)
+        resources = compute.default_resources(self.cfg)
+
+        env = {
+            "ENDPOINT": self.endpoint,
+            "MODEL": self.model,
+        }
+        # Global backend env from config
+        if getattr(self.cfg, "backend", None) and getattr(
+            self.cfg.backend, "env", None
+        ):
+            env.update(self.cfg.backend.env)  # type: ignore[attr-defined]
+        # Backend-specific overrides
+        overrides = compute.default_env(self.cfg)
+        if overrides:
+            env.update(overrides)
+        # Call-site extras
+        if extra_env:
+            env.update(extra_env)
+
+        return str(python_interpreter), image, resources, env
+
+    def submit_script(
+        self,
+        script_path: Path,
+        detach: bool = False,
+        extra_args: list[str] | None = None,
+    ) -> int | None:
+        """Submit a Python script to the compute backend for execution.
+
+        This method validates the script path, composes the runtime environment,
+        and submits the script for execution via the configured deployment backend.
+
+        Args:
+            script_path (Path): Path to the Python script to be executed.
+            detach (bool, optional): If True, run the script in detached mode and return
+                the process ID. If False, run synchronously. Defaults to False.
+            extra_args (list[str] | None, optional): Additional command-line arguments
+                to pass to the script. Defaults to None.
+
+        Returns:
+            int | None: If detach is True, returns the process ID of the submitted job.
+                If detach is False, returns None after synchronous execution.
+
+        Raises:
+            FileNotFoundError: If the script file does not exist (only checked for SLURM platform).
+            RuntimeError: If the script submission to the compute backend fails.
+
+        Example:
+            >>> swarm = Swarm(...)
+            >>> # Submit script synchronously
+            >>> swarm.submit_script(Path("my_script.py"))
+
+            >>> # Submit script in detached mode with arguments
+            >>> pid = swarm.submit_script(
+            ...     Path("my_script.py"),
+            ...     detach=True,
+            ...     extra_args=["--config", "config.yaml"]
+            ... )
+        """
+
+        # Basic validation
+        if self._platform == "slurm" and not script_path.is_file():
+            raise FileNotFoundError(f"Script not found: {script_path}")
+
+        # Compose runtime (interpreter/image/resources/env) once
+        python_interpreter, image, resources, env = self._compose_runtime()
+
+        # Build the command
+        args = extra_args or []
+        command = [python_interpreter, str(script_path), *args]
+
+        # Submit via the compute backend
+        job_handle = self._deployment.run(
+            name=f"{self.name.lower()}-script",  # type: ignore[arg-type]
+            image=image,
+            command=command,
+            env=env,
+            resources=resources,
+            detach=detach,
+        )
+        if job_handle is None:
+            raise RuntimeError("Failed to submit script to compute backend.")
 
         return job_handle.meta.get("pid") if detach else None
 
