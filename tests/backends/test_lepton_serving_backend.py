@@ -10,6 +10,23 @@ from domyn_swarm.platform.protocols import ServingHandle, ServingPhase
 # ------------------------------
 
 
+class _ModelLike(SimpleNamespace):
+    """SimpleNamespace with a pydantic-like .model_dump()"""
+
+    def model_dump(self, **_: dict) -> dict:
+        def _dump(obj):
+            if isinstance(obj, _ModelLike):
+                return {k: _dump(v) for k, v in obj.__dict__.items()}
+            elif isinstance(obj, list):
+                return [_dump(v) for v in obj]
+            elif isinstance(obj, dict):
+                return {k: _dump(v) for k, v in obj.items()}
+            else:
+                return obj
+
+        return _dump(self)
+
+
 class FakeDeploymentAPI:
     """Mock for Lepton deployment API with configurable behavior."""
 
@@ -42,13 +59,14 @@ class FakeDeploymentAPI:
         self.deleted_deployment_ids.append(deployment_id)
 
     def _create_ready_deployment(self):
-        endpoint = SimpleNamespace(external_endpoint=self.endpoint_url)
-        status = SimpleNamespace(state="Ready", endpoint=endpoint)
-        return SimpleNamespace(status=status)
+        endpoint = _ModelLike(external_endpoint=self.endpoint_url)
+        status = _ModelLike(state="Ready", endpoint=endpoint)
+        # Top-level object mirrors what SDK returns (e.g., dep.status.state / .endpoint)
+        return _ModelLike(status=status)
 
     def _create_creating_deployment(self):
-        status = SimpleNamespace(state="Creating", endpoint=None)
-        return SimpleNamespace(status=status)
+        status = _ModelLike(state="Creating", endpoint=None)
+        return _ModelLike(status=status)
 
 
 class FakeSecretAPI:
@@ -100,7 +118,9 @@ def mock_backend(monkeypatch) -> LeptonServingBackend:
         lepton_module, "get_env_var_by_name", lambda envs, name: "test-secret"
     )
     monkeypatch.setattr(
-        lepton_module, "sanitize_tokens_in_deployment", lambda deployed: "SANITIZED"
+        lepton_module,
+        "sanitize_tokens_in_deployment",
+        lambda deployed: _ModelLike(raw="SANITIZED"),
     )
 
     # Expose mocks for test assertions
@@ -136,13 +156,14 @@ def test_create_or_update_creates_serving_handle_with_correct_attributes(mock_ba
     """Test that create_or_update returns a properly configured ServingHandle."""
     spec = create_test_spec()
 
-    handle = mock_backend.create_or_update("test-endpoint", spec)
+    handle = mock_backend.create_or_update("test-endpoint", spec, None)
 
+    print(handle)
     assert isinstance(handle, ServingHandle)
     assert handle.id == "test-endpoint"
     assert handle.url == "http://test.com"
     assert handle.meta["name"] == "test-endpoint"
-    assert handle.meta["raw"] == "SANITIZED"
+    assert handle.meta["raw"]["raw"] == "SANITIZED"
     assert handle.meta["token_secret_name"] == "test-secret"
 
 
@@ -150,7 +171,7 @@ def test_create_or_update_creates_secret_with_token_from_spec(mock_backend):
     """Test that create_or_update creates a secret using the API token from the spec."""
     spec = create_test_spec(api_tokens=[{"value": "my-api-token"}])
 
-    mock_backend.create_or_update("test-endpoint", spec)
+    mock_backend.create_or_update("test-endpoint", spec, None)
 
     created_secrets = mock_backend._secret_api.created_secrets
     assert created_secrets is not None
@@ -180,7 +201,7 @@ def test_create_or_update_uses_defaults_when_env_and_token_missing(monkeypatch):
 
     spec = create_test_spec(envs=[], api_tokens=[])
 
-    _ = backend.create_or_update("test-endpoint", spec)
+    _ = backend.create_or_update("test-endpoint", spec, None)
 
     secret_name, secret_value = extract_secret_info(secret_api.created_secrets[0])
     assert secret_name == "test-endpoint-token"
@@ -200,7 +221,7 @@ def test_create_or_update_raises_runtime_error_when_deployment_creation_fails(
     )
 
     with pytest.raises(RuntimeError, match="Failed to create Lepton deployment"):
-        backend.create_or_update("test-endpoint", create_test_spec())
+        backend.create_or_update("test-endpoint", create_test_spec(), None)
 
 
 # ------------------------------
@@ -222,7 +243,7 @@ def test_wait_ready_succeeds_when_deployment_becomes_ready(monkeypatch):
     _mock_time_functions(monkeypatch)
 
     handle = ServingHandle(id="test-endpoint", url="", meta={"name": "test-endpoint"})
-    result = backend.wait_ready(handle, timeout_s=10)
+    result = backend.wait_ready(handle, 10, None)
 
     assert result is handle
 
@@ -241,7 +262,7 @@ def test_wait_ready_raises_timeout_error_when_deployment_never_ready(monkeypatch
     handle = ServingHandle(id="test-endpoint", url="", meta={"name": "test-endpoint"})
 
     with pytest.raises(TimeoutError, match="Timed out waiting for Lepton deployment"):
-        backend.wait_ready(handle, timeout_s=5)
+        backend.wait_ready(handle, 5, None)
 
 
 def _mock_time_functions(monkeypatch):

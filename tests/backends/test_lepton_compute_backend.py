@@ -133,7 +133,7 @@ class TestJobSubmission:
             image="repo/image:tag",
             command=["python", "script.py"],
             resources={"resource_shape": "gpu.4xh200"},
-            extras={"api_token": "my-secret-name"},
+            extras={"token_secret_name": "my-secret-name"},
         )
 
         job_spec = backend._job_api.last_created_job

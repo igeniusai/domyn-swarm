@@ -122,11 +122,12 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         secrets = [SecretItem(name=secret_name, value=token or "changeme")]
         _ = client.secret.create(secrets)
 
+        raw = sanitize_tokens_in_deployment(deployed)
         return ServingHandle(
             id=name,
             url=url,
             meta={
-                "raw": sanitize_tokens_in_deployment(deployed).model_dump(),
+                "raw": raw.model_dump(),
                 "name": name,
                 "token_secret_name": secret_name,
             },
