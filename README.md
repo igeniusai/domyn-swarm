@@ -41,7 +41,7 @@ It’s designed for **fast evaluation loops**, **robust batch inference**, and *
   * Built‑in **batching**, **bounded concurrency**, **tenacity retries**, **checkpointing** (Parquet)
   * **Compat layer** for older job shape
 * **Script runner** (submit any Python file to the compute backend)
-* **State persistence** (JSON today; SQLite path included)
+* **State persistence** (using SQLite to store your swarms state)
 * **Optional extras**: `pip install domyn-swarm[lepton]` to enable DGX Cloud Lepton
 
 ---
@@ -111,7 +111,7 @@ This submits:
 
 * an **array job** with 2 cluster replicas (vLLM servers)
 * a **load‑balancer** job (Nginx) that waits on all replicas
-* updates/creates a local **SQLite/JSON** state record for the swarm
+* updates/creates a local **SQLite** state record for the swarm
 
 ### 3) Submit a typed job (DataFrame → DataFrame)
 
