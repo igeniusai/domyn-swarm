@@ -93,11 +93,12 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         If the deployment already exists, it will be updated with the new spec.
         """
         _require_lepton()
-        from leptonai.api.v1.types.common import Metadata, SecretItem
+        from leptonai.api.v1.types.common import Metadata
         from leptonai.api.v1.types.deployment import (
             LeptonDeployment,
             LeptonDeploymentUserSpec,
         )
+        from leptonai.api.v1.types.secret import SecretItem
 
         client = self._client()
 
