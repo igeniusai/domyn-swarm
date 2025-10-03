@@ -116,7 +116,7 @@ class LeptonConfig(BaseModel):
     type: Literal["lepton"]
     workspace_id: str = Field(
         default_factory=default_for(
-            "lepton.workspace_id", get_settings().lepton_api_token
+            "lepton.workspace_id", get_settings().lepton_workspace_id
         ),
         description="Lepton workspace ID",
     )
