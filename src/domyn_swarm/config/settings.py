@@ -24,35 +24,55 @@ class Settings(BaseSettings):
 
     # --- General -------------------------------------------------------------
     log_level: str = "INFO"
-    home: Path = Field(default=Path("~/.domyn_swarm").expanduser())
+    home: Path = Field(
+        default=Path("~/.domyn_swarm").expanduser(),
+        description="Path to domyn-swarm home directory",
+    )
     # Path to YAML with overridable defaults (used by your defaults loader)
-    defaults_file: Optional[Path] = Field(default=None, alias="DOMYN_SWARM_DEFAULTS")
+    defaults_file: Optional[Path] = Field(
+        default_factory=lambda data: data["home"] / "defaults.yaml",
+        alias="DOMYN_SWARM_DEFAULTS",
+        description="Path to YAML with overridable defaults (used by your defaults loader)",
+    )
 
     # --- Secrets / tokens ----------------------------------------------------
-    api_token: Optional[SecretStr] = Field(default=None)  # DOMYN_SWARM_API_TOKEN
+    api_token: Optional[SecretStr] = Field(
+        default=None,
+        description="API token for authenticating with the domyn-swarm vllm server",
+    )  # DOMYN_SWARM_API_TOKEN
     vllm_api_key: Optional[SecretStr] = Field(
-        default_factory=lambda data: data.get("api_token"), alias="VLLM_API_KEY"
+        default_factory=lambda data: data.get("api_token"),
+        alias="VLLM_API_KEY",
+        description="Alternative env var for API token, used by vLLM",
     )
     singularityenv_vllm_api_key: Optional[SecretStr] = Field(
         default_factory=lambda data: data.get("vllm_api_key"),
         alias="SINGULARITYENV_VLLM_API_KEY",
+        description="Alternative env var for API token, used inside Singularity containers",
     )
 
     # --- Slurm ---------------------------------------------------------------
-    mail_user: Optional[str] = None  # DOMYN_SWARM_MAIL_USER
+    mail_user: Optional[str] = Field(
+        description="Email address for Slurm job notifications (if enabled)",
+        default=None,
+    )  # DOMYN_SWARM_MAIL_USER
 
     # --- Lepton --------------------------------------------------------------
     lepton_api_token: Optional[SecretStr] = Field(
-        default=None, alias="LEPTONAI_API_TOKEN"
+        default=None,
+        alias="LEPTONAI_API_TOKEN",
+        description="API token for authenticating with Lepton AI",
     )
     lepton_workspace_id: Optional[str] = Field(
-        default=None, alias="LEPTON_WORKSPACE_ID"
+        default=None,
+        alias="LEPTON_WORKSPACE_ID",
+        description="Workspace ID for Lepton AI",
     )
 
     # --- AzureML (placeholders) ---------------------------------------------
-    azure_subscription_id: Optional[str] = None
-    azure_resource_group: Optional[str] = None
-    azure_workspace_name: Optional[str] = None
+    # azure_subscription_id: Optional[str] = None
+    # azure_resource_group: Optional[str] = None
+    # azure_workspace_name: Optional[str] = None
 
 
 @lru_cache(maxsize=1)

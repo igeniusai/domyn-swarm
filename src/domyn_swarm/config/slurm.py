@@ -7,10 +7,13 @@ from domyn_swarm import utils
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
+from domyn_swarm.config.settings import get_settings
+
+settings = get_settings()
 
 
 class SlurmEndpointConfig(BaseModel):
-    cpus_per_task: int = 2
+    cpus_per_task: int = 32
     mem: str = "16GB"
     threads_per_core: int = 1
     wall_time: str = "24:00:00"
@@ -24,11 +27,14 @@ class SlurmEndpointConfig(BaseModel):
 
 
 class SlurmConfig(BaseModel):
+    """Configuration for SLURM-based deployments."""
+
     type: Literal["slurm"] = "slurm"
     partition: str = Field(default_factory=default_for("slurm.partition"))
     account: str = Field(default_factory=default_for("slurm.account"))
     qos: str = Field(default_factory=default_for("slurm.qos"))
 
+    # Ray-related settings
     requires_ray: bool | None = Field(
         description="Whether to use Ray for distributed execution",
         default=None,
@@ -36,6 +42,7 @@ class SlurmConfig(BaseModel):
     ray_port: int = 6379
     ray_dashboard_port: int = 8265
 
+    # Additional SLURM settings, not yet exposed and used anywhere
     module_load: list[str] = []
     preamble: list[str] = []  # additional SLURM directives
 
@@ -56,9 +63,7 @@ class SlurmConfig(BaseModel):
     mail_user: str | None = None  # Enable email notifications if set
     endpoint: SlurmEndpointConfig = Field(default_factory=SlurmEndpointConfig)
 
-    home_directory: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
-    )
+    home_directory: utils.EnvPath = Field(default=utils.EnvPath(get_settings().home))
 
     log_directory: utils.EnvPath = Field(
         default_factory=lambda data: data["home_directory"] / "logs"
@@ -71,6 +76,7 @@ class SlurmConfig(BaseModel):
         return super().model_post_init(context)
 
     def build(self, cfg_ctx) -> DeploymentPlan:
+        """Builds the deployment plan for SLURM-based deployments."""
         from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
         from domyn_swarm.backends.serving.slurm import SlurmServingBackend
 

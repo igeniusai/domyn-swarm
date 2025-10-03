@@ -44,12 +44,58 @@ settings = get_settings()
 
 class SwarmJob(abc.ABC):
     """
-    Abstract base class for jobs running in a Domyn LLM swarm.
+    Abstract base class for distributed LLM processing jobs in the Domyn swarm framework.
 
-    Key features:
-    - Handles checkpointing with automatic recovery.
-    - Provides batching with retry and callback hooks.
-    - Uses a pluggable LLM client (OpenAI, etc.) via a factory.
+    This class provides a robust foundation for running large-scale language model tasks with
+    built-in reliability features including automatic checkpointing, retry mechanisms, and
+    concurrent processing capabilities.
+
+    Key Features:
+        - **Automatic Checkpointing**: Periodically saves progress to enable recovery from failures
+        - **Concurrent Processing**: Configurable parallelism with rate limiting and timeout handling
+        - **Retry Logic**: Built-in exponential backoff for handling transient failures
+        - **Provider Agnostic**: Supports multiple LLM providers (OpenAI, etc.) via pluggable clients
+        - **Callback System**: Extensible event hooks for monitoring and custom behavior
+        - **DataFrame Integration**: Native pandas DataFrame support for batch processing
+
+    Architecture:
+        The class follows a template method pattern where subclasses implement the core
+        `transform()` method while inheriting all the reliability and concurrency infrastructure.
+        Processing flows through: DataFrame -> batching -> transform_items -> results -> checkpointing.
+
+    Typical Usage:
+        ```python
+        class MyLLMJob(SwarmJob):
+                items = df[self.input_column_name].tolist()
+                results = await self.batched(items, self.process_item)
+                return results
+
+        job = MyLLMJob(model="gpt-4", max_concurrency=5)
+        results_df = await job.run(input_df, tag="experiment_1")
+        ```
+
+    Attributes:
+        api_version (int): API version for compatibility tracking
+        endpoint (str): LLM service endpoint URL
+        model (str): Model identifier (e.g., "gpt-4", "claude-3")
+        provider (str): LLM provider name ("openai", "anthropic", etc.)
+        input_column_name (str): DataFrame column containing input data
+        output_column_name (str | list): DataFrame column(s) for storing results
+        checkpoint_interval (int): Number of items processed between checkpoints
+        max_concurrency (int): Maximum concurrent requests
+        retries (int): Maximum retry attempts for failed requests
+        timeout (float): Request timeout in seconds
+        client: Initialized LLM client instance
+        results (pd.DataFrame): Final processed results after job completion
+
+        RuntimeError: When ENDPOINT environment variable is missing
+        ValueError: When required model name is not provided
+        NotImplementedError: When required abstract methods are not implemented
+
+    Note:
+        Subclasses must implement either `transform()` for DataFrame-level processing
+        or `transform_items()` for item-level processing. The framework handles all
+        infrastructure concerns including error handling, checkpointing, and progress tracking.
     """
 
     api_version: int = 1
@@ -71,10 +117,9 @@ class SwarmJob(abc.ABC):
         client_kwargs: dict | None = None,
         **extra_kwargs,
     ):
-        """
-        Initialize the job with parameters and an optional LLM client.
+        """Initialize the job with parameters and an optional LLM client.
 
-        Parameters:
+        Args:
             name: Optional job name (for logging).
             endpoint: Optional LLM endpoint URL (overrides `ENDPOINT` env var).
             model: Model name to use (e.g., "gpt-4").
@@ -87,7 +132,11 @@ class SwarmJob(abc.ABC):
             timeout: Request timeout in seconds.
             client: Optional pre-initialized LLM client (e.g., `AsyncOpenAI`).
             client_kwargs: Additional kwargs for the LLM client.
-            extra_kwargs: Additional parameters to pass to the job constructor.
+            **extra_kwargs: Additional parameters to pass to the job constructor.
+
+        Raises:
+            RuntimeError: If ENDPOINT environment variable is not set.
+            ValueError: If model name is not specified.
         """
         self.name = name or self.__class__.__name__
         self.endpoint = endpoint or os.getenv("ENDPOINT")

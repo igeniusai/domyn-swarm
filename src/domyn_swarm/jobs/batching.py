@@ -10,9 +10,27 @@ logger = logging.getLogger(__name__)
 
 class BatchExecutor:
     """
-    Executor for running tasks in parallel batches.
-    This class handles batching of items and parallel execution of a function on those items.
-    It supports retry logic and can execute callbacks after each batch.
+    Executor for running tasks in parallel batches with retry logic and progress tracking.
+
+    This class provides a robust framework for processing large collections of items
+    in parallel with configurable concurrency limits, automatic retries, and batch
+    checkpointing capabilities.
+
+    Key Features:
+    - Parallel execution with configurable concurrency limits
+    - Exponential backoff retry logic for failed tasks
+    - Batch processing with configurable checkpoint intervals
+    - Progress tracking with visual progress bars
+    - Optional callback execution after each batch completion
+
+    Args:
+        max_concurrency (int): Maximum number of concurrent tasks to run
+        checkpoint_interval (int): Number of items to process before triggering batch callback
+        retries (int): Maximum number of retry attempts for failed tasks
+
+    Example:
+        >>> executor = BatchExecutor(max_concurrency=10, checkpoint_interval=100, retries=3)
+        >>> results = await executor.run(items, process_item, on_batch_done=save_checkpoint)
     """
 
     def __init__(self, max_concurrency: int, checkpoint_interval: int, retries: int):
