@@ -103,6 +103,7 @@ class SwarmJob(abc.ABC):
     def __init__(
         self,
         *,
+        name: str | None = None,
         endpoint: str | None = None,
         model: str = "",
         provider: str = "openai",
@@ -119,6 +120,7 @@ class SwarmJob(abc.ABC):
         """Initialize the job with parameters and an optional LLM client.
 
         Args:
+            name: Optional job name (for logging).
             endpoint: Optional LLM endpoint URL (overrides `ENDPOINT` env var).
             model: Model name to use (e.g., "gpt-4").
             provider: LLM provider (default: "openai").
@@ -136,6 +138,7 @@ class SwarmJob(abc.ABC):
             RuntimeError: If ENDPOINT environment variable is not set.
             ValueError: If model name is not specified.
         """
+        self.name = name or self.__class__.__name__
         self.endpoint = endpoint or os.getenv("ENDPOINT")
         if not self.endpoint:
             raise RuntimeError("ENDPOINT environment variable is not set")

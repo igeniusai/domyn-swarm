@@ -6,7 +6,12 @@ import warnings
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, PrivateAttr, computed_field
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    computed_field,
+)
 
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.config.settings import get_settings
@@ -15,6 +20,7 @@ from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.platform.protocols import ServingHandle, ServingPhase, ServingStatus
 
@@ -192,6 +198,12 @@ class DomynLLMSwarm(BaseModel):
     """
 
     cfg: DomynLLMSwarmConfig
+    name: str = Field(
+        default_factory=lambda data: data.get(
+            "name", generate_swarm_name(data["cfg"].name)
+        ),
+        description="Unique name for this swarm deployment",
+    )
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
     delete_on_exit: Optional[bool] = (
         False  # Delete the resources for this cluster at the end of the job
@@ -238,20 +250,18 @@ class DomynLLMSwarm(BaseModel):
         serving_spec = dict(self._plan.serving_spec)
         name_hint = self._plan.name_hint
 
-        deployment_name = self._deployment_name()
-
         logger.info(
-            f"Creating deployment {deployment_name} on {self._platform} ({name_hint})..."
+            f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform} ({name_hint})..."
         )
 
         handle = self._deployment.up(
-            deployment_name, serving_spec, timeout_s=self.cfg.wait_endpoint_s
+            self.name, serving_spec, timeout_s=self.cfg.wait_endpoint_s
         )
         self.serving_handle = handle
         self.endpoint = handle.url
         self._deployment.compute = self._make_compute_backend(handle)
 
-        self._persist(deployment_name)
+        self._persist(self.name)
 
         return self
 
@@ -370,8 +380,11 @@ class DomynLLMSwarm(BaseModel):
         compute = self._deployment.compute
         assert compute is not None, "Compute backend not initialized"
         python_interpreter = compute.default_python(self.cfg)
-        image = compute.default_image(self.cfg)
-        resources = compute.default_resources(self.cfg)
+        image = compute.default_image(self.cfg.backend)
+
+        resources = self._plan.job_resources or compute.default_resources(
+            self.cfg.backend
+        )
         env_overrides = compute.default_env(self.cfg)
 
         exe = [
@@ -403,7 +416,7 @@ class DomynLLMSwarm(BaseModel):
             "ENDPOINT": self.endpoint,
             "MODEL": self.model,
             "JOB_CLASS": job_class,
-            "JOB_KWARGS": job_kwargs,
+            "JOB_KWARGS": f"'{job_kwargs}'",
         }
 
         if self.cfg.backend and self.cfg.backend.env:
@@ -411,15 +424,18 @@ class DomynLLMSwarm(BaseModel):
         if env_overrides:
             env.update(env_overrides)
         if token:
-            env["API_TOKEN"] = token.get_secret_value()
+            env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
             env["VLLM_API_KEY"] = token.get_secret_value()
 
+        job_name = job.name.lower() if job.name else f"{self.name}-job"
+        job_name = f"{self.name}-{job_name}"
+
         logger.info(
-            f"Submitting job {job.__class__.__name__} to swarm {self.cfg.name} on {self._platform}:"
+            f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job to swarm {self.name} on {self._platform}"
         )
 
         job_handle = self._deployment.run(
-            name=f"{self.cfg.name}-job",  # type: ignore[arg-type]
+            name=job_name[:36],  # type: ignore[arg-type]
             image=image,
             command=exe,
             env=env,
@@ -439,8 +455,8 @@ class DomynLLMSwarm(BaseModel):
 
         compute = self._deployment.compute
         python_interpreter = compute.default_python(self.cfg)
-        image = compute.default_image(self.cfg)
-        resources = compute.default_resources(self.cfg)
+        image = compute.default_image(self.cfg.backend)
+        resources = compute.default_resources(self.cfg.backend)
 
         env = {
             "ENDPOINT": self.endpoint,

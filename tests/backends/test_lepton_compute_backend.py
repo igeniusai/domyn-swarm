@@ -86,8 +86,9 @@ def sample_config():
             allowed_nodes=["node-1", "node-2"],
             resource_shape=None,
             mounts=None,
+            image_pull_secrets=None,
         ),
-        endpoint=SimpleNamespace(resource_shape="gpu.4xh200"),
+        endpoint=SimpleNamespace(resource_shape="gpu.4xh200", image_pull_secrets=None),
     )
 
 
@@ -133,7 +134,7 @@ class TestJobSubmission:
             image="repo/image:tag",
             command=["python", "script.py"],
             resources={"resource_shape": "gpu.4xh200"},
-            extras={"api_token": "my-secret-name"},
+            extras={"token_secret_name": "my-secret-name"},
         )
 
         job_spec = backend._job_api.last_created_job
@@ -142,7 +143,7 @@ class TestJobSubmission:
         api_token_vars = [
             env
             for env in job_spec.spec.envs
-            if isinstance(env, EnvVar) and env.name == "API_TOKEN"
+            if isinstance(env, EnvVar) and env.name == "DOMYN_SWARM_API_TOKEN"
         ]
 
         assert len(api_token_vars) == 1

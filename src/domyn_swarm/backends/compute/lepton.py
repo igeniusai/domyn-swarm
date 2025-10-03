@@ -78,20 +78,22 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             command=[*map(str, command)],
         )
 
-        spec = LeptonJobUserSpec.model_validate(resources or {})
+        spec = LeptonJobUserSpec.model_validate(resources or {}, by_alias=True)
         spec.container = container
-        secret_name = extras.get("api_token") if extras else None
+        secret_name = extras.get("token_secret_name") if extras else None
 
         if spec.envs is None:
             spec.envs = []
         spec.envs.append(
-            EnvVar(name="API_TOKEN", value_from=EnvValue(secret_name_ref=secret_name))
+            EnvVar(
+                name="DOMYN_SWARM_API_TOKEN",
+                value_from=EnvValue(secret_name_ref=secret_name),
+            )
         )
 
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
 
         created = client.job.create(job)
-        print(dir(created))
         job_id = created.metadata.id_ if created and created.metadata else None
         if not job_id:
             raise RuntimeError("Failed to create Lepton job")
@@ -128,7 +130,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
     def default_image(self, cfg: LeptonConfig) -> Optional[str]:
         # if you populated cfg.lepton.job.image, reuse it
-        return cfg.job.image if getattr(cfg, "job", None) else None
+        return cfg.job.image
 
     def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
         _require_lepton()
@@ -147,6 +149,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             completions=1,
             parallelism=1,
             mounts=cfg.job.mounts,
+            image_pull_secrets=cfg.job.image_pull_secrets,
         )
         return spec.model_dump(by_alias=True)
 

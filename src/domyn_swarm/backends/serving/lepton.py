@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import requests
 from requests import RequestException
@@ -18,6 +18,9 @@ from domyn_swarm.platform.protocols import (
     ServingStatus,
 )
 from domyn_swarm.utils.imports import _require_lepton, make_lepton_client
+
+if TYPE_CHECKING:
+    from leptonai.api.v2.client import APIClient
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -56,7 +59,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     _client_cached = None
     workspace: Optional[str] = None  # if multiple workspaces, else default
 
-    def _client(self):
+    def _client(self) -> "APIClient":
         if self._client_cached is None:
             _require_lepton()  # quick availability check
             token = (
@@ -70,9 +73,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             )
         return self._client_cached
 
-    def create_or_update(
-        self, name: str, spec: dict, extras: dict | None = None
-    ) -> ServingHandle:
+    def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle:
         """
         Create or update a Lepton deployment (serving endpoint).
         If the deployment already exists, it will be updated with the new spec.
@@ -105,7 +106,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             if deployed.status and deployed.status.endpoint
             else ""
         )
-        logger.info(f"Lepton deployment {name} created with URL: {url}")
+        logger.info(f"Lepton deployment [cyan]{name}[/cyan] created with URL: {url}")
 
         token = (
             dep.spec.api_tokens[0].value
@@ -117,23 +118,23 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             if dep.spec and dep.spec.envs
             else None
         )
-        secrets = [
-            SecretItem(name=secret_name or f"{name}-token", value=token or "changeme")
-        ]
+        secret_name = secret_name or f"{name}-token"
+        secrets = [SecretItem(name=secret_name, value=token or "changeme")]
         _ = client.secret.create(secrets)
 
+        raw = sanitize_tokens_in_deployment(deployed)
         return ServingHandle(
             id=name,
             url=url,
             meta={
-                "raw": sanitize_tokens_in_deployment(deployed),
+                "raw": raw.model_dump(),
                 "name": name,
                 "token_secret_name": secret_name,
             },
         )
 
     def wait_ready(
-        self, handle: ServingHandle, timeout_s: int, extras: dict | None = None
+        self, handle: ServingHandle, timeout_s: int, extras: dict
     ) -> ServingHandle:
         _require_lepton()
         import time

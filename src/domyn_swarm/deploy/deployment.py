@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from domyn_swarm.platform.protocols import (
@@ -28,9 +28,7 @@ class Deployment:
     serving: ServingBackend
     compute: ComputeBackend = None  # type: ignore[assignment]
 
-    extras: Optional[dict] = (
-        None  # for any extra metadata, e.g. workspace, resource shape, etc.
-    )
+    extras: dict = field(default_factory=dict)
     _handle: Optional[ServingHandle] = None
 
     def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
@@ -62,7 +60,7 @@ class Deployment:
             detach=detach,
             nshards=nshards,
             shard_id=shard_id,
-            extras=self.extras,
+            extras=self._handle.meta if self._handle else self.extras,
         )
 
     def down(self, handle: ServingHandle) -> None:

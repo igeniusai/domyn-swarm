@@ -65,7 +65,7 @@ def test_create_or_update_calls_driver_and_returns_handle():
         "replicas_per_node": 2,
     }
 
-    handle = be.create_or_update("my-swarm", spec)
+    handle = be.create_or_update("my-swarm", spec, None)
 
     # Driver calls captured
     assert driver.calls["submit_replicas"] == {
@@ -109,7 +109,7 @@ def test_wait_ready_uses_injected_readiness(monkeypatch):
     be = SlurmServingBackend(driver=driver, cfg=cfg, readiness=probe)
 
     handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202})
-    out = be.wait_ready(handle, timeout_s=30)
+    out = be.wait_ready(handle, 30, None)
 
     assert out.url == "http://node:9000"
     assert probe.calls == [(handle, 30)]  # used injected probe
@@ -137,7 +137,7 @@ def test_wait_ready_constructs_probe_with_cfg_values(monkeypatch):
     be = SlurmServingBackend(driver=driver, cfg=cfg)  # no readiness injected
 
     handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202})
-    out = be.wait_ready(handle, timeout_s=5)
+    out = be.wait_ready(handle, 5, None)
 
     assert constructed["driver"] is driver
     assert constructed["endpoint_port"] == 8123

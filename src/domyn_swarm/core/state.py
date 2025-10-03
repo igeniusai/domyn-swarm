@@ -109,7 +109,9 @@ class SwarmStateManager:
         swarm_dict["cfg"] = json.loads(record["cfg"])
         handle_dict = json.loads(record["serving_handle"])
 
-        swarm = DomynLLMSwarm.model_validate(swarm_dict, by_alias=True)
+        swarm = DomynLLMSwarm.model_validate(swarm_dict)
+        # TODO: fixme: should not be necessary
+        # swarm.name = deployment_name
         serving_handle = ServingHandle(**handle_dict)
         swarm.serving_handle = serving_handle
         swarm._deployment._handle = serving_handle

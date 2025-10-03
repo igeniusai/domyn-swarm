@@ -28,7 +28,7 @@ def _default_mounts() -> list[dict[str, Any]] | list[MountLike]:
     try:
         from leptonai.api.v1.types.deployment import Mount  # type: ignore
 
-        return [Mount.model_validate(spec)]
+        return [Mount.model_validate(spec, by_alias=True)]
     except Exception:
         return [spec]
 
@@ -49,6 +49,7 @@ class LeptonEndpointConfig(BaseModel):
     mounts: list[MountLike] = Field(default_factory=_default_mounts)  # type: ignore
     env: dict[str, str] = Field(default_factory=dict)
     api_token_secret_name: str | None = None
+    image_pull_secrets: list[str] | None = Field(default=None)
 
     @field_validator("mounts", mode="before")
     @classmethod
@@ -65,7 +66,7 @@ class LeptonEndpointConfig(BaseModel):
             if isinstance(item, Mount):
                 out.append(item)
             else:
-                out.append(Mount.model_validate(item))
+                out.append(Mount.model_validate(item, by_name=True))
         return out
 
 
@@ -76,6 +77,7 @@ class LeptonJobConfig(BaseModel):
     allowed_nodes: list[str] = Field(default_factory=list)
     mounts: list[MountLike] = Field(default_factory=_default_mounts)  # type: ignore
     env: dict[str, str] = Field(default_factory=dict)
+    image_pull_secrets: list[str] | None = Field(default=None)
 
     @field_validator("mounts", mode="before")
     @classmethod
@@ -92,7 +94,7 @@ class LeptonJobConfig(BaseModel):
             if isinstance(item, Mount):
                 out.append(item)
             else:
-                out.append(Mount.model_validate(item))
+                out.append(Mount.model_validate(item, by_name=True))
         return out
 
 
@@ -165,6 +167,7 @@ class LeptonConfig(BaseModel):
                 for k, v in (self.env | self.endpoint.env or {}).items()
             ],
             api_tokens=[TokenVar(value=api_token)],
+            image_pull_secrets=self.endpoint.image_pull_secrets,
         ).model_dump(exclude_none=True, by_alias=True)
 
         job_resources = LeptonJobUserSpec(
@@ -178,7 +181,8 @@ class LeptonConfig(BaseModel):
                 EnvVar(name=k, value=v)
                 for k, v in (self.env | self.job.env or {}).items()
             ],
-        ).model_dump(exclude_none=True, by_alias=True)
+            image_pull_secrets=self.job.image_pull_secrets,
+        ).model_dump(by_alias=True)
 
         return DeploymentPlan(
             name_hint=f"lepton-{self.workspace_id}",

@@ -27,4 +27,5 @@ def sanitize_tokens_in_deployment(dep: LeptonDeployment | dict) -> LeptonDeploym
     if dep.spec and dep.spec.api_tokens:
         for token_var in dep.spec.api_tokens:
             token_var.value = "REDACTED"
+
     return dep

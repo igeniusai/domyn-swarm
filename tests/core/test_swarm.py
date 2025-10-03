@@ -109,6 +109,7 @@ class FakePlan:
         self.serving_spec = {"replicas": 1, "resource_shape": "gpu.4xh200"}
         self.name_hint = platform
         self.extras = {}
+        self.job_resources = {}
 
 
 # ---------------------------
@@ -232,6 +233,8 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
 
     # Dummy job with to_kwargs
     class DummyJob:
+        name = "job"
+
         def to_kwargs(self):
             return {"alpha": 1}
 
@@ -283,6 +286,8 @@ def test_submit_job_returns_none_when_not_detached(cfg_stub):
         pass
 
     class Job:
+        name = "job"
+
         def to_kwargs(self):
             return {}
 
@@ -337,6 +342,7 @@ def test_make_compute_backend_slurm_happy_path(monkeypatch):
     monkeypatch.setattr(mod, "SlurmComputeBackend", _SlurmCompute)
 
     cfg = SimpleNamespace(
+        name="n",
         model="m1",
         wait_endpoint_s=5,
         backend=_SlurmConfig(),
@@ -359,7 +365,9 @@ def test_make_compute_backend_slurm_missing_meta_raises(monkeypatch):
 
     monkeypatch.setattr(mod, "SlurmConfig", _SlurmConfig)
 
-    cfg = SimpleNamespace(model="m1", wait_endpoint_s=5, backend=_SlurmConfig())
+    cfg = SimpleNamespace(
+        name="", model="m1", wait_endpoint_s=5, backend=_SlurmConfig()
+    )
     cfg.get_deployment_plan = lambda: FakePlan(platform="slurm")
     swarm = make_swarm(cfg)
 

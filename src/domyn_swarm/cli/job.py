@@ -64,6 +64,9 @@ def submit_job(
     job_kwargs: str = typer.Option(
         "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
     ),
+    job_name: Optional[str] = typer.Option(
+        None, "--job-name", help="Optional job name for logging"
+    ),
     config: Optional[typer.FileText] = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
@@ -144,6 +147,7 @@ def submit_job(
                 job = _load_job(
                     job_class,
                     job_kwargs,
+                    name=job_name,
                     endpoint=swarm.endpoint,
                     model=swarm.model,
                     checkpoint_interval=checkpoint_interval,
