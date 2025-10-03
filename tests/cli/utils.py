@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def assert_cli_ok(result, msg="CLI command failed unexpectedly"):
     """Assert a CLI result was successful."""
     assert result.exit_code == 0, (
