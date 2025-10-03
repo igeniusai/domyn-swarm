@@ -1,13 +1,17 @@
 import importlib
 import json
 import logging
-import shlex
 import uuid
 import warnings
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, PrivateAttr, computed_field
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    computed_field,
+)
 
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.config.settings import get_settings
@@ -16,18 +20,13 @@ from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.platform.protocols import ServingHandle, ServingPhase, ServingStatus
 
 from ..core.state import SwarmStateManager
 
 logger = setup_logger(__name__, level=logging.INFO)
-
-
-def _deployment_name(name: str) -> str:
-    unique_id = uuid.uuid4()
-    short_id = str(unique_id)[:8]
-    return f"{name}-{short_id}"
 
 
 class DomynLLMSwarm(BaseModel):
@@ -200,9 +199,10 @@ class DomynLLMSwarm(BaseModel):
 
     cfg: DomynLLMSwarmConfig
     name: str = Field(
-        default_factory=lambda data: _deployment_name(data["cfg"].name),
+        default_factory=lambda data: data.get(
+            "name", generate_swarm_name(data["cfg"].name)
+        ),
         description="Unique name for this swarm deployment",
-        alias="deployment_name",
     )
     endpoint: Optional[str] = None  # LB endpoint, set after job submission
     delete_on_exit: Optional[bool] = (
@@ -236,7 +236,6 @@ class DomynLLMSwarm(BaseModel):
         self._state_mgr = SwarmStateManager(self)
 
         plan = self.cfg.get_deployment_plan()
-        self.name = self._deployment_name()
         if plan is not None:
             self._plan = plan
             self._platform = plan.platform
@@ -399,7 +398,8 @@ class DomynLLMSwarm(BaseModel):
             f"--endpoint={self.endpoint}",
             f"--nthreads={num_threads}",
             f"--checkpoint-dir={checkpoint_dir}",
-            f"--job-kwargs={shlex.quote(job_kwargs)}",
+            "--job-kwargs",
+            job_kwargs,
         ]
 
         if limit:
@@ -427,12 +427,13 @@ class DomynLLMSwarm(BaseModel):
             env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
             env["VLLM_API_KEY"] = token.get_secret_value()
 
-        logger.info(
-            f"Submitting job {job.__class__.__name__} to swarm {self.name} on {self._platform}"
-        )
-
         job_name = job.name.lower() if job.name else f"{self.name}-job"
         job_name = f"{self.name}-{job_name}"
+
+        logger.info(
+            f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job to swarm {self.name} on {self._platform}"
+        )
+
         job_handle = self._deployment.run(
             name=job_name[:36],  # type: ignore[arg-type]
             image=image,

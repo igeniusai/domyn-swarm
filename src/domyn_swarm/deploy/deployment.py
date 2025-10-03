@@ -60,7 +60,7 @@ class Deployment:
             detach=detach,
             nshards=nshards,
             shard_id=shard_id,
-            extras=self._handle.meta if self._handle else {},
+            extras=self._handle.meta if self._handle else self.extras,
         )
 
     def down(self, handle: ServingHandle) -> None:
