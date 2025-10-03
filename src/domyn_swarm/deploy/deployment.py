@@ -35,7 +35,6 @@ class Deployment:
         """Create and wait for a serving endpoint to be ready."""
         handle = self.serving.create_or_update(name, serving_spec, extras=self.extras)
         handle = self.serving.wait_ready(handle, timeout_s, extras=self.extras)
-        self.extras.update(handle.meta)
         self._handle = handle
         return handle
 
@@ -61,7 +60,7 @@ class Deployment:
             detach=detach,
             nshards=nshards,
             shard_id=shard_id,
-            extras=self.extras,
+            extras=self._handle.meta if self._handle else {},
         )
 
     def down(self, handle: ServingHandle) -> None:

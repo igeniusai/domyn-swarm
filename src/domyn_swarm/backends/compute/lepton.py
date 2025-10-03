@@ -78,14 +78,17 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             command=[*map(str, command)],
         )
 
-        spec = LeptonJobUserSpec.model_validate(resources or {})
+        spec = LeptonJobUserSpec.model_validate(resources or {}, by_alias=True)
         spec.container = container
         secret_name = extras.get("token_secret_name") if extras else None
 
         if spec.envs is None:
             spec.envs = []
         spec.envs.append(
-            EnvVar(name="API_TOKEN", value_from=EnvValue(secret_name_ref=secret_name))
+            EnvVar(
+                name="DOMYN_SWARM_API_TOKEN",
+                value_from=EnvValue(secret_name_ref=secret_name),
+            )
         )
 
         job = LeptonJob(spec=spec, metadata=Metadata(name=name))
@@ -146,6 +149,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             completions=1,
             parallelism=1,
             mounts=cfg.job.mounts,
+            image_pull_secrets=cfg.job.image_pull_secrets,
         )
         return spec.model_dump(by_alias=True)
 
