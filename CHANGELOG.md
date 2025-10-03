@@ -1,3 +1,93 @@
+## v0.20.0 (2025-10-03)
+
+### BREAKING CHANGE
+
+- swarms are now labelled with their deployment names
+- db schema changed
+- the name is now specified in the config file and then used to generate the primary key
+- state is now managed with a sqlite db, state files are not needed anymore. In the CLI, state file paths are replaced by the job id
+
+### Feat
+
+- add usage of api_token when
+- add usage of vllm_api_key environment variable propagated to vllm on singularity
+- add status method for Swarm and related slurm implementation
+- **state**: adapt cli to the new state management
+- **state**: implement new state management
+- **state**: change db schema
+- unify swarm name handling
+- implement init defaults command
+- **docs**: add apache 2.0 badge
+- **docs**: add domyn-swarm logo
+- add settings to enable usage of environment variables
+- add lepton api token support using lepton secrets, fix lepton job submission
+- add endpoint submission to lepton
+- start refactoring for job execution improvements
+- **state**: add state management tests
+- **state**: replace state management with a sqlite db
+- **exceptions**: add custom exceptions
+- **state**: add state management queries
+- **ci**: add python version matrix
+
+### Fix
+
+- use correct fallback for LeptonConfig.lepton_workspace_id
+- set home_directory attribute using the settings variable DOMYN_SWARM_HOME
+- fix tests and wrong swarm name being displayed in logs
+- fix issue with api_token not being used and passed to lepton jo
+- **lepton**: fix lepton deployment by passing the correct objects and setting the proper image from the config
+- update submit_script method
+- fix issue with multiple output columns not handled correctly
+- remove --platform flag from cli commands
+- fix job submission by using correct venv_path attribute in slurm config and by making headers to openai client optional
+- **linting**: remove unused imports
+- **state**: fix conflicts
+- **state**: fix handle loading
+- **cli**: change swarm name help
+- **cli**: change job name help
+- **tests**: fix pool test
+- fix type checking
+- **state**: add newline
+- **state**: improve docstrings
+- **tests**: fix state tests and add new ones
+- **state**: change slurm backend validation
+- **tests**: fix broken tests
+- **imports**: fix leptonai imports
+- fix issue when validation not working when a required field is not present in the defaults
+- fix issues related to lazy imports in tests
+- **logo**: use relative paths
+- **logo**: remove spaces
+- **logo**: add both media
+- **logo**: use raw links
+- **logo**: add white logo for dark themes
+- **logo**: add selector to invert colors
+- **logo**: remove background
+- **logo**: try to invert colors
+- **logo**: add white background
+- fix SlurmConfig not being actually passed to SlurmComputeBackend construction
+- fix test
+- fix test in TestSwarmStateManager
+- fix model validator for removed backends property
+- fix tests after refactoring
+- fix imports and use proper propagation of secret for endpoint
+- fix lepton endpoints and jobs deployments
+- fix missing persist while waiting for endpoints
+- **state**: add newlines to comply with hooks
+- **reverse_proxy**: add support for older python versions
+
+### Refactor
+
+- add deprecation warnings for implemented SwarmJobs, implement new api
+- **cli**: replace submit_app with job_app
+- implement lazy imports for leptonai imports, which are extras
+- add missing file in previous commit
+- use a single backend per file, in place of a list
+- fix templates and update example configs
+- update package structure
+- :boom: add new backends implementation for configuration, supporting multiple backends in a single config
+- use Deployment class to handle the deployment of the compute jobs
+- add new generic platform readiness class to abstract health checks
+
 ## v0.15.0 (2025-09-10)
 
 ### Feat

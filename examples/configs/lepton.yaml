@@ -16,7 +16,11 @@ backend:
     resource_shape: gpu.4xh200
     env:
       HF_HOME: /mnt/lepton-shared-fs/hf_home/
+    image_pull_secrets:
+      - domyn-docker-hub
   job:
     allowed_dedicated_node_groups:
       - nv-domyn-nebius-h200-01-lznuhuob
-    image: igeniusai/domyn-swarm:latest
+    image: igeniusai/domyn-swarm:dev-main
+    image_pull_secrets:
+      - domyn-docker-hub
