@@ -33,6 +33,7 @@ from domyn_swarm import utils
 from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.helpers.io import is_folder, path_exists, to_path
 
 
@@ -75,7 +76,8 @@ class DomynLLMSwarmConfig(BaseModel):
     port: int = 8000
 
     home_directory: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(os.path.join(os.getcwd(), ".domyn_swarm"))
+        default_factory=lambda: utils.EnvPath(get_settings().home),
+        description="Home directory where logs and state are stored",
     )
 
     backend: BackendConfig | None = Field(
