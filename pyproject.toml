@@ -1,0 +1,139 @@
+[project]
+name = "domyn-swarm"
+version = "0.20.1"
+description = "CLI and programmatic API to launch LLM inference endpoints on Slurm, using simple configuration files"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
+
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+
+    "Typing :: Typed",
+
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+    "Framework :: AsyncIO",
+    "Natural Language :: English",
+]
+
+authors = [
+    { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
+]
+maintainers = [
+    { name = "Federico D'Ambrosio", email = "federico.dambrosio@domyn.com" },
+    { name = "Alessandro Rognoni", email = "alessandro.rognoni@domyn.com" },
+]
+dependencies = [
+    "blake3>=1.0.5",
+    "fsspec>=2025.3.0",
+    "huggingface-hub>=0.32.6",
+    "jinja2>=3.1.6",
+    "openai>=1.88.0",
+    "pandas>=1.5.3",
+    "polars>=1.31.0",
+    "pyarrow>=20.0.0",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "pyyaml>=6.0.2",
+    "requests>=2.32.4",
+    "rich>=14.0.0",
+    "tenacity>=9.1.2",
+    "typer>=0.16.0",
+    "tomli>=2.0.1; python_version < '3.11'",
+    "deprecated>=1.2.18",
+]
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.8.3",
+    "pre-commit>=4.3.0",
+    "pyright>=1.1.404",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
+    "pytest-check>=2.5.3",
+    "pytest-cov>=6.2.1",
+    "pytest-icdiff>=0.9",
+    "pytest-mock>=3.14.1",
+    "pytest-sugar>=1.0.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.11.13",
+]
+linting = ["pre-commit", "ruff>=0.11.13"]
+bench = [
+    "datasets>=3.6.0",
+    "vllm>=0.9.1",
+]
+
+[project.urls]
+Homepage = "https://www.domyn.com/"
+Repository = "https://github.com/igeniusai/domyn-swarm"
+Issues = "https://github.com/igeniusai/domyn-swarm/issues"
+Changelog = "https://github.com/igeniusai/domyn-swarm/blob/main/CHANGELOG.md"
+
+
+[project.scripts]
+domyn-swarm = "domyn_swarm.cli:app"
+
+[project.entry-points."uv.run"]
+domyn-swarm = "domyn_swarm.cli:app"
+
+[project.optional-dependencies]
+lepton = [
+    "leptonai>=0.26.2",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "uv"
+update_changelog_on_bump = true
+major_version_zero = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py310"
+include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+
+[tool.pyright]
+include = ["src"]
+exclude = [
+    "**/__pycache__",
+    "src/typestubs",
+    # Unfixable at the moment
+    "src/domyn_swarm/jobs/chat_completion.py",
+    "src/domyn_swarm/utils/env_path.py",
+]
+ignore = ["tests", "examples"]
+defineConstant = { DEBUG = true }
+stubPath = "src/stubs"
+
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+
+pythonPlatform = "Linux"
+venvPath = "."
+venv = ".venv"

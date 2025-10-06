@@ -1,0 +1,156 @@
+#!/bin/bash
+#SBATCH --account={{ cfg.backend.account }}
+{% if cfg.backend.mail_user %}
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user={{ cfg.backend.mail_user }}
+{% endif %}
+#SBATCH --qos={{ cfg.backend.qos }}
+
+#SBATCH --exclusive
+#SBATCH --job-name={{ job_name }}-lb
+#SBATCH --partition={{ cfg.backend.partition }}
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task={{ cfg.backend.endpoint.cpus_per_task }}
+#SBATCH --mem={{ cfg.backend.endpoint.mem }}
+#SBATCH --threads-per-core={{ cfg.backend.endpoint.threads_per_core }}
+#SBATCH --time={{ cfg.backend.endpoint.wall_time }}
+#SBATCH --output={{ cfg.backend.log_directory }}/lb_%j.out
+#SBATCH --error={{ cfg.backend.log_directory }}/lb_%j.err
+
+set -eu
+REPLICAS={{ replicas }}
+HOME_DIR="{{ cfg.backend.home_directory }}"
+HOST_DIR="${HOME_DIR}/swarms"
+WAIT_SEC={{ cfg.lb_wait | default(600) }}
+NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
+INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
+PORT={{ cfg.backend.endpoint.port }}
+
+
+###############################################################################
+#  Everything from here uses Bash ${} that would confuse Jinja:
+#  wrap it in a raw block so Jinja leaves it alone.
+###############################################################################
+{% raw %}
+
+echo "[lb] waiting for $REPLICAS head files from job $DEP_JOBID"
+
+t0=$(date +%s)
+files=()
+while true; do
+    files=( $(ls "$HOST_DIR/${DEP_JOBID}/"*".head" 2>/dev/null || true) )
+    if (( ${#files[@]} == REPLICAS )); then
+        break
+    fi
+    if (( $(date +%s) - t0 > WAIT_SEC )); then
+        echo "[lb] timeout: only ${#files[@]}/$REPLICAS replicas became healthy" >&2
+        exit 1
+    fi
+    sleep 5
+done
+
+echo "[lb] all replicas ready → ${files[*]}"
+
+upstreams=""
+for f in "${files[@]}"; do
+    addr=$(cat "$f")
+    upstreams+="    server $addr;\n"
+done
+
+{% endraw %}
+
+mkdir -p "{{ cfg.backend.log_directory }}/$DEP_JOBID/"
+
+{
+    echo "pid /tmp/nginx.pid;"
+    echo "events { worker_connections 100000; }"
+    echo "http {"
+    echo "  upstream llm {"
+    echo "    least_conn;"
+    for f in "${files[@]}"; do
+        addr=$(<"$f")                    # faster cat
+        echo "    server $addr max_fails=2 fail_timeout=10s;"
+    done
+    echo "  }"
+
+    {% if cfg.backend.requires_ray %}
+    ray_host=$(sed -n '1s/:.*//p' "$HOST_DIR/${DEP_JOBID}/0.head")
+    echo "  upstream ray {"
+    echo "    server $ray_host:{{ cfg.backend.ray_dashboard_port }};"
+    echo "    keepalive 8;"
+    echo "  }"
+
+    echo "  upstream ray_control {"
+    echo "    server $ray_host:{{ cfg.backend.ray_port }};"
+    echo "    keepalive 8;"
+    echo "  }"
+    {% endif %}
+
+    cat <<CONF
+  server {
+    listen $PORT;
+    location / {
+      proxy_pass http://llm;
+      proxy_connect_timeout       {{ cfg.backend.endpoint.nginx_timeout }};
+      proxy_send_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
+      proxy_read_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
+      send_timeout                {{ cfg.backend.endpoint.nginx_timeout }};
+      proxy_set_header Connection "";
+      sendfile on;
+      tcp_nopush on;
+      tcp_nodelay on;
+      keepalive_timeout 65;
+      {% if cfg.backend.endpoint.enable_proxy_buffering %}
+      # ───── Proxy Response Buffering ─────
+      proxy_buffer_size 64k;
+      proxy_buffers 16 512k;
+      proxy_busy_buffers_size 1m;
+      proxy_max_temp_file_size 0;
+      # ───── Client Request Buffering ─────
+      client_max_body_size 50m;
+      client_body_buffer_size 1m;
+      {% else %}
+      proxy_buffering off;
+      proxy_request_buffering off;
+      {% endif %}
+
+      proxy_next_upstream error timeout http_502 http_504;
+      proxy_next_upstream_tries 3;
+    }
+    location = /health {
+      proxy_pass http://llm/health;
+      proxy_connect_timeout 2s;
+      proxy_read_timeout 2s;
+      proxy_cache_bypass \$http_upgrade;
+    }
+    {% if cfg.backend.requires_ray %}
+    location ^~ /ray/ {
+      proxy_pass              http://ray/;
+      proxy_read_timeout      300s;
+      proxy_connect_timeout   60s;
+      proxy_set_header Host   \$host;
+      proxy_set_header X-Real-IP \$remote_addr;
+    }
+    location = /ray/dashboard {
+      return 301 /ray/dashboard/;
+    }
+    {% endif %}
+  }
+}
+CONF
+} > $HOST_DIR/${DEP_JOBID}/nginx.conf
+
+CACHE_DIR="$TMPDIR/cache"
+mkdir -p "$CACHE_DIR"
+
+singularity instance start --writable-tmpfs \
+    -B "$HOST_DIR/${DEP_JOBID}/nginx.conf":/etc/nginx/nginx.conf:ro \
+    -B "$CACHE_DIR":/var/cache/nginx \
+    -B {{ cfg.backend.log_directory }}/$DEP_JOBID:/var/log/nginx \
+    "$NGINX_IMG" "$INSTANCE_NAME"
+
+trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
+
+while true; do
+    sleep 60
+done
