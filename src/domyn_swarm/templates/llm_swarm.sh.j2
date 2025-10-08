@@ -39,7 +39,7 @@ export HF_HOME="{{ cfg.env.HF_HOME }}"
 export REPLICAS={{ cfg.replicas }}
 export GPUS_PER_REPLICA={{ cfg.gpus_per_replica }}
 {% if not cfg.backend.requires_ray %}
-export REPLICAS_PER_NODE={{ cfg.backend.replicas_per_node }}
+export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
 {% endif %}
 export HF_HUB_OFFLINE=1
 export PYTHONNOUSERSITE=1
@@ -50,6 +50,7 @@ export TORCH_CUDA_ARCH_LIST="8.0"
 
 
 # Calculated variables
+export GPUS_PER_NODE={{ cfg.gpus_per_node }}
 export TOTAL_GPUS=$(( SLURM_JOB_NUM_NODES * {{ cfg.gpus_per_node }} ))
 export REQUIRED_GPUS=$(( REPLICAS * GPUS_PER_REPLICA ))
 
@@ -59,7 +60,7 @@ REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
 {% if not cfg.backend.requires_ray %}
 GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
 {% endif %}
-export LOG_DIR={{ cfg.backend.log_directory }}/${REPL_JOB_ID}/${REPL_ID}
+export LOG_DIR={{ cfg.backend.log_directory }}/{{ job_name }}/${REPL_JOB_ID}/${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -92,10 +93,21 @@ function start_vllm_replica() {
   local node=$3
   local log_dir="$LOG_DIR/replica_$global_id"
 
+  # Map each replica to a distinct contiguous GPU set on the node:
+  # replica index on the node (0..(GPUS_PER_NODE/GPUS_PER_REPLICA - 1))
+  local r_on_node=$(( global_id % (GPUS_PER_NODE / GPUS_PER_REPLICA) ))
+  local first_gpu=$(( r_on_node * GPUS_PER_REPLICA ))
+  local last_gpu=$(( first_gpu + GPUS_PER_REPLICA - 1 ))
+
+  local gpu_map="$(seq -s, $first_gpu $last_gpu)"
+
+  echo "[replica $global_id] using GPUs $gpu_map on $node"
+
   mkdir -p "$log_dir"
   echo "[replica $global_id] → $node port=$port"
 
-  srun --export=ALL -n1 -N1 --gres=gpu:{{ cfg.gpus_per_replica }} {% if cfg.replicas_per_node > cfg.gpus_per_node %}--overlap{% endif %} \
+  echo "VLLM logging will be written to $log_dir/vllm.log"
+  srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} --overlap --gpu-bind=map_gpu:"${gpu_map}" \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
      vllm serve {{ cfg.model }} \
@@ -134,15 +146,15 @@ declare -a global_ids=()
 declare -a ports=()
 declare -a hosts=()
 
-for ((i=0; i<REPLICAS_PER_NODE; i++)); do
+for ((i=0; i<REPLICAS; i++)); do
   GLOBAL_ID=$(( GLOBAL_BASE + i ))
   VLLM_PORT=$(( {{ cfg.port }} + GLOBAL_ID ))
 
   global_ids+=("$GLOBAL_ID")
   ports+=("$VLLM_PORT")
-  hosts+=("$HEAD_NODE")
+  hosts+=( "${NODES[$(( GLOBAL_ID / REPLICAS_PER_NODE ))]}" )
 
-  start_vllm_replica "$GLOBAL_ID" "$VLLM_PORT" "$HEAD_NODE"
+  start_vllm_replica "$GLOBAL_ID" "$VLLM_PORT" "${hosts[-1]}"
 done
 
 # Wait for all replicas to be ready
@@ -165,10 +177,10 @@ while true; do
   sleep 60
 done
 
+{% else %}
 ###############################################################################
 #  MULTI-NODE DEPLOYMENT (RAY)
 ###############################################################################
-{% else %}
 echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
 
 # NCCL configuration for multi-node communication
