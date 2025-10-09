@@ -5,6 +5,7 @@ from rich.console import Console
 from ...platform.protocols import ServingStatus
 from ..tui.status import render_swarm_status
 from ..tui.status_list import render_multi_status
+from .list_view import render_swarm_list  # noqa: F401
 
 
 def render_status(

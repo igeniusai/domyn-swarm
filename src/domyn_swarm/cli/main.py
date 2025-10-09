@@ -30,6 +30,7 @@ from ..core.swarm import (
 from ..helpers.logger import setup_logger
 from ..utils.version import get_version
 from .job import job_app
+from .swarm import swarm_app
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
@@ -46,6 +47,8 @@ app.add_typer(
     name="init",
     help="Initialize a new Domyn-Swarm configuration.",
 )
+app.add_typer(swarm_app, name="swarm")
+
 console = Console()
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 
