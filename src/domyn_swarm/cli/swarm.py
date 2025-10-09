@@ -48,16 +48,7 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
     from domyn_swarm.core.state import SwarmStateManager
     from domyn_swarm.platform.protocols import ServingPhase
 
-    # Prefer a list/enumerate API if you have one. Adjust if your manager differs.
-    try:
-        records = SwarmStateManager.list_all()
-    except AttributeError:
-        # Fallback: try an iterator alternative if you named it differently
-        try:
-            records = list(SwarmStateManager.iter_all())
-        except Exception:
-            logger.error("Your SwarmStateManager needs a list_all()/iter_all() API.")
-            return []
+    records = SwarmStateManager.list_all()
 
     for rec in records:
         name: str = rec.get("name", "unnamed-swarm")
