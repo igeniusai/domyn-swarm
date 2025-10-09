@@ -14,7 +14,6 @@
 
 import io
 import math
-import os
 from typing import Annotated, Any, Optional
 
 import yaml
@@ -23,18 +22,16 @@ from pydantic import (
     Field,
     PrivateAttr,
     StringConstraints,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
-from rich import print as rprint
 
 from domyn_swarm import utils
 from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.helpers.io import is_folder, path_exists, to_path
+from domyn_swarm.helpers.io import to_path
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -116,23 +113,6 @@ class DomynLLMSwarmConfig(BaseModel):
     def read(cls, path: str) -> "DomynLLMSwarmConfig":
         config_path = to_path(path)
         return _load_swarm_config(config_path.open())
-
-    @field_validator("model", mode="after")
-    @classmethod
-    def validate_model(cls, v: str, info: ValidationInfo):
-        if path_exists(v) and is_folder(v):
-            rprint(f"Model saved to local folder {v} will be used")
-        else:
-            hf_home = info.data["env"].get("HF_HOME") if info.data.get("env") else None
-            if not hf_home:
-                hf_home = os.getenv(
-                    "HF_HOME",
-                    os.path.join(os.path.expanduser("~"), ".cache/huggingface"),
-                )
-            rprint(
-                f"[yellow]Huggingface model[/yellow] [bold green]{v}[/bold green] [yellow]will be used, make sure that[/yellow] [bold cyan]HF_HOME[/bold cyan] [yellow]is specified correctly and the model is available in[/yellow] {hf_home}/hub"
-            )
-        return v
 
     @model_validator(mode="before")
     @classmethod

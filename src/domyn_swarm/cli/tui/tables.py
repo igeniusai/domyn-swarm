@@ -30,3 +30,10 @@ def _kv_table() -> Table:
     t.add_column("Field", style="bold dim", no_wrap=True, justify="right")
     t.add_column("Value", overflow="fold")
     return t
+
+
+def list_table(*, columns: list[str]) -> Table:
+    t = Table(show_header=True, header_style="bold", expand=True, pad_edge=False)
+    for c in columns:
+        t.add_column(c, overflow="fold")
+    return t
