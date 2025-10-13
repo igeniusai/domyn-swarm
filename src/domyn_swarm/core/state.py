@@ -23,7 +23,7 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 from domyn_swarm.config.slurm import SlurmConfig
 
@@ -218,3 +218,36 @@ class SwarmStateManager:
         assert isinstance(slurm_cfg, SlurmConfig)
 
         return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)
+
+    @classmethod
+    def list_all(cls) -> list[dict[str, Any]]:
+        """List all records in the DB.
+
+        Returns:
+            list[dict[str, Any]]: List of records.
+        """
+        db_path = cls._get_db_path()
+        query = _read_query("list_all.sql")
+        with sqlite3.connect(db_path) as cnx:
+            cnx.row_factory = sqlite3.Row
+            cursor = cnx.cursor()
+            cursor.execute(query)
+            records = cursor.fetchall()
+
+        return [dict(rec) for rec in records]
+
+    @classmethod
+    def iter_all(cls) -> Iterable[dict[str, Any]]:
+        """Iterate over all records in the DB.
+
+        Yields:
+            Iterable[dict[str, Any]]: Iterator of records.
+        """
+        db_path = cls._get_db_path()
+        query = _read_query("list_all.sql")
+        with sqlite3.connect(db_path) as cnx:
+            cnx.row_factory = sqlite3.Row
+            cursor = cnx.cursor()
+            cursor.execute(query)
+            for record in cursor:
+                yield dict(record)

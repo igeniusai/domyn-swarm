@@ -137,3 +137,6 @@ reportMissingTypeStubs = false
 pythonPlatform = "Linux"
 venvPath = "."
 venv = ".venv"
+
+[tool.pytest.ini_options]
+addopts = "--cov-config=.coveragerc --cov=src/ --cov-report html"

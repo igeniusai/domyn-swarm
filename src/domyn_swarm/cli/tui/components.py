@@ -19,7 +19,7 @@ from rich.text import Text
 
 from domyn_swarm.platform.protocols import ServingPhase
 
-from ..tui.theme import _BAD_STATES, _PHASE_EMOJI, _PHASE_STYLE, _WAIT_STATES
+from ..tui.theme import _BAD_STATES, _PHASE_GLYPH, _WAIT_STATES, PHASE_STYLE
 
 
 def _phase_badge(phase: "ServingPhase") -> Text:
@@ -33,9 +33,9 @@ def _phase_badge(phase: "ServingPhase") -> Text:
             The emoji and style are determined by the phase value using internal
             mapping dictionaries.
     """
-    s = str(phase)
-    t = Text(f"{_PHASE_EMOJI.get(s, '•')} {s}")
-    t.stylize(_PHASE_STYLE.get(s, "bold white on grey23"))
+    s = str(phase.value)
+    t = Text(f"{_PHASE_GLYPH.get(s, '•')} {s}")
+    t.stylize(PHASE_STYLE.get(s, "bold white on grey23"))
     return t
 
 

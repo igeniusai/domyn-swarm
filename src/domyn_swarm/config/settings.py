@@ -83,6 +83,12 @@ class Settings(BaseSettings):
         description="Workspace ID for Lepton AI",
     )
 
+    # --- CLI / TUI -----------------------------------------------------------
+    ascii: bool = Field(
+        default=False,
+        description="Use ASCII glyphs instead of Unicode emojis in CLI output",
+    )  # DOMYN_SWARM_ASCII
+
     # --- AzureML (placeholders) ---------------------------------------------
     # azure_subscription_id: Optional[str] = None
     # azure_resource_group: Optional[str] = None
