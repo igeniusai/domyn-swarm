@@ -1,3 +1,15 @@
+## v0.21.0 (2025-10-14)
+
+### Feat
+
+- **cli**: add domyn-swarm swarm list command to show available swarms in db
+- **cli**: update status command for a more complete report of swarm status
+
+### Fix
+
+- **state**: fix issue with state queries not being loaded by CLI
+- **templates**: fix issue where co-located replicas weren't deployed correctly
+
 ## v0.20.2 (2025-10-06)
 
 ## v0.20.1 (2025-10-03)
