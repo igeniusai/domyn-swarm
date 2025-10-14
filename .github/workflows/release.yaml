@@ -67,10 +67,10 @@ jobs:
           images: |
             igeniusai/domyn-swarm
           tags: |
-            type=raw,value=${{ steps.verify.outputs.VERSION }}
+            type=raw,value=${{ steps.ver.outputs.VERSION }}
             type=raw,value=latest
           labels: |
-            org.opencontainers.image.version=${{ steps.verify.outputs.VERSION }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.VERSION }}
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
