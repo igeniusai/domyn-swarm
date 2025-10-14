@@ -1,3 +1,9 @@
+## v0.21.2 (2025-10-14)
+
+### Fix
+
+- **imports**: fix issue with circular imports on Python 3.10
+
 ## v0.21.1 (2025-10-14)
 
 ### Fix
