@@ -22,6 +22,7 @@ import json
 import logging
 import sqlite3
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -45,17 +46,15 @@ logger = setup_logger(__name__, level=logging.INFO)
 
 
 def _read_query(fname: str) -> str:
-    """Read a query from a .sql file.
-
-    Args:
-        fname (str): Query file name.
-
-    Returns:
-        str: Query
     """
-    path = Path("./queries") / fname
-    with path.open("r") as fquery:
-        return fquery.read()
+    Read an embedded SQL query from domyn_swarm/data/queries/<fname>.
+    Works both from source and when installed as a package.
+    """
+    pkg = "domyn_swarm.data.queries"
+    try:
+        return (files(pkg) / fname).read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Query {fname!r} not found in package {pkg}") from e
 
 
 class SwarmStateManager:
