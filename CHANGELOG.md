@@ -1,3 +1,9 @@
+## v0.21.1 (2025-10-14)
+
+### Fix
+
+- **cli**: fix issue with using the CLI in python 3.10
+
 ## v0.21.0 (2025-10-14)
 
 ### Feat
