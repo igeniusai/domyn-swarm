@@ -7,13 +7,14 @@ args: "--dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 8192 --rea
 wait_endpoint_s: 3600
 image: "/path/to/vllm.sif"
 env:
-  HF_HOME: /path/to/hf_home/
+  HF_HOME: /path/to/shared_hf_cache
 backend:
   type: slurm
-  partition: boost_usr_prod
-  account: igen_train
-  qos: qos_llm_min
+  partition: partition_name
+  account: account_name
+  qos: qos_name
   endpoint:
     port: 9001
     cpus_per_task: 4
     wall_time: "36:00:00"
+    nginx_image: "/path/to/nginx.sif"

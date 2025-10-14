@@ -10,3 +10,11 @@ env:
 image: /path/to/vllm.sif
 backend:
   type: slurm
+  partition: partition_name
+  account: account_name
+  qos: qos_name
+  endpoint:
+    nginx_image: "/path/to/nginx.sif"
+    port: 9002
+    cpus_per_task: 4
+    wall_time: "100:00:00"

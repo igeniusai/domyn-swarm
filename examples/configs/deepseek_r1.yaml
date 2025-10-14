@@ -6,6 +6,7 @@ gpus_per_node: 4
 replicas: 1
 args: "--block-size 32 --enable-expert-parallel --reasoning-parser deepseek_r1 --pipeline-parallel-size 6  --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 34000 --max-num-seqs 128"
 lb_wait: 3600
+image: "/path/to/vllm.sif"
 env:
   HF_HOME: /path/to/hf_home/
 backend:
@@ -14,6 +15,7 @@ backend:
   account: account_name
   qos: qos_name
   endpoint:
+    nginx_image: "/path/to/nginx.sif"
     port: 9001
     cpus_per_task: 4
     wall_time: "36:00:00"

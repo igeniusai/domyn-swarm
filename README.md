@@ -299,9 +299,9 @@ Below is an overview of every field, its purpose, and the default that will be u
 | Field                         | Type           | Default                                      | Purpose                                                                                                                                      |                                                                   |
 | ----------------------------- | -------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | **type** | `Literal["slurm"]` | "slurm" | Type of backend |
-| **partition**                 | `str`          | `null`                           | SLURM partition to submit to.                                                                                                                |                                                                   |
-| **account**                   | `str`          | `null`                               | SLURM account / charge code.                                                                                                                 |                                                                   |
-| **qos** | `str` | `null` | SLURM qos where the cluster and load balancer jobs will be submitted |
+| **partition**                 | `str`          | **required**                           | SLURM partition to submit to.                                                                                                                |                                                                   |
+| **account**                   | `str`          | **required**                               | SLURM account / charge code.                                                                                                                 |                                                                   |
+| **qos** | `str` | **required** | SLURM qos where the cluster and load balancer jobs will be submitted |
 | **requires_ray**              | `bool` | `null` | Set automatically to enforce the usage of Ray + vLLM for multi-node multi-gpu clusters |
 | **ray\_port**                 | `int`          | `6379`                                       | Port for Ray’s GCS/head node inside each replica.                                                                                            |                                                                   |
 | **ray\_dashboard\_port**      | `int`          | `8265`                                       | Ray dashboard (optional).                                                                                                                    |                                                                   |
@@ -323,7 +323,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **mem**                | `str` | `"16GB"`     | Physical memory for the driver job.                             |
 | **threads\_per\_core** | `int` | `1`          | SMT threads to request per physical core.                       |
 | **wall\_time**         | `str` | `"24:00:00"` | SLURM time limit for the driver job.                            |
-| **nginx\_image**       | `str \| pathlib.Path` | `null` | Path to a singularity image running NGINX as load balancer for the swarm.|
+| **nginx\_image**       | `str \| pathlib.Path` | **required** | Path to a singularity image running NGINX as load balancer for the swarm.|
 | **nginx_timeout**      | `str \| int` | "60s" | HTTP timeout for NGINX proxy requests to model replicas. |
 | **port**           | `int` | `9000`       | External port exposed by the NGINX load balancer. |
 | **poll_interval**  | `int` | `10` | Seconds between status checks while waiting for the load balancer to become ready. |
