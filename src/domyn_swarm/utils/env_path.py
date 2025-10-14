@@ -17,6 +17,8 @@ import pathlib
 
 from pydantic_core import core_schema
 
+_EnvBase = type(pathlib.Path())
+
 
 def _expand(s: os.PathLike | str) -> str:
     s = os.path.expandvars(os.fspath(s))
@@ -24,7 +26,7 @@ def _expand(s: os.PathLike | str) -> str:
     return s
 
 
-class EnvPath(pathlib.Path):
+class EnvPath(_EnvBase):
     def __new__(cls, *args):
         parts = tuple(_expand(a) for a in args) if args else ("",)
         return super().__new__(cls, *parts)
