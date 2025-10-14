@@ -44,8 +44,8 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
     Tries to be compatible with your current state manager.
     """
     # Lazy imports to avoid CLI import cost for non-list commands
-    from domyn_swarm import DomynLLMSwarm
     from domyn_swarm.core.state import SwarmStateManager
+    from domyn_swarm.core.swarm import DomynLLMSwarm
     from domyn_swarm.platform.protocols import ServingPhase
 
     records = SwarmStateManager.list_all()

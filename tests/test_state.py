@@ -20,9 +20,10 @@ from pathlib import Path
 
 import pytest
 
-from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
 from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.state import SwarmStateManager, _read_query
+from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.exceptions import JobNotFoundError
 from domyn_swarm.platform.protocols import ServingHandle
 

@@ -17,8 +17,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from domyn_swarm import DomynLLMSwarm
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.helpers.io import to_path
 
 
