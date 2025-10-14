@@ -17,6 +17,10 @@ import pathlib
 
 from pydantic_core import core_schema
 
+# This is a workaround for the fact that pathlib.Path is a built-in class and cannot be directly inherited from.
+# Using python 3.10, inheriting from os.PathLike raises AttributeError: type object 'EnvPath' has no attribute '_flavour'
+# This way we create a new class that inherits from the same base class as pathlib.Path
+# and we can then extend it.
 _EnvBase = type(pathlib.Path())
 
 
