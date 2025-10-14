@@ -139,13 +139,19 @@ domyn-swarm job submit-script \
 ### 5) Check status (Slurm)
 
 ```bash
-domyn-swarm status --name my-swarm-name
+domyn-swarm status my-swarm-name
 ```
 
 ### 6) Shut down
 
 ```bash
 domyn-swarm down my-swarm-name
+```
+
+### 7) List available swarms
+
+```bash
+domyn-swarm swarm list
 ```
 
 ---
