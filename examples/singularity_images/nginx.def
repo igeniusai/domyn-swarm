@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: nginx:1.29.1
+
+%post
+    echo "Minimal reusable NGINX container built."
+
+%labels
+    Author Federico D'Ambrosio
+    Version 1.0
+
+%startscript
+    exec nginx -g 'daemon off;' -c /etc/nginx/nginx.conf

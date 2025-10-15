@@ -205,6 +205,7 @@ Commands:
   submit    Submit a workload to a Domyn-Swarm allocation.
   pool      Submit a pool of swarm allocations from a YAML config.
   init      Initialize a new Domyn-Swarm configuration.
+  swarm     List existing swarms with a compact status view.
 ```
 
 ### `domyn-swarm up`
@@ -274,6 +275,74 @@ domyn-swarm job submit-script \
 * **--config** or **--jobid** (one only)
 * **args…** after `--` are forwarded to your script
 
+### `domyn-swarm status`
+
+Show a detailed, single‑swarm status view: phase, endpoint link, HTTP health, and backend diagnostics (e.g., Slurm replica/LB or Lepton raw state). Designed to use your terminal’s full width.
+
+**Usage**
+
+```bash
+# Describe a specific swarm’s live status
+domyn-swarm status --name <swarm-name>
+```
+
+**What it does**
+
+* Resolves the swarm from the state DB
+* Queries the serving backend for live status
+
+> Tip: Status is about *runtime health*. For a static config overview use `domyn-swarm swarm describe` (when available) or inspect the state file.
+
+---
+
+### `domyn-swarm swarm list`
+
+List all known swarms in a compact table with phase, endpoint, and quick notes. Great for an at‑a‑glance view across environments.
+
+**Usage**
+
+```bash
+# Probe live status (default): shows HTTP and quick backend notes
+domyn-swarm swarm list
+
+# Faster: skip HTTP/LB probing and show only cached info
+domyn-swarm swarm list --no-probe
+```
+
+**Columns**
+
+* **Name** – swarm identifier from the state DB
+* **Backend** – slurm / lepton (or other platforms)
+* **Phase** – normalized serving phase (e.g., RUNNING, PENDING)
+* **Endpoint** – URL (clickable in supported terminals)
+* **Notes** – brief diagnostics (HTTP 200, `rep=` / `lb=` / `raw_state=`)
+
+**Behavior**
+
+* With `--probe` (default), each swarm is queried for fresh status (slightly slower)
+* With `--no-probe`, output uses cached values only (fastest)
+
+
+### `domyn-swarm init defaults`
+
+Speed up config authoring by pre‑filling common values with an interactive defaults file. Run:
+
+```bash
+domyn-swarm init defaults
+```
+
+You’ll be prompted for things like **Slurm** partition/account/QoS, endpoint **nginx image** and port, polling interval, and (optionally) **Lepton** workspace and images. The answers are saved to:
+
+* `~/.domyn_swarm/defaults.yaml` (default), or a custom path with `-o/--output`.
+
+At runtime, Domyn‑Swarm resolves settings with this precedence:
+
+1. **CLI / YAML config** (highest)
+2. **defaults.yaml** (from `init defaults`)
+3. **Built‑in defaults** (lowest)
+
+You can re‑run `init defaults` any time; use `--force` to overwrite an existing file. Individual values can still be overridden per‑swarm in your YAML (e.g., switch the `partition`, `qos`, or `nginx_image` for one deployment while keeping sensible defaults for the rest).
+
 ---
 
 ### Core Configuration: `DomynLLMSwarmConfig`
@@ -333,6 +402,39 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **nginx_timeout**      | `str \| int` | "60s" | HTTP timeout for NGINX proxy requests to model replicas. |
 | **port**           | `int` | `9000`       | External port exposed by the NGINX load balancer. |
 | **poll_interval**  | `int` | `10` | Seconds between status checks while waiting for the load balancer to become ready. |
+
+
+#### Using Singularity on Slurm
+
+In the current implementation of domyn-swarm, we use Singularity as container engine
+If your cluster uses Singularity, you can build the required images from the definition files under `examples/singularity_images/` and point your config to the resulting `.sif` paths.
+
+**Build the images** (on a machine with `sudo` *or* using `--fakeroot` if enabled):
+
+```bash
+# NGINX load balancer image
+singularity build nginx.sif examples/singularity_images/nginx.def
+
+# vLLM runtime image
+singularity build vllm.sif examples/singularity_images/vllm.def
+```
+
+**Reference the images in your YAML:**
+
+```yaml
+model: "deepseek-ai/DeepSeek-R1-0528"  # Whatever model you want to deploy
+image: /shared/images/vllm.sif         # vLLM container used on Slurm (optional if you run venv)
+backend:
+  type: slurm
+  endpoint:
+    nginx_image: /shared/images/nginx.sif  # required for the LB
+```
+
+**Notes**
+
+* Place `.sif` files on a shared, readable path for all compute nodes.
+* Ensure Singularity is available on execution nodes.
+* If your site disables `--fakeroot`, build with admin privileges on a workstation and copy the `.sif` to the shared filesystem.
 
 
 #### LeptonConfig
@@ -413,7 +515,7 @@ Environment variables use the prefix `DOMYN_SWARM_` (case-insensitive) **unless 
 | Name                    | Type                     | Purpose                                                              |
 | ----------------------- | ------------------------ | -------------------------------------------------------------------- |
 | `DOMYN_SWARM_LOG_LEVEL` | string                   | Global logging level (e.g., `DEBUG`, `INFO`, `WARNING`).             |
-| `DOMYN_SWARM_HOME`      | path                     | Home/state directory for domyn‑swarm files (e.g., `~/.domyn_swarm`). |
+| `DOMYN_SWARM_HOME`      | path                     | Home/state directory for domyn‑swarm files (defaults to `~/.domyn_swarm`). |
 | `DOMYN_SWARM_DEFAULTS`  | path (optional)          | Path to YAML with overridable defaults used by the defaults loader (e.g. `~/.domyn_swarm/defaults.yaml`).  |
 | `API_TOKEN`             | secret string (optional) | API token to authenticate with the vLLM‑compatible server.           |
 | `DOMYN_SWARM_MAIL_USER` | string (optional)        | Email address for Slurm job notifications.                           |

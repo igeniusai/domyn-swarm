@@ -1,0 +1,20 @@
+Bootstrap: docker
+From: vllm/vllm-openai:v0.10.1.1
+
+%post
+    echo "Minimal reusable VLLM container built."
+    /usr/bin/python3 -m pip install "ray[default]==2.48.0"
+
+%labels
+    Author Federico D'Ambrosio
+    Version 1.0
+
+# This one is used by `singularity run …` or by `instance run …`
+%runscript
+    #!/bin/bash
+    exec ray start "$@"
+
+# This one is used by `singularity instance start …`
+%startscript
+    #!/bin/bash
+    exec ray start "$@"
