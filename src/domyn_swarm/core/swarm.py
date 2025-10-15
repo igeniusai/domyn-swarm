@@ -271,10 +271,16 @@ class DomynLLMSwarm(BaseModel):
         handle = self._deployment.up(
             self.name, serving_spec, timeout_s=self.cfg.wait_endpoint_s
         )
+        # We save the handle before waiting to be ready, so we can clean up
+        self.serving_handle = handle
+        handle = self._deployment.wait_ready(timeout_s=self.cfg.wait_endpoint_s)
+
+        # Update the handle and deployment with the ready state
         self.serving_handle = handle
         self.endpoint = handle.url
         self._deployment.compute = self._make_compute_backend(handle)
 
+        # Persist the state after successful deployment
         self._persist(self.name)
 
         return self

@@ -24,9 +24,7 @@ from ..cli.pool import pool_app
 from ..cli.tui import render_status
 from ..config.swarm import _load_swarm_config
 from ..core.state import SwarmStateManager
-from ..core.swarm import (
-    _start_swarm,
-)
+from ..core.swarm import DomynLLMSwarm
 from ..helpers.logger import setup_logger
 from ..utils.version import get_version
 from .job import job_app
@@ -85,7 +83,24 @@ def launch_up(
     ] = None,
 ):
     cfg = _load_swarm_config(config, replicas=replicas)
-    _start_swarm(cfg, reverse_proxy=reverse_proxy)
+    swarm_ctx = DomynLLMSwarm(cfg=cfg)
+    try:
+        with swarm_ctx as _:
+            ...
+    except KeyboardInterrupt:
+        abort = typer.confirm(
+            "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
+        )
+        if abort:
+            try:
+                swarm_ctx.down()
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
+                pass
+            typer.echo("Swarm allocation cancelled by user")
+            raise typer.Abort()
+        else:
+            typer.echo(f"Waiting for swarm {swarm_ctx.name}…")
 
 
 @app.command(

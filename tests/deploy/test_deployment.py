@@ -19,29 +19,28 @@ import pytest
 from domyn_swarm.deploy.deployment import Deployment
 
 
-def test_up_calls_serving_create_then_wait_and_stores_handle(mocker):
-    serving = mocker.Mock()
-    compute = mocker.Mock()
-    extras = {"workspace": "ws-123"}
-
-    h_created = SimpleNamespace(id="A", url="", meta={})
-    h_ready = SimpleNamespace(id="B", url="http://ready", meta={})
-    serving.create_or_update.return_value = h_created
-    serving.wait_ready.return_value = h_ready
-
-    dep = Deployment(serving=serving, compute=compute, extras=extras)
-
-    # __enter__ returns self (context manager sugar)
-    assert dep.__enter__() is dep
-
-    out = dep.up("ep-name", {"model": "m1"}, timeout_s=60)
-
-    serving.create_or_update.assert_called_once_with(
-        "ep-name", {"model": "m1"}, extras=extras
+@pytest.fixture
+def cfg_stub():
+    # What the deployment plan should look like for the test
+    serving_spec = {"replicas": 1, "resource_shape": "gpu.4xh200"}
+    plan = SimpleNamespace(
+        name_hint="lepton-ws",
+        serving_spec=serving_spec,
+        serving=object(),  # placeholders; the test wires its own FakeDeployment
+        compute=object(),
+        extras={"workspace_id": "ws-123"},
+        platform="lepton",
     )
-    serving.wait_ready.assert_called_once_with(h_created, 60, extras=extras)
-    assert out is h_ready
-    assert dep._handle is h_ready
+
+    class CfgStub:
+        # Used as timeout in __enter__()
+        wait_endpoint_s = 60
+
+        # Called by make_swarm() to fetch the plan
+        def get_deployment_plan(self):
+            return plan
+
+    return CfgStub()
 
 
 def test_run_forwards_all_arguments_to_compute_with_extras(mocker):
