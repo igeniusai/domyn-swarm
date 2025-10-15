@@ -66,27 +66,72 @@ def test_cli_version_short(monkeypatch):
     assert result.stdout.strip() == "1.2.3"
 
 
-def test_cli_up_requires_config(tmp_path, monkeypatch):
+def test_cli_up_requires_config(tmp_path, mocker):
+    # Arrange
     config = tmp_path / "config.yaml"
     config.write_text("fake_yaml: true")
 
-    def dummy_load_config(*args, **kwargs):
-        class DummyCfg:
-            replicas = 1
-
-        return DummyCfg()
-
-    def dummy_start_swarm(cfg, reverse_proxy):
-        assert cfg.replicas == 1
-        assert reverse_proxy is False
+    class DummyCfg:
+        replicas = 1
 
     from domyn_swarm.cli import main
 
-    monkeypatch.setattr(main, "_load_swarm_config", dummy_load_config)
-    monkeypatch.setattr(main, "_start_swarm", dummy_start_swarm)
+    # Patch the loader to return a single known instance
+    cfg_instance = DummyCfg()
+    load_mock = mocker.patch.object(
+        main, "_load_swarm_config", return_value=cfg_instance
+    )
 
-    result = runner.invoke(app, ["up", "-c", str(config)])
-    assert result.exit_code == 0
+    # Patch DomynLLMSwarm as a context manager
+    fake_swarm = mocker.MagicMock()
+    fake_swarm.__enter__.return_value = fake_swarm
+    fake_swarm.__exit__.return_value = None
+    swarm_cls = mocker.patch.object(main, "DomynLLMSwarm", return_value=fake_swarm)
+
+    runner = CliRunner()
+
+    # Act
+    result = runner.invoke(main.app, ["up", "-c", str(config)])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+
+    load_mock.assert_called_once()
+    # Default replicas should be None when not passed
+    assert load_mock.call_args.kwargs.get("replicas") is None
+
+    swarm_cls.assert_called_once()
+    # Either check type:
+    assert isinstance(swarm_cls.call_args.kwargs["cfg"], DummyCfg)
+    # Or check identity with the exact object returned by the loader:
+    assert swarm_cls.call_args.kwargs["cfg"] is cfg_instance
+
+    # Context manager was used
+    assert fake_swarm.__enter__.called
+    assert fake_swarm.__exit__.called
+
+
+@pytest.mark.parametrize("replicas", [1, 3, 8])
+def test_cli_up_passes_replicas_override(tmp_path, mocker, replicas):
+    config = tmp_path / "config.yaml"
+    config.write_text("fake_yaml: true")
+
+    class DummyCfg:
+        pass
+
+    from domyn_swarm.cli import main
+
+    load_mock = mocker.patch.object(main, "_load_swarm_config", return_value=DummyCfg())
+    fake_swarm = mocker.MagicMock()
+    fake_swarm.__enter__.return_value = fake_swarm
+    fake_swarm.__exit__.return_value = None
+    mocker.patch.object(main, "DomynLLMSwarm", return_value=fake_swarm)
+
+    runner = CliRunner()
+    result = runner.invoke(main.app, ["up", "-c", str(config), "-r", str(replicas)])
+
+    assert result.exit_code == 0, result.output
+    assert load_mock.call_args.kwargs.get("replicas") == replicas
 
 
 def _reload_cli_with_fake_state_manager(mocker):

@@ -90,6 +90,12 @@ class FakeDeployment:
     def ensure_ready(self):
         self.ensure_ready_calls += 1
 
+    def wait_ready(self, timeout_s):
+        self.ensure_ready_calls += 1
+        return SimpleNamespace(
+            id="ready", url="http://ready:9000", meta={"name": "ready"}
+        )
+
 
 class FakeComputeBackend:
     def __init__(self):
@@ -196,7 +202,7 @@ def make_swarm(cfg):
 def test_enter_sets_endpoint_persists_and_sets_compute(cfg_stub):
     swarm = make_swarm(cfg_stub)
     with swarm as s:
-        assert s.endpoint == "http://host:9000"
+        assert s.endpoint == "http://ready:9000"
         assert isinstance(s.serving_handle, SimpleNamespace)
         # Deployment was called with a sanitized name
         name, spec, timeout_s = swarm._deployment.up_calls[-1]  # type: ignore[attr-defined]
@@ -271,7 +277,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     assert pid == 4321
 
     # Ensure ensure_ready was invoked
-    assert dep.ensure_ready_calls == 1
+    assert dep.ensure_ready_calls == 2
 
     # Inspect last run call
     call = dep.run_calls[-1]
