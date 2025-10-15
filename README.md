@@ -283,7 +283,7 @@ Show a detailed, single‑swarm status view: phase, endpoint link, HTTP health, 
 
 ```bash
 # Describe a specific swarm’s live status
-domyn-swarm status --name <swarm-name>
+domyn-swarm status <swarm-name>
 ```
 
 **What it does**
@@ -360,7 +360,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **nodes**                     | `int`          | `math.ceil(replicas / replicas_per_node)` or `math.ceil((replicas * gpus_per_replica) / gpus_per_node)` for multi-gpu multi-node clusters                                          | Worker nodes per replica (one vLLM server per node).                                                                                         |                                                                   |
 | **cpus\_per\_task**           | `int`          | `32 // replicas_per_node` or `32` for multi-gpu multi-node clusters                                   | vCPUs reserved per SLURM task.                                                                                                               |
 | **replicas\_per\_node**       | `int`          | `gpus_per_node // gpus_per_replica` if `gpus_per_replica` <= `gpus_per_node` else `None` | How many model instances can share the same node (you won't need to set this unless you want multiple replicas per GPU, e.g. 2 replicas for each gpu) |
-| **image**               | `str          \| pathlib.Path`                               | `null`                                                                                   | Can be either the path to a Singularity Image to be used with a Slurm backend or a docker image, used with                                 |
+| **image**               | `str          \| pathlib.Path`                               | `null`                                                                                   | Can be either the path to a Singularity Image to be used with a Slurm backend or a docker image, used with Lepton                                 |
 | **args**                | `str`          | `""`                                         | Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server …`.                                                         |                                                                   |
 | **port**                | `int`          | `8000`                                       | Port where each worker’s OpenAI-compatible API listens.                                                                                      |                                                                   |
 | **home\_directory**           | `pathlib.Path` | value of `DOMYN_SWARM_HOME`                            | Root folder for swarm state (auto-generated inside CWD).                                                                                     |                                                                   |
