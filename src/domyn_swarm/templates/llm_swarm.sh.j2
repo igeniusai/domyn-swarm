@@ -36,6 +36,13 @@ module load cuda/12.6
 ###############################################################################
 export VLLM_IMAGE="{{ cfg.image }}"
 export HF_HOME="{{ cfg.env.HF_HOME }}"
+
+# User-defined environment variables (to be passed to Singularity)
+{% for k, v in (cfg.env | default({}, true)).items() -%}
+{% set KEY = k|upper|replace('-', '_') %}
+export SINGULARITYENV_{{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
+{% endfor -%}
+
 export REPLICAS={{ cfg.replicas }}
 export GPUS_PER_REPLICA={{ cfg.gpus_per_replica }}
 {% if not cfg.backend.requires_ray %}
@@ -44,8 +51,6 @@ export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
 export HF_HUB_OFFLINE=1
 export PYTHONNOUSERSITE=1
 export RAY_CGRAPH_get_timeout=1200
-export TORCH_CUDA_ARCH_LIST="8.0"
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 
 # Calculated variables
