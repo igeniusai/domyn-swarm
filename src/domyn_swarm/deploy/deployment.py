@@ -48,7 +48,14 @@ class Deployment:
     def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
         """Create and wait for a serving endpoint to be ready."""
         handle = self.serving.create_or_update(name, serving_spec, extras=self.extras)
-        handle = self.serving.wait_ready(handle, timeout_s, extras=self.extras)
+        self._handle = handle
+        return handle
+
+    def wait_ready(self, timeout_s: int) -> ServingHandle:
+        """Wait for the current serving endpoint to be ready."""
+        if self._handle is None:
+            raise RuntimeError("No serving handle to wait for readiness")
+        handle = self.serving.wait_ready(self._handle, timeout_s, extras=self.extras)
         self._handle = handle
         return handle
 
