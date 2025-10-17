@@ -14,6 +14,7 @@
 
 import io
 import math
+import os
 from typing import Annotated, Any, Optional
 
 import yaml
@@ -76,6 +77,10 @@ class DomynLLMSwarmConfig(BaseModel):
         default_factory=lambda: utils.EnvPath(get_settings().home),
         description="Home directory where logs and state are stored",
     )
+    swarm_directory: utils.EnvPath = Field(
+        description="Directory where swarm-related files are stored",
+        default_factory=lambda data: data["home_directory"] / "swarms" / data["name"],
+    )
 
     backend: BackendConfig | None = Field(
         description="Backend configuration for the swarm",
@@ -83,6 +88,21 @@ class DomynLLMSwarmConfig(BaseModel):
     _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
+
+    def model_post_init(self, context):
+        # Create all necessary directories
+        swarm_directory = self.swarm_directory / "serving"
+        job_directory = self.swarm_directory / "jobs"
+        checkpoint_directory = self.swarm_directory / "checkpoints"
+        log_directory = self.swarm_directory / "logs"
+
+        os.makedirs(swarm_directory, exist_ok=True)
+        os.makedirs(job_directory, exist_ok=True)
+        os.makedirs(checkpoint_directory, exist_ok=True)
+        os.makedirs(log_directory / "endpoint", exist_ok=True)
+        os.makedirs(log_directory / "replicas", exist_ok=True)
+        os.makedirs(log_directory / "slurm", exist_ok=True)
+        return super().model_post_init(context)
 
     @model_validator(mode="after")
     def _resolve_platform_from_backends(self):

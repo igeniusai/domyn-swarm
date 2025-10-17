@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import subprocess
 import tempfile
 from typing import Any
@@ -59,7 +58,6 @@ class SlurmDriver:
             fh.write(script_txt)
             script_path = fh.name
 
-        os.makedirs(self.cfg.backend.log_directory / job_name, exist_ok=True)
         sbatch_cmd = ["sbatch", "--parsable", "--export=ALL"]
         array_spec = None
         if self.cfg.backend.requires_ray:
@@ -83,7 +81,6 @@ class SlurmDriver:
             f"Submitted replicas job {job_id} with command: {' '.join(sbatch_cmd)}"
         )
 
-        os.makedirs(self.cfg.backend.home_directory / "swarms" / job_id, exist_ok=True)
         return int(job_id)
 
     def submit_endpoint(self, job_name: str, dep_jobid: int, replicas: int) -> int:
