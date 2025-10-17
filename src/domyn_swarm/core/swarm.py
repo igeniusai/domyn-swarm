@@ -15,6 +15,7 @@
 import importlib
 import json
 import logging
+import os
 import uuid
 import warnings
 from pathlib import Path
@@ -27,6 +28,7 @@ from pydantic import (
     computed_field,
 )
 
+from domyn_swarm import utils
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.slurm import SlurmConfig
@@ -41,6 +43,7 @@ from domyn_swarm.platform.protocols import ServingHandle, ServingPhase, ServingS
 from ..core.state import SwarmStateManager
 
 logger = setup_logger(__name__, level=logging.INFO)
+settings = get_settings()
 
 
 class DomynLLMSwarm(BaseModel):
@@ -214,7 +217,7 @@ class DomynLLMSwarm(BaseModel):
     cfg: DomynLLMSwarmConfig
     name: str = Field(
         default_factory=lambda data: data.get(
-            "name", generate_swarm_name(data["cfg"].name)
+            "name", generate_swarm_name(data["cfg"].name, data["cfg"].backend.type)
         ),
         description="Unique name for this swarm deployment",
     )
@@ -226,6 +229,12 @@ class DomynLLMSwarm(BaseModel):
         None  # ServingHandle, set after deployment
     )
     _platform: str = PrivateAttr("")
+    swarm_dir: utils.EnvPath = Field(
+        description="Directory where swarm-related files are stored",
+        default_factory=lambda data: data["cfg"].home_directory
+        / "swarms"
+        / data["name"],
+    )
 
     @computed_field
     @property
@@ -246,6 +255,19 @@ class DomynLLMSwarm(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         """Post-init to set up the deployment backend."""
+
+        swarm_dirs = [
+            self.swarm_dir,
+            self.swarm_dir / "serving",
+            self.swarm_dir / "jobs",
+            self.swarm_dir / "checkpoints",
+            self.swarm_dir / "logs" / "endpoint",
+            self.swarm_dir / "logs" / "replicas",
+            self.swarm_dir / "logs" / "slurm",
+        ]
+        for d in swarm_dirs:
+            os.makedirs(d, exist_ok=True)
+
         self._cleaned = False
         self._state_mgr = SwarmStateManager(self)
 
@@ -261,11 +283,10 @@ class DomynLLMSwarm(BaseModel):
     def __enter__(self):
         assert self._deployment is not None
 
-        serving_spec = dict(self._plan.serving_spec)
-        name_hint = self._plan.name_hint
+        serving_spec = dict(self._plan.serving_spec, swarm_directory=self.swarm_dir)
 
         logger.info(
-            f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform} ({name_hint})..."
+            f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}..."
         )
 
         handle = self._deployment.up(
@@ -425,7 +446,6 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             exe.append(f"--limit={limit}")
 
-        settings = get_settings()
         token = (
             settings.api_token
             or settings.vllm_api_key

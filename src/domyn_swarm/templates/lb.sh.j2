@@ -14,13 +14,13 @@
 #SBATCH --mem={{ cfg.backend.endpoint.mem }}
 #SBATCH --threads-per-core={{ cfg.backend.endpoint.threads_per_core }}
 #SBATCH --time={{ cfg.backend.endpoint.wall_time }}
-#SBATCH --output={{ cfg.swarm_directory }}/logs/endpoint/lb.out
-#SBATCH --error={{ cfg.swarm_directory }}/logs/endpoint/lb.err
+#SBATCH --output={{ swarm_directory }}/logs/endpoint/lb.out
+#SBATCH --error={{ swarm_directory }}/logs/endpoint/lb.err
 
 set -eu
 REPLICAS={{ replicas }}
 HOME_DIR="{{ cfg.backend.home_directory }}"
-HOST_DIR="{{ cfg.swarm_directory }}"
+HOST_DIR="{{ swarm_directory }}"
 WAIT_SEC={{ cfg.lb_wait | default(600) }}
 NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"

@@ -14,7 +14,6 @@
 
 import io
 import math
-import os
 from typing import Annotated, Any, Optional
 
 import yaml
@@ -33,6 +32,9 @@ from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.helpers.io import to_path
+from domyn_swarm.helpers.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class DomynLLMSwarmConfig(BaseModel):
@@ -40,7 +42,7 @@ class DomynLLMSwarmConfig(BaseModel):
     model: str
     name: Annotated[
         str,
-        StringConstraints(strip_whitespace=True, to_lower=True, max_length=24),
+        StringConstraints(strip_whitespace=True, to_lower=True, max_length=38),
     ]
     revision: str | None = None
 
@@ -77,10 +79,6 @@ class DomynLLMSwarmConfig(BaseModel):
         default_factory=lambda: utils.EnvPath(get_settings().home),
         description="Home directory where logs and state are stored",
     )
-    swarm_directory: utils.EnvPath = Field(
-        description="Directory where swarm-related files are stored",
-        default_factory=lambda data: data["home_directory"] / "swarms" / data["name"],
-    )
 
     backend: BackendConfig | None = Field(
         description="Backend configuration for the swarm",
@@ -88,21 +86,6 @@ class DomynLLMSwarmConfig(BaseModel):
     _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
-
-    def model_post_init(self, context):
-        # Create all necessary directories
-        swarm_directory = self.swarm_directory / "serving"
-        job_directory = self.swarm_directory / "jobs"
-        checkpoint_directory = self.swarm_directory / "checkpoints"
-        log_directory = self.swarm_directory / "logs"
-
-        os.makedirs(swarm_directory, exist_ok=True)
-        os.makedirs(job_directory, exist_ok=True)
-        os.makedirs(checkpoint_directory, exist_ok=True)
-        os.makedirs(log_directory / "endpoint", exist_ok=True)
-        os.makedirs(log_directory / "replicas", exist_ok=True)
-        os.makedirs(log_directory / "slurm", exist_ok=True)
-        return super().model_post_init(context)
 
     @model_validator(mode="after")
     def _resolve_platform_from_backends(self):
@@ -168,7 +151,12 @@ class DomynLLMSwarmConfig(BaseModel):
                 cpus_per_task = 32
 
         # Requires Ray?
-        requires_ray = gpus_per_replica >= gpus_per_node and nodes > 1
+        requires_ray = gpus_per_replica > gpus_per_node and nodes > 1
+
+        if requires_ray and gpus_per_replica % gpus_per_node != 0:
+            raise ValueError(
+                "When gpus_per_replica > gpus_per_node, gpus_per_replica must be a multiple of gpus_per_node"
+            )
 
         # Fill computed fields
         data["replicas_per_node"] = replicas_per_node

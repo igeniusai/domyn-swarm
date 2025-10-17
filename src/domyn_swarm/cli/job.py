@@ -85,8 +85,8 @@ def submit_job(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
     name: Optional[str] = typer.Option(None, "-n", "--name", help="Swarm name."),
-    checkpoint_dir: Path = typer.Option(
-        ".checkpoints/",
+    checkpoint_dir: Path | None = typer.Option(
+        None,
         "--checkpoint-dir",
         "-cd",
         help="Directory to store checkpoints (default: .checkpoint/, no checkpoints)",
@@ -158,6 +158,11 @@ def submit_job(
         swarm_ctx = DomynLLMSwarm(cfg=cfg)
         try:
             with swarm_ctx as swarm:
+                checkpoint_dir = (
+                    swarm.swarm_dir / "checkpoints"
+                    if checkpoint_dir is None
+                    else checkpoint_dir
+                )
                 job = _load_job(
                     job_class,
                     job_kwargs,
@@ -199,6 +204,11 @@ def submit_job(
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
+        checkpoint_dir = (
+            swarm.swarm_dir / "checkpoints"
+            if checkpoint_dir is None
+            else checkpoint_dir
+        )
         job = _load_job(
             job_class,
             job_kwargs,

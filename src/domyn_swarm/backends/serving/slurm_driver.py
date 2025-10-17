@@ -37,6 +37,7 @@ class SlurmDriver:
         gpus_per_node: int,
         gpus_per_replica: int,
         replicas_per_node: int,
+        swarm_directory: str,
     ) -> int:
         """Submit the replica array job to Slurm.
         Returns the job ID of the submitted job."""
@@ -52,6 +53,7 @@ class SlurmDriver:
             path_exists=path_exists,
             is_folder=is_folder,
             cuda_visible_devices=get_device_slices(gpus_per_node, gpus_per_replica),
+            swarm_directory=swarm_directory,
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
@@ -61,6 +63,10 @@ class SlurmDriver:
         sbatch_cmd = ["sbatch", "--parsable", "--export=ALL"]
         array_spec = None
         if self.cfg.backend.requires_ray:
+            if self.cfg.backend.requires_ray:
+                logger.info(
+                    "Detected gpus_per_replica > gpus_per_node with multiple nodes: enabling Ray support."
+                )
             array_spec = f"0-{replicas - 1}%{replicas}"
             # In this case, the nodes are the total number of nodes to be allocated
             # So we divide by replicas to get the number of nodes per array task
@@ -83,7 +89,9 @@ class SlurmDriver:
 
         return int(job_id)
 
-    def submit_endpoint(self, job_name: str, dep_jobid: int, replicas: int) -> int:
+    def submit_endpoint(
+        self, job_name: str, dep_jobid: int, replicas: int, swarm_directory: str
+    ) -> int:
         """Submit the load balancer job to Slurm with a dependency on the replica array job."""
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
@@ -92,7 +100,11 @@ class SlurmDriver:
             lstrip_blocks=True,
         )
         lb_script_txt = env.get_template("lb.sh.j2").render(
-            cfg=self.cfg, job_name=job_name, dep_jobid=dep_jobid, replicas=replicas
+            cfg=self.cfg,
+            job_name=job_name,
+            dep_jobid=dep_jobid,
+            replicas=replicas,
+            swarm_directory=swarm_directory,
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:

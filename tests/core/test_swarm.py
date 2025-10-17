@@ -54,6 +54,7 @@ class FakeDeployment:
         self.ensure_ready_calls = 0
 
     def up(self, name, spec, timeout_s):
+        spec = {k: str(v) for k, v in spec.items()}  # make a copy
         self.up_calls.append((name, json.loads(json.dumps(spec)), timeout_s))
         # Return a ServingHandle-like object (the code only needs .id, .url, .meta)
         return SimpleNamespace(id=name, url="http://host:9000", meta={"name": name})
@@ -158,13 +159,14 @@ def patch_to_path(monkeypatch):
 
 
 @pytest.fixture
-def cfg_stub():
+def cfg_stub(tmp_path):
     # Minimal cfg: must provide .model, .wait_endpoint_s, .get_deployment_plan(), and optional .backend.env
     stub = SimpleNamespace(
         name="name",
         model="m1",
         wait_endpoint_s=30,
         backend=SimpleNamespace(env={"X": "Y"}),
+        home_directory=tmp_path,
     )
     stub.get_deployment_plan = lambda: FakePlan(platform="lepton")
     return stub
@@ -207,7 +209,9 @@ def test_enter_sets_endpoint_persists_and_sets_compute(cfg_stub):
         # Deployment was called with a sanitized name
         name, spec, timeout_s = swarm._deployment.up_calls[-1]  # type: ignore[attr-defined]
         assert timeout_s == cfg_stub.wait_endpoint_s
-        assert spec == {"replicas": 1, "resource_shape": "gpu.4xh200"}
+        assert spec["replicas"] == "1"
+        assert spec["resource_shape"] == "gpu.4xh200"
+        assert "swarm_directory" in spec
         # Compute backend set from plan for lepton
         assert s._deployment.compute is s._plan.compute  # type: ignore[attr-defined]
         # State persisted at least once
@@ -349,7 +353,7 @@ def test_from_state_forwards_to_state_manager(monkeypatch, patch_state_mgr):
     assert out.deployment_name == "name"
 
 
-def test_make_compute_backend_slurm_happy_path(monkeypatch):
+def test_make_compute_backend_slurm_happy_path(monkeypatch, tmp_path):
     # Patch SlurmConfig and SlurmComputeBackend in the module so isinstance checks pass
     class _SlurmConfig:
         pass
@@ -366,6 +370,7 @@ def test_make_compute_backend_slurm_happy_path(monkeypatch):
         model="m1",
         wait_endpoint_s=5,
         backend=_SlurmConfig(),
+        home_directory=tmp_path,
     )
     cfg.get_deployment_plan = lambda: FakePlan(platform="slurm")
     swarm = make_swarm(cfg)
@@ -379,14 +384,18 @@ def test_make_compute_backend_slurm_happy_path(monkeypatch):
     assert comp.lb_jobid == 777 and comp.lb_node == "nodeX"
 
 
-def test_make_compute_backend_slurm_missing_meta_raises(monkeypatch):
+def test_make_compute_backend_slurm_missing_meta_raises(monkeypatch, tmp_path):
     class _SlurmConfig:
         pass
 
     monkeypatch.setattr(mod, "SlurmConfig", _SlurmConfig)
 
     cfg = SimpleNamespace(
-        name="", model="m1", wait_endpoint_s=5, backend=_SlurmConfig()
+        name="",
+        model="m1",
+        wait_endpoint_s=5,
+        backend=_SlurmConfig(),
+        home_directory=tmp_path,
     )
     cfg.get_deployment_plan = lambda: FakePlan(platform="slurm")
     swarm = make_swarm(cfg)
