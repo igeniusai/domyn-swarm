@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.status import Status
 
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.http_probe import wait_http_200
 from domyn_swarm.platform.protocols import ServingHandle
 from domyn_swarm.platform.readiness import ServingReadiness
@@ -33,6 +34,8 @@ SLURM_BAD_STATES = {
 }
 
 SLURM_WAIT_STATES = {"PENDING", "CONFIGURING"}
+
+logger = setup_logger(__name__)
 
 
 class SlurmReadiness(ServingReadiness):
@@ -79,7 +82,7 @@ class SlurmReadiness(ServingReadiness):
                 poll_interval_s=self.poll_interval_s,
             )
             handle.url = base
-            self.console.print(f"[bold green]LB healthy → {handle.url}")
+            logger.info(f"[bold green]LB healthy → {handle.url}")
             return handle
 
     def _wait_jobs_running(self, jobid: int, lb_jobid: int, status: Status):

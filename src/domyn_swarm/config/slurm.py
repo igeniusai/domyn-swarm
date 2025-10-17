@@ -98,11 +98,22 @@ class SlurmConfig(BaseModel):
         serving = SlurmServingBackend(driver=driver, cfg=self)
         compute = SlurmComputeBackend(cfg=self, lb_jobid=0, lb_node="")
 
+        serving_spec = self.model_dump(exclude_none=True) | cfg_ctx.model_dump(
+            include={
+                "replicas",
+                "nodes",
+                "gpus_per_replica",
+                "gpus_per_node",
+                "replicas_per_node",
+            },
+            exclude_none=True,
+        )
+
         return DeploymentPlan(
             name_hint="slurm",
             serving=serving,
             compute=compute,
-            serving_spec=self.model_dump(exclude_none=True),
+            serving_spec=serving_spec,
             job_resources={},
             extras={},
             platform="slurm",

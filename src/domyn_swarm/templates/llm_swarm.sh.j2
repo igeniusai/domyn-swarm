@@ -11,16 +11,15 @@
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.backend.partition }}
-#SBATCH --nodes={{ cfg.nodes }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem=0
 #SBATCH --time={{ cfg.backend.time_limit }}
-{% if cfg.exclude_nodes %}
+{% if cfg.backend.exclude_nodes %}
 #SBATCH --exclude={{ cfg.backend.exclude_nodes }}
 {% endif %}
-{% if cfg.node_list %}
+{% if cfg.backend.node_list %}
 #SBATCH --nodelist={{ cfg.backend.node_list | default('') }}
 {% endif %}
 #SBATCH --output={{ cfg.backend.log_directory }}/{{ job_name }}/%x.%j.out
@@ -71,7 +70,7 @@ mkdir -p "$LOG_DIR"
 ###############################################################################
 #  NODE AND PORT CONFIGURATION
 ###############################################################################
-NODES=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
+mapfile -t NODES < <(scontrol show hostnames "$SLURM_JOB_NODELIST")
 HEAD_NODE=${NODES[0]}
 INSTANCE_TAG="{{ job_name }}_${REPL_ID}_head"
 HEAD_PORT="{{ cfg.backend.ray_port }}"
@@ -145,18 +144,36 @@ function wait_for_vllm_ready() {
   done
 }
 
+
 # Start all replicas
 declare -a global_ids=()
 declare -a ports=()
 declare -a hosts=()
 
-for ((i=0; i<REPLICAS; i++)); do
+for ((i=0; i<REPLICAS_PER_NODE; i++)); do
   GLOBAL_ID=$(( GLOBAL_BASE + i ))
+  # If the length of NODES is 1, we are on a single node allocation
+  # so we always use the first node
+  {% raw %}
+  if (( ${#NODES[@]} == 1 )); then
+  {% endraw %}
+    idx=0
+  else
+    idx=$(( GLOBAL_ID / REPLICAS_PER_NODE ))
+  fi
   VLLM_PORT=$(( {{ cfg.port }} + GLOBAL_ID ))
 
   global_ids+=("$GLOBAL_ID")
   ports+=("$VLLM_PORT")
-  hosts+=( "${NODES[$(( GLOBAL_ID / REPLICAS_PER_NODE ))]}" )
+  {% raw %}
+  if [[ -z ${NODES[idx]+_} ]]; then
+    echo "ERROR: NODES[$idx] is unset. NODES has ${#NODES[@]} items. \
+  GLOBAL_ID=$GLOBAL_ID REPLICAS_PER_NODE=$REPLICAS_PER_NODE \
+  SLURM_JOB_NODELIST=${SLURM_JOB_NODELIST:-<unset>}, NODES=$NODES" >&2
+    exit 1
+  fi
+  {% endraw %}
+  hosts+=( "${NODES[idx]}" )
 
   start_vllm_replica "$GLOBAL_ID" "$VLLM_PORT" "${hosts[-1]}"
 done

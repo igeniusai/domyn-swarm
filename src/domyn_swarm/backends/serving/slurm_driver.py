@@ -64,7 +64,10 @@ class SlurmDriver:
         array_spec = None
         if self.cfg.backend.requires_ray:
             array_spec = f"0-{replicas - 1}%{replicas}"
-        elif nodes and nodes >= 1 and replicas > 1:
+            # In this case, the nodes are the total number of nodes to be allocated
+            # So we divide by replicas to get the number of nodes per array task
+            sbatch_cmd.append(f"--nodes={nodes // replicas}")
+        elif nodes and nodes >= 1 and replicas >= 1:
             array_spec = f"0-{nodes - 1}%{nodes}"
             sbatch_cmd.append("--nodes=1")
             sbatch_cmd.append(f"--ntasks-per-node={replicas_per_node}")
@@ -73,10 +76,12 @@ class SlurmDriver:
             sbatch_cmd.extend(["--array", array_spec])
         sbatch_cmd.append(script_path)
 
-        logger.info(f"Submitting job with command: {' '.join(sbatch_cmd)}")
-
         out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
+
+        logger.info(
+            f"Submitted replicas job {job_id} with command: {' '.join(sbatch_cmd)}"
+        )
 
         os.makedirs(self.cfg.backend.home_directory / "swarms" / job_id, exist_ok=True)
         return int(job_id)
@@ -97,18 +102,17 @@ class SlurmDriver:
             fh.write(lb_script_txt)
             script_path = fh.name
 
-        out = subprocess.check_output(
-            [
-                "sbatch",
-                "--parsable",
-                "--dependency",
-                f"after:{dep_jobid}",
-                "--export",
-                f"DEP_JOBID={dep_jobid}",
-                script_path,
-            ],
-            text=True,
-        ).strip()
+        cmd = [
+            "sbatch",
+            "--parsable",
+            "--dependency",
+            f"after:{dep_jobid}",
+            "--export",
+            f"DEP_JOBID={dep_jobid}",
+            script_path,
+        ]
+        out = subprocess.check_output(cmd, text=True).strip()
+        logger.info(f"Submitted load balancer job {out} with command: {' '.join(cmd)}")
         return int(out)
 
     def get_node_from_jobid(self, jobid: int) -> str:
