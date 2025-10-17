@@ -232,7 +232,7 @@ function start_ray_head() {
                 --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.backend.ray_dashboard_port }} --include-dashboard=true
   echo "[head] Singularity instance started: instance://$INSTANCE_TAG"
 
-  ln -s "$HOME/.singularity/instances/$(hostname -f)/logs/$INSTANCE_TAG/$USER" $RAY_LOG_DIR/head
+  ln -s "$HOME/.singularity/instances/logs/$(hostname -f)/$INSTANCE_TAG/$USER" $RAY_LOG_DIR/head
 }
 
 function wait_for_ray_ready() {
