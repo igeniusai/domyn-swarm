@@ -14,36 +14,35 @@
 #SBATCH --mem={{ cfg.backend.endpoint.mem }}
 #SBATCH --threads-per-core={{ cfg.backend.endpoint.threads_per_core }}
 #SBATCH --time={{ cfg.backend.endpoint.wall_time }}
-#SBATCH --output={{ cfg.backend.log_directory }}/lb_%j.out
-#SBATCH --error={{ cfg.backend.log_directory }}/lb_%j.err
+#SBATCH --output={{ swarm_directory }}/logs/endpoint/lb.out
+#SBATCH --error={{ swarm_directory }}/logs/endpoint/lb.err
 
 set -eu
 REPLICAS={{ replicas }}
 HOME_DIR="{{ cfg.backend.home_directory }}"
-HOST_DIR="${HOME_DIR}/swarms"
+HOST_DIR="{{ swarm_directory }}"
 WAIT_SEC={{ cfg.lb_wait | default(600) }}
 NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
 PORT={{ cfg.backend.endpoint.port }}
 
 
-###############################################################################
-#  Everything from here uses Bash ${} that would confuse Jinja:
-#  wrap it in a raw block so Jinja leaves it alone.
-###############################################################################
-{% raw %}
-
 echo "[lb] waiting for $REPLICAS head files from job $DEP_JOBID"
 
 t0=$(date +%s)
 files=()
 while true; do
-    files=( $(ls "$HOST_DIR/${DEP_JOBID}/"*".head" 2>/dev/null || true) )
+    # TODO: Update correct path
+    files=( $(ls "$HOST_DIR/serving/"*".head" 2>/dev/null || true) )
+    {% raw %}
     if (( ${#files[@]} == REPLICAS )); then
         break
     fi
+    {% endraw %}
     if (( $(date +%s) - t0 > WAIT_SEC )); then
+    {% raw %}
         echo "[lb] timeout: only ${#files[@]}/$REPLICAS replicas became healthy" >&2
+    {% endraw %}
         exit 1
     fi
     sleep 5
@@ -57,9 +56,6 @@ for f in "${files[@]}"; do
     upstreams+="    server $addr;\n"
 done
 
-{% endraw %}
-
-mkdir -p "{{ cfg.backend.log_directory }}/$DEP_JOBID/"
 
 {
     echo "pid /tmp/nginx.pid;"
@@ -74,7 +70,8 @@ mkdir -p "{{ cfg.backend.log_directory }}/$DEP_JOBID/"
     echo "  }"
 
     {% if cfg.backend.requires_ray %}
-    ray_host=$(sed -n '1s/:.*//p' "$HOST_DIR/${DEP_JOBID}/0.head")
+    # TODO: support multiple ray heads
+    ray_host=$(sed -n '1s/:.*//p' "$HOST_DIR/serving/replica-0.head")
     echo "  upstream ray {"
     echo "    server $ray_host:{{ cfg.backend.ray_dashboard_port }};"
     echo "    keepalive 8;"
@@ -138,15 +135,15 @@ mkdir -p "{{ cfg.backend.log_directory }}/$DEP_JOBID/"
   }
 }
 CONF
-} > $HOST_DIR/${DEP_JOBID}/nginx.conf
+} > $HOST_DIR/serving/nginx.conf
 
 CACHE_DIR="$TMPDIR/cache"
 mkdir -p "$CACHE_DIR"
 
 singularity instance start --writable-tmpfs \
-    -B "$HOST_DIR/${DEP_JOBID}/nginx.conf":/etc/nginx/nginx.conf:ro \
+    -B "$HOST_DIR/serving/nginx.conf":/etc/nginx/nginx.conf:ro \
     -B "$CACHE_DIR":/var/cache/nginx \
-    -B {{ cfg.backend.log_directory }}/$DEP_JOBID:/var/log/nginx \
+    -B "$HOST_DIR/logs/endpoint:/var/log/nginx" \
     "$NGINX_IMG" "$INSTANCE_NAME"
 
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM

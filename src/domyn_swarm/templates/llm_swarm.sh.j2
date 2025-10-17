@@ -22,8 +22,8 @@
 {% if cfg.backend.node_list %}
 #SBATCH --nodelist={{ cfg.backend.node_list | default('') }}
 {% endif %}
-#SBATCH --output={{ cfg.backend.log_directory }}/{{ job_name }}/%x.%j.out
-#SBATCH --error={{ cfg.backend.log_directory }}/{{ job_name }}/%x.%j.err
+#SBATCH --output={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.out
+#SBATCH --error={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.err
 
 set -euo pipefail
 
@@ -63,7 +63,8 @@ REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
 {% if not cfg.backend.requires_ray %}
 GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
 {% endif %}
-export LOG_DIR={{ cfg.backend.log_directory }}/{{ job_name }}/${REPL_JOB_ID}/${REPL_ID}
+export SWARM_DIR="{{ swarm_directory }}"
+export LOG_DIR={{ swarm_directory }}/logs/replicas/replica-${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
 mkdir -p "$LOG_DIR"
 
@@ -79,7 +80,7 @@ REST_PORT="{{ cfg.port }}"
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
 
 # Mount configuration
-export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME"
+export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR"
 {% if is_folder(cfg.model) and path_exists(cfg.model) %}
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
@@ -94,7 +95,7 @@ function start_vllm_replica() {
   local global_id=$1
   local port=$2
   local node=$3
-  local log_dir="$LOG_DIR/replica_$global_id"
+  local log_dir="$LOG_DIR/replica-$global_id"
 
   # Map each replica to a distinct contiguous GPU set on the node:
   # replica index on the node (0..(GPUS_PER_NODE/GPUS_PER_REPLICA - 1))
@@ -134,7 +135,7 @@ function wait_for_vllm_ready() {
 
     if [[ $code == 200 ]]; then
       echo "[head] $endpoint is READY ✅"
-      local head_file="{{ cfg.backend.home_directory }}/swarms/${REPL_JOB_ID}/${replica_id}.head"
+      local head_file="{{ swarm_directory }}/serving/replica-${replica_id}.head"
       echo "$endpoint" > "$head_file"
       break
     fi
@@ -217,16 +218,28 @@ export NCCL_IB_CUDA_SUPPORT=1
 export NCCL_IB_GDR_LEVEL=SYS
 export NCCL_P2P_LEVEL=NVL
 export NCCL_CUMEM_ENABLE=1
+RAY_LOG_DIR="$LOG_DIR/ray"
 
 function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
-  echo "VLLM_HOST_IP=$VLLM_HOST_IP" > {{ cfg.backend.log_directory }}/{{ job_name }}/${REPL_ID}.env
+  REPLICA_ENV={{ swarm_directory }}/serving/replica-${REPL_ID}.env
+  echo "VLLM_HOST_IP=$VLLM_HOST_IP" > $REPLICA_ENV
 
   singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
-                --env-file {{ cfg.backend.log_directory }}/{{ job_name }}/${REPL_ID}.env \
+                --env-file $REPLICA_ENV \
                 --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
                 --disable-usage-stats --head --block \
                 --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.backend.ray_dashboard_port }} --include-dashboard=true
+  echo "[head] Singularity instance started: instance://$INSTANCE_TAG"
+
+  src="$HOME/.singularity/instances/logs/$(hostname -f)/$USER"
+  dst="$RAY_LOG_DIR/head"
+  mkdir -p "$dst"
+
+  find "$src" -maxdepth 1 -type f -name "${INSTANCE_TAG}*" -print0 |
+    while IFS= read -r -d '' f; do
+      ln -sfn "$f" "$dst/$(basename "$f")"
+    done
 }
 
 function wait_for_ray_ready() {
@@ -247,8 +260,8 @@ function start_ray_workers() {
      --nodes=$((SLURM_JOB_NUM_NODES-1)) \
      --ntasks-per-node=1 \
      --exclusive \
-     --error="$LOG_DIR/worker_%t.err" \
-     --output="$LOG_DIR/worker_%t.out" \
+     --error="$RAY_LOG_DIR/workers/worker_%N_%t.err" \
+     --output="$RAY_LOG_DIR/workers/worker_%N_%t.out" \
      bash -c '
        export SINGULARITYENV_VLLM_HOST_IP=$(hostname -I | awk "{print \$1}")
        echo "VLLM_HOST_IP is $SINGULARITYENV_VLLM_HOST_IP"
@@ -274,7 +287,7 @@ function start_vllm_server() {
            --distributed-executor-backend ray \
            {{ cfg.args | default('') }} \
            --port $REST_PORT \
-           >> "$LOG_DIR/vllm_head.log" 2>&1 &
+           >> "$RAY_LOG_DIR/vllm.log" 2>&1 &
 }
 
 function wait_for_vllm_server_ready() {
@@ -294,11 +307,12 @@ function wait_for_vllm_server_ready() {
   done
 
   echo "[head] REST ready → http://$HEAD_NODE:$REST_PORT"
-  local head_file="{{ cfg.backend.home_directory }}/swarms/${SLURM_ARRAY_JOB_ID}/${REPL_ID}.head"
+  local head_file="{{ swarm_directory }}/serving/replica-${REPL_ID}.head"
   echo "$HEAD_NODE:$REST_PORT" > "$head_file"
 }
 
 # Execute multi-node deployment steps
+mkdir -p "$RAY_LOG_DIR/workers"
 start_ray_head
 wait_for_ray_ready
 start_ray_workers

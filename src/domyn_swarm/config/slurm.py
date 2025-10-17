@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -77,17 +76,8 @@ class SlurmConfig(BaseModel):
     mail_user: str | None = None  # Enable email notifications if set
     endpoint: SlurmEndpointConfig = Field(default_factory=SlurmEndpointConfig)
 
-    home_directory: utils.EnvPath = Field(default=utils.EnvPath(get_settings().home))
-
-    log_directory: utils.EnvPath = Field(
-        default_factory=lambda data: data["home_directory"] / "logs"
-    )
     venv_path: utils.EnvPath | None = None
     env: dict[str, str] | None = None  # Additional env vars for all jobs
-
-    def model_post_init(self, context):
-        os.makedirs(self.log_directory, exist_ok=True)
-        return super().model_post_init(context)
 
     def build(self, cfg_ctx) -> DeploymentPlan:
         """Builds the deployment plan for SLURM-based deployments."""

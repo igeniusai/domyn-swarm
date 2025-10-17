@@ -25,6 +25,7 @@ from domyn_swarm.backends.serving.slurm_readiness import (
     SLURM_WAIT_STATES,
     SlurmReadiness,
 )
+from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.platform.protocols import (
     ServingBackend,
@@ -32,6 +33,8 @@ from domyn_swarm.platform.protocols import (
     ServingPhase,
     ServingStatus,
 )
+
+settings = get_settings()
 
 
 @dataclass
@@ -60,10 +63,18 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         gpus_per_replica = spec.get("gpus_per_replica", 1)
         replicas_per_node = spec.get("replicas_per_node", 1)
 
+        swarm_directory = spec.get("swarm_directory", settings.home / "swarms" / name)
+
         jobid = self.driver.submit_replicas(
-            name, replicas, nodes, gpus_per_node, gpus_per_replica, replicas_per_node
+            name,
+            replicas,
+            nodes,
+            gpus_per_node,
+            gpus_per_replica,
+            replicas_per_node,
+            swarm_directory,
         )
-        lb_jobid = self.driver.submit_endpoint(name, jobid, replicas)
+        lb_jobid = self.driver.submit_endpoint(name, jobid, replicas, swarm_directory)
         return ServingHandle(
             id=str(lb_jobid),
             url="",  # filled in wait_ready()

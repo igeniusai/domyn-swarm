@@ -367,6 +367,8 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
         ],
     )
 
+    print(res.output)
+
     assert res.exit_code == 0
     swarm.submit_job.assert_called_once()
     kwargs = swarm.submit_job.call_args.kwargs

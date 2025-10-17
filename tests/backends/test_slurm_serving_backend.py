@@ -28,7 +28,14 @@ class FakeDriver:
         self.calls = {"submit_replicas": None, "submit_endpoint": None}
 
     def submit_replicas(
-        self, name, replicas, nodes, gpus_per_node, gpus_per_replica, replicas_per_node
+        self,
+        name,
+        replicas,
+        nodes,
+        gpus_per_node,
+        gpus_per_replica,
+        replicas_per_node,
+        swarm_directory,
     ):
         self.calls["submit_replicas"] = {
             "name": name,
@@ -37,21 +44,25 @@ class FakeDriver:
             "gpus_per_node": gpus_per_node,
             "gpus_per_replica": gpus_per_replica,
             "replicas_per_node": replicas_per_node,
+            "swarm_directory": swarm_directory,
         }
         return self.submit_jobid
 
-    def submit_endpoint(self, name, jobid, replicas):
+    def submit_endpoint(self, name, jobid, replicas, swarm_directory):
         self.calls["submit_endpoint"] = {
             "name": name,
             "jobid": jobid,
             "replicas": replicas,
+            "swarm_directory": swarm_directory,
         }
         return self.submit_lb_jobid
 
 
-def mk_cfg(port=9000, poll=10):
+def mk_cfg(port=9000, poll=10, swarm_directory=None):
+    if swarm_directory is None:
+        swarm_directory = "/home/user/swarms/my-swarm"
     endpoint = SimpleNamespace(port=port, poll_interval=poll)
-    return SimpleNamespace(endpoint=endpoint)
+    return SimpleNamespace(endpoint=endpoint, swarm_directory=swarm_directory)
 
 
 def serving_handle(jobid=101, lb_jobid=202, lb_node=None, url=""):
@@ -66,9 +77,9 @@ def serving_handle(jobid=101, lb_jobid=202, lb_node=None, url=""):
 # -------------------
 
 
-def test_create_or_update_calls_driver_and_returns_handle():
+def test_create_or_update_calls_driver_and_returns_handle(tmp_path):
     driver = FakeDriver(submit_jobid=101, submit_lb_jobid=202)
-    cfg = mk_cfg(port=9100, poll=7)
+    cfg = mk_cfg(port=9100, poll=7, swarm_directory=tmp_path)
     be = SlurmServingBackend(driver=driver, cfg=cfg)
 
     spec = {
@@ -77,6 +88,7 @@ def test_create_or_update_calls_driver_and_returns_handle():
         "gpus_per_node": 4,
         "gpus_per_replica": 2,
         "replicas_per_node": 2,
+        "swarm_directory": tmp_path,
     }
 
     handle = be.create_or_update("my-swarm", spec, None)
@@ -89,11 +101,13 @@ def test_create_or_update_calls_driver_and_returns_handle():
         "gpus_per_node": 4,
         "gpus_per_replica": 2,
         "replicas_per_node": 2,
+        "swarm_directory": tmp_path,
     }
     assert driver.calls["submit_endpoint"] == {
         "name": "my-swarm",
         "jobid": 101,
         "replicas": 2,
+        "swarm_directory": tmp_path,
     }
 
     # Handle returned
