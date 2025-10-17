@@ -1,3 +1,20 @@
+## v0.21.3 (2025-10-17)
+
+### Fix
+
+- improva symlink creation by showing only relevant files
+- fix issue with typo symlink path
+- issue with symlink creation for singularity instance logs
+- **logs**: fix various issues with ray usage with new log directory structure
+- fix issue with serving spec not correctly propagated when running on slurm with requires_ray set to false
+- fix issue where environment variables set in config were not propagated correctly
+- **cli**: :bug: fix a bug where resources weren't cleaned up when ctrl-c-ing
+- **imports**: fix issue with attributeerror raised on python 3.10
+
+### Refactor
+
+- **logs**: :technologist: improve usability of logs by using a sane dir tree
+
 ## v0.21.2 (2025-10-14)
 
 ### Fix
