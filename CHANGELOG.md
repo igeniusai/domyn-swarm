@@ -1,3 +1,9 @@
+## v0.21.4 (2025-10-20)
+
+### Fix
+
+- :bug: fix some bugs occuring in co-located replicas using vllm
+
 ## v0.21.3 (2025-10-17)
 
 ### Fix
