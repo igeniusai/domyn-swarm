@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 import pandas as pd
+from deprecated import deprecated
 from openai import AsyncOpenAI
 from tqdm import tqdm
 
@@ -68,20 +69,28 @@ class SwarmJob(abc.ABC):
         - **Automatic Checkpointing**: Periodically saves progress to enable recovery from failures
         - **Concurrent Processing**: Configurable parallelism with rate limiting and timeout handling
         - **Retry Logic**: Built-in exponential backoff for handling transient failures
-        - **Provider Agnostic**: Supports multiple LLM providers (OpenAI, etc.) via pluggable clients
+        - **Provider Agnostic**: Supports multiple LLM providers (OpenAI, vLLM, etc.) via pluggable clients
         - **Callback System**: Extensible event hooks for monitoring and custom behavior
         - **DataFrame Integration**: Native pandas DataFrame support for batch processing
 
     Architecture:
         The class follows a template method pattern where subclasses implement the core
-        `transform()` method while inheriting all the reliability and concurrency infrastructure.
-        Processing flows through: DataFrame -> batching -> transform_items -> results -> checkpointing.
+        `transform_items()` method while inheriting all reliability and concurrency infrastructure.
+        Processing flows through: DataFrame → batching → transform_items → results → checkpointing.
 
-    Typical Usage:
+    Example:
         ```python
         class MyLLMJob(SwarmJob):
-                items = df[self.input_column_name].tolist()
-                results = await self.batched(items, self.process_item)
+            async def transform_items(self, items: list[Any]) -> list[Any]:
+                # Process items using self.client
+                results = []
+                for item in items:
+                    response = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=item,
+                        **self.kwargs
+                    )
+                    results.append(response.choices[0].message.content)
                 return results
 
         job = MyLLMJob(model="gpt-4", max_concurrency=5)
@@ -89,27 +98,29 @@ class SwarmJob(abc.ABC):
         ```
 
     Attributes:
-        api_version (int): API version for compatibility tracking
-        endpoint (str): LLM service endpoint URL
-        model (str): Model identifier (e.g., "gpt-4", "claude-3")
-        provider (str): LLM provider name ("openai", "anthropic", etc.)
-        input_column_name (str): DataFrame column containing input data
-        output_column_name (str | list): DataFrame column(s) for storing results
-        checkpoint_interval (int): Number of items processed between checkpoints
-        max_concurrency (int): Maximum concurrent requests
-        retries (int): Maximum retry attempts for failed requests
-        timeout (float): Request timeout in seconds
-        client: Initialized LLM client instance
-        results (pd.DataFrame): Final processed results after job completion
+        api_version: API version for compatibility tracking (default: 2)
+        endpoint: LLM service endpoint URL (from ENDPOINT env var or parameter)
+        model: Model identifier (e.g., "gpt-4", "claude-3-sonnet")
+        provider: LLM provider name ("openai", "anthropic", etc.)
+        input_column_name: DataFrame column containing input data
+        output_column_name: DataFrame column(s) for storing results
+        checkpoint_interval: Items processed between automatic checkpoints
+        max_concurrency: Maximum concurrent requests allowed
+        retries: Maximum retry attempts for failed requests
+        timeout: Request timeout in seconds
+        client: Initialized async LLM client instance
+        results: Final processed DataFrame after job completion
 
+    Raises:
         RuntimeError: When ENDPOINT environment variable is missing
         ValueError: When required model name is not provided
         NotImplementedError: When required abstract methods are not implemented
 
     Note:
-        Subclasses must implement either `transform()` for DataFrame-level processing
-        or `transform_items()` for item-level processing. The framework handles all
-        infrastructure concerns including error handling, checkpointing, and progress tracking.
+        Subclasses must implement the `transform_items()` method which processes a list of items
+        and returns results in the same order. The framework handles all infrastructure concerns
+        including error handling, checkpointing, progress tracking, and result aggregation.
+        The `transform()` method is deprecated and should not be used.
     """
 
     api_version: int = 2
@@ -247,13 +258,18 @@ class SwarmJob(abc.ABC):
             seq, fn, on_batch_done=self.get_callback("on_batch_done")
         )
 
-    @abc.abstractmethod
+    @deprecated(
+        reason="The `transform` method is deprecated in favor of `transform_items`."
+    )
     async def transform(self, df: pd.DataFrame):
         """
         Subclasses must implement this to process a DataFrame slice.
         It should invoke `self.batched(...)` internally.
         """
-        ...
+        raise NotImplementedError(
+            "Sub-classes must implement `transform(df)`."
+            "Note: the `transform_items` method is preferred."
+        )
 
     def to_kwargs(self) -> dict:
         """
