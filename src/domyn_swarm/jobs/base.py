@@ -112,7 +112,7 @@ class SwarmJob(abc.ABC):
         infrastructure concerns including error handling, checkpointing, and progress tracking.
     """
 
-    api_version: int = 1
+    api_version: int = 2
 
     def __init__(
         self,
@@ -266,7 +266,7 @@ class SwarmJob(abc.ABC):
             k: v
             for k, v in self.__dict__.items()
             if isinstance(v, (str, int, float, bool, list, dict, type(None)))
-            and k not in {"endpoint", "model", "client", "_callbacks"}
+            and k not in {"endpoint", "model", "client", "_callbacks", "results"}
         }
 
     async def _call_unit(self, item: Any) -> Any:
