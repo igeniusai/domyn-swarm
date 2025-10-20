@@ -127,9 +127,10 @@ class DomynLLMSwarmConfig(BaseModel):
         replicas_per_node = data.get("replicas_per_node")
 
         # Replicas per node
-        if not replicas_per_node:
+        if replicas_per_node is None:
             if gpus_per_replica <= gpus_per_node:
-                replicas_per_node = gpus_per_node // gpus_per_replica
+                capacity = gpus_per_node // gpus_per_replica
+                replicas_per_node = min(capacity, replicas)
             else:
                 replicas_per_node = None
 

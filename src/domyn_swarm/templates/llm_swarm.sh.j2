@@ -111,7 +111,7 @@ function start_vllm_replica() {
   echo "[replica $global_id] → $node port=$port"
 
   echo "VLLM logging will be written to $log_dir/vllm.log"
-  srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} --overlap --gpu-bind=map_gpu:"${gpu_map}" \
+  srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
      vllm serve {{ cfg.model }} \
