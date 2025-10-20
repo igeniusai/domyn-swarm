@@ -348,7 +348,7 @@ class DomynLLMSwarm(BaseModel):
         detach: bool = False,
         limit: int | None = None,
         mail_user: Optional[str] = None,
-        checkpoint_dir: str | Path = ".checkpoints",
+        checkpoint_dir: str | Path | None = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -411,6 +411,9 @@ class DomynLLMSwarm(BaseModel):
         ...     num_threads=4
         ... )
         """
+        if checkpoint_dir is None:
+            checkpoint_dir = self.swarm_dir / "checkpoints"
+
         self._deployment.ensure_ready()
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)

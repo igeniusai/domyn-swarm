@@ -69,7 +69,7 @@ async def run_job_unified(
     store_uri: Optional[str] = None,
     checkpoint_every: int = 16,
     tag: Optional[str] = None,
-    checkpoint_dir: Optional[str] = ".checkpoints",
+    checkpoint_dir: Optional[str] = None,
 ) -> pd.DataFrame:
     job_probe = job_factory()
 
