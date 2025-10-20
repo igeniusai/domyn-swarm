@@ -39,7 +39,7 @@ class FakeStateMgr:
     def load(cls, deployment_name: str):
         return SimpleNamespace(loaded=True, deployment_name=deployment_name)
 
-    def delete_record(self, deployment_name: str):
+    def delete_record(self, name: str):
         self.deleted += 1
 
 
@@ -335,7 +335,7 @@ def test_cleanup_calls_deployment_down_when_handle_present(cfg_stub):
 
 def test_delete_record_calls_state_mgr_delete(cfg_stub):
     swarm = make_swarm(cfg_stub)
-    swarm.delete_record("deployment_name")
+    swarm._delete_record()
     assert swarm._state_mgr.deleted == 1  # type: ignore[attr-defined]
 
 

@@ -272,13 +272,13 @@ class TestSwarmStateManager:
             state_manager (SwarmStateManager): State manager.
         """
         state_manager._create_db_if_missing()
-        state_manager.save(deployment_name="fake")
-        state_manager.swarm.delete_record(deployment_name="fake")
+        state_manager.save(deployment_name="swarm")
+        state_manager.swarm._delete_record()
         db_path = state_manager._get_db_path()
 
         with sqlite3.connect(db_path) as cnx:
             cursor = cnx.cursor()
-            cursor.execute("SELECT * FROM swarm WHERE deployment_name='fake';")
+            cursor.execute("SELECT * FROM swarm WHERE deployment_name='swarm';")
             rows = cursor.fetchall()
 
         assert not rows

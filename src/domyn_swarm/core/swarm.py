@@ -330,13 +330,13 @@ class DomynLLMSwarm(BaseModel):
         """
         return SwarmStateManager.load(deployment_name)
 
-    def delete_record(self, deployment_name: str) -> None:
+    def _delete_record(self) -> None:
         """Delete swarm from the DB
 
         Args:
             deployment_name (str): Deployment name.
         """
-        self._state_mgr.delete_record(deployment_name)
+        self._state_mgr.delete_record(self.name)
 
     def submit_job(
         self,
@@ -587,6 +587,7 @@ class DomynLLMSwarm(BaseModel):
     def cleanup(self):
         if self._deployment and self.serving_handle:
             self._deployment.down(self.serving_handle)
+        self._delete_record()
         self._cleaned = True
 
     def down(self):

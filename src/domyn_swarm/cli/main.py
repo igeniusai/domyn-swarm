@@ -137,7 +137,6 @@ def down(
     swarm = SwarmStateManager.load(deployment_name=name)
     swarm.down()
     typer.echo("✅ Swarm shutdown request sent.")
-    swarm.delete_record(deployment_name=name)
 
 
 if __name__ == "__main__":

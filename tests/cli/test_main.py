@@ -27,16 +27,18 @@ runner = CliRunner()
 
 
 class _DummySwarm:
-    def __init__(self):
+    def __init__(self, name: str = "dummy-swarm"):
         self.calls = []
         self.deleted_name = None
+        self.name = name
 
     def down(self):
         self.calls.append("down")
+        self._delete_record()
 
-    def delete_record(self, *, deployment_name: str):
+    def _delete_record(self):
         self.calls.append("delete_record")
-        self.deleted_name = deployment_name
+        self.deleted_name = self.name
 
 
 class _FakeStateManager:
@@ -148,8 +150,8 @@ def test_down_happy_path_invokes_swarm_and_deletes(mocker):
     app = getattr(cli_module, "app")
 
     # fresh dummy swarm per test
-    _FakeStateManager._swarm_instance = _DummySwarm()
     name = "my-swarm"
+    _FakeStateManager._swarm_instance = _DummySwarm(name=name)
 
     result = runner.invoke(app, ["down", name])
 
@@ -191,9 +193,6 @@ def test_down_order_calls_down_before_delete_record(mocker):
     class OrderedSwarm(_DummySwarm):
         def down(self):
             super().down()
-
-        def delete_record(self, *, deployment_name: str):
-            super().delete_record(deployment_name=deployment_name)
 
     _FakeStateManager._swarm_instance = OrderedSwarm()
 
