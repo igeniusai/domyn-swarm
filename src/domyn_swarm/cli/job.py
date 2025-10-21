@@ -174,7 +174,7 @@ def submit_job(
                     retries=retries,
                     timeout=timeout,
                     input_column_name=input_column,
-                    output_column_name=output_column,
+                    output_cols=output_column,
                 )
                 swarm.submit_job(
                     job,

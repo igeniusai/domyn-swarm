@@ -80,7 +80,7 @@ async def run_swarm_in_threads(
         make_job,
         df,
         input_col=job_kwargs.get("input_column_name", "messages"),
-        output_cols=[job_kwargs.get("output_column_name", "result")],
+        output_cols=[job_kwargs.get("output_cols", "result")],
         nshards=num_threads or 1,
         store_uri=None,  # disables new-style path
         checkpoint_every=job_kwargs.get("checkpoint_interval", 16),
@@ -205,11 +205,11 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
 
     # Resolve output columns for new-style (fallback to legacy CLI flag)
     output_cols = None
-    if hasattr(job_cls, "output_column_name"):
-        o = getattr(job_cls, "output_column_name")
+    if hasattr(job_cls, "output_cols"):
+        o = getattr(job_cls, "output_cols")
         output_cols = o if isinstance(o, list) else [o]
-    elif "output_column_name" in job_kwargs:
-        o = job_kwargs["output_column_name"]
+    elif "output_cols" in job_kwargs:
+        o = job_kwargs["output_cols"]
         output_cols = o if isinstance(o, list) else [o]
 
     # Map legacy --nthreads to shards

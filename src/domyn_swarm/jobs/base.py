@@ -104,7 +104,7 @@ class SwarmJob(abc.ABC):
         model: Model identifier (e.g., "gpt-4", "claude-3-sonnet")
         provider: LLM provider name ("openai", "anthropic", etc.)
         input_column_name: DataFrame column containing input data
-        output_column_name: DataFrame column(s) for storing results
+        output_cols: DataFrame column(s) for storing results
         checkpoint_interval: Items processed between automatic checkpoints
         max_concurrency: Maximum concurrent requests allowed
         retries: Maximum retry attempts for failed requests

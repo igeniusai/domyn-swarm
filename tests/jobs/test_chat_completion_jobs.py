@@ -87,7 +87,7 @@ async def test_chat_completion_job_parse_reasoning(monkeypatch, tmp_path):
         return_value=mock_resp_reasoning
     )
 
-    assert job_reasoning.output_column_name == ["result", "reasoning_content"]
+    assert job_reasoning.output_cols == ["result", "reasoning_content"]
     results_reasoning = await job_reasoning.run(
         df, tag="test-reasoning", checkpoint_dir=tmp_path / "checkpoints"
     )
@@ -108,7 +108,7 @@ async def test_multi_chat_completion_job(monkeypatch, tmp_path):
     mock_resp = AsyncMock()
     mock_resp.choices = mock_choices
 
-    job = MultiChatCompletionJob(model="gpt-4", n=3, output_column_name="generated")
+    job = MultiChatCompletionJob(model="gpt-4", n=3, output_cols="generated")
     job.client = AsyncMock()
     job.client.chat.completions.create = AsyncMock(return_value=mock_resp)
 

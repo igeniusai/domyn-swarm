@@ -133,7 +133,7 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     monkeypatch.setenv("INPUT_PARQUET", str(input_path))
     monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
     monkeypatch.setenv(
-        "JOB_KWARGS", '{"input_column_name": "text", "output_column_name": "output"}'
+        "JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}'
     )
 
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
@@ -142,7 +142,7 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
         "--nthreads",
         "1",  # Use single-threaded path
         "--job-kwargs",
-        '{"input_column_name": "text", "output_column_name": "output"}',
+        '{"input_column_name": "text", "output_cols": "output"}',
     ]
     await _amain(args)
 

@@ -60,7 +60,7 @@ class MyCustomSwarmJob(SwarmJob):
         model: str = "",
         input_column_name: str = "messages",
         # We'll override outputs to three columns
-        output_column_name: str | list[str] = "result",
+        output_cols: str | list[str] = "result",
         checkpoint_interval: int = 16,
         max_concurrency: int = 2,
         retries: int = 5,
@@ -72,7 +72,7 @@ class MyCustomSwarmJob(SwarmJob):
             endpoint=endpoint,
             model=model,
             input_column_name=input_column_name,
-            output_column_name=output_column_name,
+            output_cols=output_cols,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
@@ -80,7 +80,7 @@ class MyCustomSwarmJob(SwarmJob):
             **extra_kwargs,
         )
         # Our job returns 3 values per item
-        self.output_column_name = ["completion", "score", "current_model"]
+        self.output_cols = ["completion", "score", "current_model"]
 
     async def transform_items(self, items: list[Any]) -> list[tuple[str, float, str]]:
         """

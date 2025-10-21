@@ -39,7 +39,7 @@ class CompletionJob(SwarmJob):
         endpoint=None,
         model="",
         input_column_name="prompt",
-        output_column_name="completion",
+        output_cols="completion",
         checkpoint_interval=16,
         max_concurrency=2,
         retries=5,
@@ -50,7 +50,7 @@ class CompletionJob(SwarmJob):
             endpoint=endpoint,
             model=model,
             input_column_name=input_column_name,
-            output_column_name=output_column_name,
+            output_cols=output_cols,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
@@ -103,7 +103,7 @@ class ChatCompletionJob(SwarmJob):
         super().__init__(**kwargs)
         from_extras = bool(self.kwargs.pop("parse_reasoning", False))
         self.parse_reasoning = explicit if explicit is not None else from_extras
-        self.output_column_name = (
+        self.output_cols = (
             ["result", "reasoning_content"] if self.parse_reasoning else "result"
         )
 
@@ -168,11 +168,11 @@ class MultiChatCompletionJob(SwarmJob):
     def __init__(self, n: int = 3, **kwargs):
         super().__init__(**kwargs)
         self.n = n
-        base_output_column_name = kwargs.pop("output_column_name")
-        self.output_column_name = (
-            [f"{base_output_column_name}_{i + 1}" for i in range(n)]
-            if isinstance(base_output_column_name, str)
-            else base_output_column_name
+        base_output_cols = kwargs.pop("output_cols")
+        self.output_cols = (
+            [f"{base_output_cols}_{i + 1}" for i in range(n)]
+            if isinstance(base_output_cols, str)
+            else base_output_cols
         )
 
     @deprecated(
@@ -238,7 +238,7 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
         endpoint=None,
         model="",
         input_column_name="messages",
-        output_column_name="result",
+        output_cols="result",
         checkpoint_interval=16,
         max_concurrency=2,
         retries=5,
@@ -248,13 +248,13 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
             endpoint=endpoint,
             model=model,
             input_column_name=input_column_name,
-            output_column_name=output_column_name,
+            output_cols=output_cols,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
         )
-        self.output_column_name = ["text", "perplexity", "bottom50_perplexity"]
+        self.output_cols = ["text", "perplexity", "bottom50_perplexity"]
 
     @deprecated(
         "Use transform_items instead for better performance with small batches."
@@ -313,7 +313,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
         endpoint: str | None = None,
         model: str = "",
         input_column_name: str = "messages",
-        output_column_name: str = "results",
+        output_cols: str = "results",
         checkpoint_interval: int = 16,
         max_concurrency: int = 2,
         retries: int = 5,
@@ -323,7 +323,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
             endpoint=endpoint,
             model=model,
             input_column_name=input_column_name,
-            output_column_name=output_column_name,
+            output_cols=output_cols,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
@@ -437,7 +437,7 @@ class MultiTurnTranslationJob(SwarmJob):
         endpoint: str | None = None,
         model: str = "",
         input_column_name: str = "messages",
-        output_column_name: str = "results",
+        output_cols: str = "results",
         checkpoint_interval: int = 16,
         max_concurrency: int = 2,
         retries: int = 5,
@@ -447,7 +447,7 @@ class MultiTurnTranslationJob(SwarmJob):
             endpoint=endpoint,
             model=model,
             input_column_name=input_column_name,
-            output_column_name=output_column_name,
+            output_cols=output_cols,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,

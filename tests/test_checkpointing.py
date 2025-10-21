@@ -32,7 +32,7 @@ def test_checkpoint_manager_filters_and_flushes(tmp_path):
     out_list = ["out0", "out1", "out2"]
 
     # Simulate flushing rows 0 and 2 (in todo_df's index space)
-    manager.flush(out_list, new_ids=[0, 2], output_column_name="c", idx_map=idx_map)
+    manager.flush(out_list, new_ids=[0, 2], output_cols="c", idx_map=idx_map)
 
     flushed_df = pd.read_parquet(path)
     assert set(flushed_df["c"]) == {"out0", "out2"}
