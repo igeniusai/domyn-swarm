@@ -38,6 +38,7 @@ import inspect
 import logging
 import os
 import threading
+import warnings
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -133,7 +134,8 @@ class SwarmJob(abc.ABC):
         model: str = "",
         provider: str = "openai",
         input_column_name: str = "messages",
-        output_column_name: str | list = "result",
+        output_column_name: str | list | None = None,
+        output_cols: str | list | None = None,
         checkpoint_interval: int = 16,
         max_concurrency: int = 2,
         retries: int = 5,
@@ -150,7 +152,8 @@ class SwarmJob(abc.ABC):
             model: Model name to use (e.g., "gpt-4").
             provider: LLM provider (default: "openai").
             input_column_name: Name of the input column in the DataFrame.
-            output_column_name: Name of the output column(s) in the DataFrame.
+            output_column_name: [DEPRECATED] Name of the output column(s) in the DataFrame. Use output_cols instead.
+            output_cols: Name of the output column(s) in the DataFrame.
             checkpoint_interval: Number of items to process before checkpointing.
             max_concurrency: Maximum number of concurrent requests to process.
             retries: Number of retries for failed requests.
@@ -163,6 +166,7 @@ class SwarmJob(abc.ABC):
             RuntimeError: If ENDPOINT environment variable is not set.
             ValueError: If model name is not specified.
         """
+
         self.name = name or self.__class__.__name__
         self.endpoint = endpoint or os.getenv("ENDPOINT")
         if not self.endpoint:
@@ -171,10 +175,29 @@ class SwarmJob(abc.ABC):
         if not model:
             raise ValueError("Model name must be specified")
 
+        # Handle deprecated output_column_name parameter
+        if output_column_name is not None and output_cols is not None:
+            raise ValueError(
+                "Cannot specify both output_column_name and output_cols. Use output_cols only."
+            )
+
+        if output_column_name is not None:
+            warnings.warn(
+                "The 'output_column_name' parameter is deprecated and will be removed in a future version. "
+                "Use 'output_cols' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.output_column_name = output_column_name
+            self.output_cols = output_column_name
+        elif output_cols is not None:
+            self.output_cols = output_cols
+        else:
+            self.output_cols = "result"
+
         self.model = model
         self.provider = provider
         self.input_column_name = input_column_name
-        self.output_column_name = output_column_name
         self.checkpoint_interval = checkpoint_interval
         self.max_concurrency = max_concurrency
         self.retries = retries
@@ -230,7 +253,7 @@ class SwarmJob(abc.ABC):
 
         async def flush(out_list, new_ids):
             thread_name = threading.current_thread().name
-            manager.flush(out_list, new_ids, self.output_column_name, idx_map)
+            manager.flush(out_list, new_ids, self.output_cols, idx_map)
             tqdm.write(
                 f"[{thread_name}] Checkpoint flushed {len(new_ids)} rows, new total: {len(manager.done_df)}"
             )

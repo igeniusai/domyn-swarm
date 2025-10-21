@@ -31,14 +31,14 @@ class CheckpointManager:
     def filter_todo(self) -> pd.DataFrame:
         return self.df.loc[~self.df.index.isin(self.done_idx)].copy()
 
-    def flush(self, out_list, new_ids, output_column_name, idx_map):
+    def flush(self, out_list, new_ids, output_cols, idx_map):
         global_indices = [idx_map[i] for i in new_ids]
         tmp = self.df.loc[global_indices].copy()
 
-        if isinstance(output_column_name, str):
-            tmp[output_column_name] = [out_list[i] for i in new_ids]
+        if isinstance(output_cols, str):
+            tmp[output_cols] = [out_list[i] for i in new_ids]
         else:
-            for col_idx, col_name in enumerate(output_column_name):
+            for col_idx, col_name in enumerate(output_cols):
                 tmp[col_name] = [out_list[i][col_idx] for i in new_ids]
 
         self.done_df = pd.concat([self.done_df, tmp])
