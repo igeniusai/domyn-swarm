@@ -14,12 +14,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Literal, Optional
 
 import typer
 from rich.console import Console
 
+from domyn_swarm.core.state import SwarmStateManager
 from domyn_swarm.helpers.logger import setup_logger
 
 
@@ -105,3 +107,68 @@ def list_swarms(
         raise typer.Exit(0)
 
     render_swarm_list(rows, console=console)
+
+
+@swarm_app.command("describe")
+def describe_swarm(
+    name: str = typer.Argument(..., help="Name of the swarm to describe."),
+    output: Literal["table", "yaml", "json"] = typer.Option(
+        "table",
+        "--output",
+        "-o",
+        case_sensitive=False,
+        help="Output format: table (default), yaml, or json.",
+    ),
+):
+    """
+    Show a detailed, static description of a swarm from the local state.
+    No live status probing (use `domyn-swarm status` for that).
+    """
+    import yaml
+
+    # Load a single record from state
+    swarm = SwarmStateManager.load(deployment_name=name)
+
+    backend = swarm._platform.lower()
+    endpoint = swarm.endpoint or ""
+    cfg = swarm.cfg
+    data = cfg.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    if output.lower() == "table":
+        # Rich TUI view
+        from domyn_swarm.cli.tui.describe_view import render_swarm_description
+
+        console = Console()
+        render_swarm_description(
+            name=name,
+            backend=backend,
+            cfg=data,
+            endpoint=endpoint,
+            console=console,
+        )
+        return
+
+    # Structured payload for non-TUI outputs
+    payload = {
+        "name": name,
+        "backend": backend,
+        "endpoint": endpoint,
+        "config": data,
+    }
+
+    if output.lower() == "yaml":
+        typer.echo(yaml.safe_dump(payload, sort_keys=False))
+    elif output.lower() == "json":
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        # Fallback to table if something odd sneaks in
+        from domyn_swarm.cli.tui.describe_view import render_swarm_description
+
+        console = Console()
+        render_swarm_description(
+            name=name,
+            backend=backend,
+            cfg=data,
+            endpoint=endpoint,
+            console=console,
+        )
