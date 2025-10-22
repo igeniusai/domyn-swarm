@@ -177,8 +177,11 @@ class SwarmJob(abc.ABC):
 
         # Handle deprecated output_column_name parameter
         if output_column_name is not None and output_cols is not None:
-            raise ValueError(
-                "Cannot specify both output_column_name and output_cols. Use output_cols only."
+            warnings.warn(
+                "Both 'output_column_name' and 'output_cols' parameters are provided. "
+                "The 'output_column_name' parameter is deprecated and will be ignored in favor of 'output_cols'.",
+                DeprecationWarning,
+                stacklevel=2,
             )
 
         if output_column_name is not None:
