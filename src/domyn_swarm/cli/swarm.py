@@ -21,6 +21,7 @@ from typing import Any, Iterable, Literal, Optional
 import typer
 from rich.console import Console
 
+from domyn_swarm.core.state import SwarmStateManager
 from domyn_swarm.helpers.logger import setup_logger
 
 
@@ -124,8 +125,6 @@ def describe_swarm(
     No live status probing (use `domyn-swarm status` for that).
     """
     import yaml
-
-    from domyn_swarm.core.state import SwarmStateManager
 
     # Load a single record from state
     swarm = SwarmStateManager.load(deployment_name=name)

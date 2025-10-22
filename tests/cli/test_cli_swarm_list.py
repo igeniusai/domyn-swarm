@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# tests/cli/test_swarm.py
 from __future__ import annotations
 
 from rich.console import Console
@@ -130,7 +129,7 @@ def test_cli_list_prints_no_swarms_message(mocker):
     mocker.patch.object(SW, "_iter_summaries", return_value=[])
     runner = CliRunner()
     # Provide a prog_name so Click doesn't try to read cli.name from Typer
-    result = runner.invoke(SW.swarm_app, ["--no-probe"])
+    result = runner.invoke(SW.swarm_app, ["list", "--no-probe"])
     print(result.output)
     assert result.exit_code == 0
     assert "No swarms found." in result.output
@@ -157,7 +156,7 @@ def test_cli_list_calls_renderer_with_rows_and_default_probe(mocker):
     render_mock = mocker.patch("domyn_swarm.cli.tui.list_view.render_swarm_list")
 
     runner = CliRunner()
-    result = runner.invoke(SW.swarm_app, prog_name=COMMAND_NAME)
+    result = runner.invoke(SW.swarm_app, ["list"])
     assert result.exit_code == 0
     assert seen.get("probe") is True
 
@@ -178,6 +177,6 @@ def test_cli_list_no_probe_flag_disables_probe(mocker):
     mocker.patch("domyn_swarm.cli.tui.list_view.render_swarm_list")
 
     runner = CliRunner()
-    result = runner.invoke(SW.swarm_app, ["--no-probe"], prog_name=COMMAND_NAME)
+    result = runner.invoke(SW.swarm_app, ["list", "--no-probe"])
     assert result.exit_code == 0
     assert seen.get("probe") is False
