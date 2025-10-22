@@ -619,7 +619,7 @@ wheels = [
 
 [[package]]
 name = "domyn-swarm"
-version = "0.21.4"
+version = "0.21.5"
 source = { editable = "." }
 dependencies = [
     { name = "blake3" },

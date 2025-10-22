@@ -1,3 +1,17 @@
+## v0.21.5 (2025-10-22)
+
+### Fix
+
+- fix usage of output_column_name  in _load_job
+- fix issue with swarm not being cleaned up if managed using programmatic api
+- fix issue with SwarmJob.results not being ignored when job is serialized
+
+### Refactor
+
+- **jobs**: update docs and tests according to the deprecation of output_column_name
+- **jobs**: :wastebasket: deprecate output_column_name as input parameter for SwarmJob, in favour of output_cols
+- update default value for checkpoint_dir in DomynLLMSwarm.submit_job to swarm_dir/checkpoints
+
 ## v0.21.4 (2025-10-20)
 
 ### Fix
