@@ -132,9 +132,32 @@ def check_status(
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
-    name: str = typer.Argument(..., exists=True, help="Swarm name."),
+    name: Optional[str | None] = typer.Argument(default=None, help="Swarm name."),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Force shutdown without confirmation.",
+        ),
+    ] = False,
 ):
+    if name is None:
+        logger.warning("Swarm name not provided for shutdown")
+        name = SwarmStateManager.get_last_swarm_name()
+        if not name:
+            logger.error("No swarms found to shut down.")
+            raise typer.Exit(code=1)
+        logger.info(f"Shutting down the last swarm: [bold cyan]{name}[/]")
     swarm = SwarmStateManager.load(deployment_name=name)
+    serving_status = swarm.status()
+    if serving_status.phase == "RUNNING" and not force:
+        confirm = typer.confirm(
+            f"Are you sure you want to shut down the running swarm {name}?"
+        )
+        if not confirm:
+            typer.secho("Aborting shutdown.", fg="red")
+            raise typer.Exit()
     swarm.down()
     typer.echo("✅ Swarm shutdown request sent.")
 

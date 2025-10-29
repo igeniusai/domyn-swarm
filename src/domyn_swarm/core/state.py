@@ -250,3 +250,23 @@ class SwarmStateManager:
             cursor.execute(query)
             for record in cursor:
                 yield dict(record)
+
+    @classmethod
+    def get_last_swarm_name(cls) -> str | None:
+        """Get the last deployment name.
+
+        Returns:
+            str | None: Deployment name or None if no deployments exist.
+        """
+        db_path = cls._get_db_path()
+        query = _read_query("select_last_swarm.sql")
+        with sqlite3.connect(db_path) as cnx:
+            cnx.row_factory = sqlite3.Row
+            cursor = cnx.cursor()
+            cursor.execute(query)
+            record = cursor.fetchone()
+
+        if record is None:
+            return None
+
+        return record["deployment_name"]

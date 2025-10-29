@@ -14,6 +14,7 @@
 
 import importlib
 import sys
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -27,10 +28,11 @@ runner = CliRunner()
 
 
 class _DummySwarm:
-    def __init__(self, name: str = "dummy-swarm"):
+    def __init__(self, name: str = "dummy-swarm", status_phase: str = "RUNNING"):
         self.calls = []
         self.deleted_name = None
         self.name = name
+        self.status_phase = status_phase
 
     def down(self):
         self.calls.append("down")
@@ -39,6 +41,9 @@ class _DummySwarm:
     def _delete_record(self):
         self.calls.append("delete_record")
         self.deleted_name = self.name
+
+    def status(self):
+        return SimpleNamespace(phase=self.status_phase)
 
 
 class _FakeStateManager:
@@ -153,7 +158,7 @@ def test_down_happy_path_invokes_swarm_and_deletes(mocker):
     name = "my-swarm"
     _FakeStateManager._swarm_instance = _DummySwarm(name=name)
 
-    result = runner.invoke(app, ["down", name])
+    result = runner.invoke(app, ["down", name, "--force"])
 
     assert result.exit_code == 0, result.output
     # Success message printed
@@ -196,7 +201,7 @@ def test_down_order_calls_down_before_delete_record(mocker):
 
     _FakeStateManager._swarm_instance = OrderedSwarm()
 
-    result = runner.invoke(app, ["down", "swarm-x"])
+    result = runner.invoke(app, ["down", "swarm-x", "--force"])
     assert result.exit_code == 0, result.output
 
     calls = _FakeStateManager._swarm_instance.calls
