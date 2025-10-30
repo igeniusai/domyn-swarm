@@ -58,6 +58,8 @@ dependencies = [
     "tomli>=2.0.1; python_version < '3.11'",
     "deprecated>=1.2.18",
     "python-ulid[pydantic]>=3.1.0",
+    "sqlalchemy>=2.0.44",
+    "alembic>=1.17.1",
 ]
 
 [dependency-groups]

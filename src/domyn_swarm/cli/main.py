@@ -23,10 +23,11 @@ from ..cli.init import init_app
 from ..cli.pool import pool_app
 from ..cli.tui import render_status
 from ..config.swarm import _load_swarm_config
-from ..core.state import SwarmStateManager
+from ..core.state.state_manager import SwarmStateManager
 from ..core.swarm import DomynLLMSwarm
 from ..helpers.logger import setup_logger
 from ..utils.version import get_version
+from .db import db_app
 from .job import job_app
 from .swarm import swarm_app
 
@@ -46,6 +47,11 @@ app.add_typer(
     help="Initialize a new Domyn-Swarm configuration.",
 )
 app.add_typer(swarm_app, name="swarm")
+app.add_typer(
+    db_app,
+    name="db",
+    help="Manage the Domyn-Swarm state database.",
+)
 
 console = Console()
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)

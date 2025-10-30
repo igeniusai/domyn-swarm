@@ -40,7 +40,7 @@ from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.platform.protocols import ServingHandle, ServingPhase, ServingStatus
 
-from ..core.state import SwarmStateManager
+from ..core.state.state_manager import SwarmStateManager
 
 logger = setup_logger(__name__, level=logging.INFO)
 settings = get_settings()
