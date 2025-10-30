@@ -19,7 +19,7 @@
 
 set -eu
 REPLICAS={{ replicas }}
-HOME_DIR="{{ cfg.backend.home_directory }}"
+HOME_DIR="{{ cfg.home_directory }}"
 HOST_DIR="{{ swarm_directory }}"
 WAIT_SEC={{ cfg.backend.wait_endpoint_s | default(600) }}
 NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
