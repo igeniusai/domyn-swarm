@@ -214,7 +214,6 @@ Start a new allocation:
 
 ```bash
 domyn-swarm up -c config.yaml \
-  --name my-beautiful-llm-swarm \
   --replicas 3 \  # I'm overriding what's in the configuration file
   --reverse-proxy
 ```
@@ -322,6 +321,17 @@ domyn-swarm swarm list --no-probe
 * With `--probe` (default), each swarm is queried for fresh status (slightly slower)
 * With `--no-probe`, output uses cached values only (fastest)
 
+### `domyn-swarm swarm describe`
+
+Show a detailed, static description of a swarm from the local state. No live status probing (use `domyn-swarm status` for that).
+
+**Usage**
+
+```bash
+domyn-swarm swarm describe my-swarm-name
+```
+
+* **--output / -o** - Display the information in table format (default), YAML or JSON
 
 ### `domyn-swarm init defaults`
 
