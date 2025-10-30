@@ -75,15 +75,31 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Compute dev tags
+      - name: Compute tags (≤128 chars)
         id: vars
+        shell: bash
         run: |
           BRANCH="${GITHUB_REF_NAME}"
-          # slugify branch for a valid tag (lowercase, replace invalid chars with '-')
-          SAFE_BRANCH="$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g')"
+
+          # slugify: lowercase + replace invalid chars with '-'
+          SLUG="$(
+            printf '%s' "$BRANCH" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9._-]+/-/g'
+          )"
+
+          # Truncate safely and remove trailing separators after truncation
+          SLUG_124="$(printf '%s' "$SLUG" | cut -c1-124 | sed -E 's/[-._]+$//')"
+          SLUG_111="$(printf '%s' "$SLUG" | cut -c1-111 | sed -E 's/[-._]+$//')"
+
           SHORT_SHA="$(git rev-parse --short=12 HEAD)"
-          echo "BRANCH_TAG=dev-${SAFE_BRANCH}" >> "$GITHUB_OUTPUT"
-          echo "SHA_TAG=dev-${SAFE_BRANCH}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          echo "BRANCH_TAG=dev-${SLUG_124}" >> "$GITHUB_OUTPUT"
+          echo "SHA_TAG=dev-${SLUG_111}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          # (optional) debug
+          echo "BRANCH_TAG length: $(( ${#SLUG_124} + 4 ))"
+          echo "SHA_TAG length: $(( ${#SLUG_111} + 4 + 1 + 12 ))"
 
       - name: Docker metadata
         id: meta
