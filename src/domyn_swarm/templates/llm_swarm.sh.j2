@@ -7,7 +7,7 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user={{ cfg.backend.mail_user }}
 {% endif %}
-#SBATCH --qos=qos_llm_min
+#SBATCH --qos={{ cfg.backend.qos }}
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.backend.partition }}
