@@ -81,7 +81,11 @@ async def run_job_unified(
         if nshards <= 1:
             store = ParquetShardStore(store_uri)
             return await JobRunner(store, cfg).run(
-                job_probe, df, input_col=input_col, output_cols=output_cols
+                job_probe,
+                df,
+                input_col=input_col,
+                output_cols=output_cols or job_probe.default_output_cols,
+                output_mode=job_probe.output_mode,
             )
         indices = np.array_split(df.index, nshards)
 
@@ -90,7 +94,11 @@ async def run_job_unified(
             su = store_uri.replace(".parquet", f"_shard{i}.parquet")
             store = ParquetShardStore(su)
             return await JobRunner(store, cfg).run(
-                job_factory(), sub, input_col=input_col, output_cols=output_cols
+                job_factory(),
+                sub,
+                input_col=input_col,
+                output_cols=output_cols or job_probe.default_output_cols,
+                output_mode=job_probe.output_mode,
             )
 
         parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])

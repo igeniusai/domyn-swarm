@@ -40,7 +40,7 @@ import os
 import threading
 import warnings
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, List, Optional
 
 import pandas as pd
 from deprecated import deprecated
@@ -48,6 +48,7 @@ from openai import AsyncOpenAI
 from tqdm import tqdm
 
 from domyn_swarm.config.settings import get_settings
+from domyn_swarm.jobs.runner import OutputJoinMode
 
 from ..checkpoint.manager import CheckpointManager
 from ..helpers.logger import setup_logger
@@ -142,6 +143,8 @@ class SwarmJob(abc.ABC):
         timeout: float = 600,
         client=None,
         client_kwargs: dict | None = None,
+        output_mode: OutputJoinMode | None = OutputJoinMode.APPEND,
+        default_output_cols: Optional[List[str]] = None,
         **extra_kwargs,
     ):
         """Initialize the job with parameters and an optional LLM client.
@@ -160,6 +163,8 @@ class SwarmJob(abc.ABC):
             timeout: Request timeout in seconds.
             client: Optional pre-initialized LLM client (e.g., `AsyncOpenAI`).
             client_kwargs: Additional kwargs for the LLM client.
+            output_mode: How to join outputs to the input DataFrame.
+            default_output_cols: Default output columns if none are specified.
             **extra_kwargs: Additional parameters to pass to the job constructor.
 
         Raises:
@@ -206,6 +211,16 @@ class SwarmJob(abc.ABC):
         self.retries = retries
         self.timeout = timeout
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
+        self.output_mode = output_mode
+        self.default_output_cols = (
+            default_output_cols
+            if default_output_cols is not None
+            else (
+                [self.output_cols]
+                if isinstance(self.output_cols, str)
+                else self.output_cols
+            )
+        )
 
         headers = {}
         token = (
@@ -341,5 +356,5 @@ class SwarmJob(abc.ABC):
         return await executor.run(
             items,
             self._call_unit,
-            on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+            on_batch_done=lambda out, idxs: on_flush(idxs, out),
         )

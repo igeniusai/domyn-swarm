@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -27,6 +28,11 @@ class RunnerConfig:
     id_col: str = "_row_id"
     checkpoint_every: int = 16
     total_concurrency: Optional[int] = None  # reserved for future admission control
+
+
+class OutputJoinMode(str, Enum):
+    APPEND = "append"
+    REPLACE = "replace"
 
 
 class JobRunner:
@@ -64,23 +70,106 @@ class JobRunner:
         *,
         input_col: str,
         output_cols: Optional[list[str]],
+        output_mode: Optional[OutputJoinMode] = None,
     ) -> pd.DataFrame:
+        """
+        Run a streaming job and either:
+          - append outputs to original df (APPEND), or
+          - return only id + outputs (REPLACE).
+
+        output_cols:
+          - None -> expect dict outputs per item (or scalar => auto 'output')
+          - [name] -> scalar outputs per item
+          - [c1, c2, ...] -> list/tuple (positional) or dict outputs (named)
+        """
+        if input_col not in df.columns:
+            raise ValueError(f"input_col '{input_col}' not found in DataFrame")
+        mode = output_mode or getattr(job, "output_mode", OutputJoinMode.APPEND)
+        if isinstance(mode, str):
+            mode = OutputJoinMode(mode)
+
         df = df.copy()
         if self.cfg.id_col not in df.columns:
             df[self.cfg.id_col] = df.index
-        todo = self.store.prepare(df, self.cfg.id_col)
 
-        ids = todo[self.cfg.id_col].tolist()
-        items = todo[input_col].tolist()
+        todo = self.store.prepare(df, self.cfg.id_col)
+        ids: list[Any] = todo[self.cfg.id_col].tolist()
+        items: list[Any] = todo[input_col].tolist()
+
+        # Normalize a batch of outputs to what flush expects
+        # Returns (rows, cols_for_flush) where cols_for_flush can be None => dict path
+        def _normalize_batch_outputs(
+            local_outputs: list[Any],
+            expected_cols: Optional[list[str]],
+        ) -> tuple[list[Any], Optional[list[str]]]:
+            if not local_outputs:
+                return [], expected_cols
+
+            first = local_outputs[0]
+
+            # Case A: Caller provided explicit output column names
+            if expected_cols:
+                if len(expected_cols) == 1:
+                    # scalar, list/tuple of len 1, or dict with that key
+                    if isinstance(first, dict):
+                        # convert dicts -> scalar per key
+                        key = expected_cols[0]
+                        rows = [o.get(key) for o in local_outputs]
+                        return rows, expected_cols
+                    elif isinstance(first, (list, tuple)):
+                        if len(first) != 1:
+                            raise ValueError(
+                                f"Expected single-column output {expected_cols}, "
+                                f"but got list/tuple with length {len(first)}"
+                            )
+                        rows = [o[0] for o in local_outputs]
+                        return rows, expected_cols
+                    else:
+                        # scalar per item
+                        return local_outputs, expected_cols
+                else:
+                    # multi-column expected
+                    if isinstance(first, (list, tuple)):
+                        if any(len(o) != len(expected_cols) for o in local_outputs):
+                            raise ValueError(
+                                f"Output rows length mismatch vs columns {expected_cols}"
+                            )
+                        # keep as list/tuple; flush will index by position
+                        return local_outputs, expected_cols
+                    elif isinstance(first, dict):
+                        # convert dict -> row aligned to expected_cols
+                        rows = [
+                            [o.get(c) for c in expected_cols] for o in local_outputs
+                        ]
+                        return rows, expected_cols
+                    else:
+                        raise ValueError(
+                            f"Multiple output columns {expected_cols} require list/tuple or dict outputs"
+                        )
+
+            # Case B: No expected columns provided
+            #   - dict outputs → pass dicts with output_cols=None
+            #   - scalar outputs → synthesize a single column 'output'
+            #   - list/tuple outputs → ambiguous; require explicit output_cols
+            if isinstance(first, dict):
+                print("Output is dict; passing as-is.")
+                return local_outputs, None  # dict path (flush with output_cols=None)
+            elif isinstance(first, (list, tuple)):
+                raise ValueError(
+                    "List/tuple outputs require explicit `output_cols` naming."
+                )
+            else:
+                print("Output is scalar; synthesizing 'output' column.")
+                # scalar → single column auto-named 'output'
+                return local_outputs, ["output"]
 
         async def _on_flush(local_indices: list[int], local_outputs: list[Any]):
             batch_ids = [ids[i] for i in local_indices]
+            local_outputs = [local_outputs[i] for i in local_indices]
+            rows, cols = _normalize_batch_outputs(local_outputs, output_cols)
             await self.store.flush(
-                FlushBatch(
-                    ids=batch_ids,
-                    rows=local_outputs,
-                ),
-                output_cols=output_cols,
+                FlushBatch(ids=batch_ids, rows=rows),
+                output_cols=cols,  # None => dict path; else aligned columns
             )
 
         if not hasattr(job, "transform_streaming"):
@@ -93,7 +182,21 @@ class JobRunner:
             on_flush=_on_flush,
             checkpoint_every=self.cfg.checkpoint_every,
         )
-        return self.store.finalize()
+        out_df = self.store.finalize()
+        if out_df.index.name == self.cfg.id_col:
+            out_df = out_df.reset_index()
+
+        if mode == OutputJoinMode.APPEND:
+            # left-join to preserve original row order and columns
+            return df.merge(out_df, on=self.cfg.id_col, how="left")
+        else:
+            # REPLACE: return only id + outputs
+            keep = [
+                c
+                for c in out_df.columns
+                if c == self.cfg.id_col or c in (output_cols or out_df.columns)
+            ]
+            return out_df.loc[:, keep]
 
 
 async def run_sharded(
