@@ -375,6 +375,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **port**                | `int`          | `8000`                                       | Port where each worker’s OpenAI-compatible API listens.                                                                                      |                                                                   |
 | **home\_directory**           | `pathlib.Path` | value of `DOMYN_SWARM_HOME`                            | Root folder for swarm state (auto-generated inside CWD).                                                                                     |                                                                   |
 | **env**                 |  `dict` | `null` | A yaml dict of key values that will be set as environment variables |
+| **wait_endpoint_s** | `int` | 600 | How many seconds should the lb script wait for the endpoint to go up | |
 | **backend**                    | `BackendConfig` | *see below*                                  | Backend specific configurations, either Slurm or Lepton                                                             |                                                                   |
 
 ### Backend Configuration: `BackendConfig`
@@ -387,7 +388,6 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **partition**                 | `str`          | **required**                           | SLURM partition to submit to.                                                                                                                |                                                                   |
 | **account**                   | `str`          | **required**                               | SLURM account / charge code.                                                                                                                 |                                                                   |
 | **qos** | `str` | **required** | SLURM qos where the cluster and load balancer jobs will be submitted |
-| **requires_ray**              | `bool` | `null` | Set automatically to enforce the usage of Ray + vLLM for multi-node multi-gpu clusters |
 | **ray\_port**                 | `int`          | `6379`                                       | Port for Ray’s GCS/head node inside each replica.                                                                                            |                                                                   |
 | **ray\_dashboard\_port**      | `int`          | `8265`                                       | Ray dashboard (optional).                                                                                                                    |                                                                   |
 | **venv\_path**                | `pathlib.Path \| null`                                       | `null`                                                                                                                                       | Virtual-env used by the *driver* process (not the containers).    |
@@ -399,6 +399,8 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **nginx\_template\_path**     | `pathlib.Path` | *(auto-filled)*                              | Jinja2 template for the NGINX config. | |
 | **mail_user**                 | `str` | `null` | Send Slurm END,FAIL signal notification about the resources deployed by domyn-swarm (job and cluster) | myemail@gmail.com |
 | **endpoint**                  | `SlurmEndpointConfig` | `null` | |
+| **modules** | `list[str]` | `[]` | List of modules to be loaded by slurm | |
+| **preamble** | `list[str]` | `[]` | Additional list of sbatch directives to be added to cluster sbatch script | |
 
 #### SlurmEndpointConfig
 
@@ -423,10 +425,10 @@ If your cluster uses Singularity, you can build the required images from the def
 
 ```bash
 # NGINX load balancer image
-singularity build nginx.sif examples/singularity_images/nginx.def
+sudo singularity build nginx.sif examples/singularity_images/nginx.def
 
 # vLLM runtime image
-singularity build vllm.sif examples/singularity_images/vllm.def
+sudo singularity build vllm.sif examples/singularity_images/vllm.def
 ```
 
 **Reference the images in your YAML:**

@@ -24,11 +24,16 @@
 {% endif %}
 #SBATCH --output={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.out
 #SBATCH --error={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.err
+{% for pre in cfg.backend.preamble %}
+#SBATCH {{ pre }}
+{% endfor %}
 
 set -euo pipefail
 
 module purge
-module load cuda/12.6
+{% for mod in cfg.backend.modules %}
+module load {{ mod }}
+{% endfor %}
 
 ###############################################################################
 #  ENVIRONMENT VARIABLES
