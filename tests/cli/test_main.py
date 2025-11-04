@@ -18,6 +18,7 @@ import sys
 import pytest
 from typer.testing import CliRunner
 
+import domyn_swarm.cli.main as main
 from domyn_swarm.cli.main import app
 from domyn_swarm.exceptions import JobNotFoundError
 
@@ -134,6 +135,25 @@ def test_cli_up_passes_replicas_override(tmp_path, mocker, replicas):
 
     assert result.exit_code == 0, result.output
     assert load_mock.call_args.kwargs.get("replicas") == replicas
+
+
+def test_up_prints_only_name(monkeypatch):
+    class DummySwarm:
+        name = "swarm-abc123"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    runner = CliRunner()
+    monkeypatch.setattr(main, "_load_swarm_config", lambda *a, **k: object())
+    monkeypatch.setattr(main, "DomynLLMSwarm", lambda cfg: DummySwarm())
+
+    result = runner.invoke(main.app, ["up", "-c", "-"], input="{}")
+    assert result.exit_code == 0
+    assert result.output.strip() == "swarm-abc123"
 
 
 def _reload_cli_with_fake_state_manager(mocker):
