@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import sys
 from typing import Optional
 
 import typer
@@ -86,9 +87,10 @@ def launch_up(
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
     try:
         with swarm_ctx as swarm:
-            # Print ONLY the name to stdout so command substitution works:
+            # Print ONLY the name to stdout so command substitution works if not tty:
             #   SWARM_NAME=$(domyn-swarm up -c config.yaml)
-            typer.echo(swarm.name)
+            if not sys.stdout.isatty():
+                typer.echo(swarm.name)
             raise typer.Exit(code=0)
     except KeyboardInterrupt:
         abort = typer.confirm(
