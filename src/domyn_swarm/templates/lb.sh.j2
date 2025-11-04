@@ -21,7 +21,7 @@ set -eu
 REPLICAS={{ replicas }}
 HOME_DIR="{{ cfg.home_directory }}"
 HOST_DIR="{{ swarm_directory }}"
-WAIT_SEC={{ cfg.backend.wait_endpoint_s | default(600) }}
+WAIT_SEC={{ cfg.wait_endpoint_s | default(1800) }}
 NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
 PORT={{ cfg.backend.endpoint.port }}
