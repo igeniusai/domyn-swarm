@@ -316,6 +316,7 @@ class DomynLLMSwarm(BaseModel):
         Args:
             deployment_name (str): Deployment name.
         """
+        self.cfg.persist(self.swarm_dir / "config.yaml")
         self._state_mgr.save(deployment_name)
 
     @classmethod

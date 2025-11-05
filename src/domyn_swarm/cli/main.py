@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import sys
 from typing import Optional
 
 import typer
@@ -88,8 +89,12 @@ def launch_up(
     cfg = _load_swarm_config(config, replicas=replicas)
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
     try:
-        with swarm_ctx as _:
-            ...
+        with swarm_ctx as swarm:
+            # Print ONLY the name to stdout so command substitution works if not tty:
+            #   SWARM_NAME=$(domyn-swarm up -c config.yaml)
+            if not sys.stdout.isatty():
+                typer.echo(swarm.name)
+            raise typer.Exit(code=0)
     except KeyboardInterrupt:
         abort = typer.confirm(
             "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
@@ -100,10 +105,10 @@ def launch_up(
             except Exception as e:
                 logger.error(f"Error during cleanup: {e}")
                 pass
-            typer.echo("Swarm allocation cancelled by user")
+            typer.echo("Swarm allocation cancelled by user", err=True)
             raise typer.Abort()
         else:
-            typer.echo(f"Waiting for swarm {swarm_ctx.name}…")
+            typer.echo(f"Waiting for swarm {swarm_ctx.name}…", err=True)
 
 
 @app.command(

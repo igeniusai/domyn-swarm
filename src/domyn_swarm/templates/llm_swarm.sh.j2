@@ -7,7 +7,7 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user={{ cfg.backend.mail_user }}
 {% endif %}
-#SBATCH --qos=qos_llm_min
+#SBATCH --qos={{ cfg.backend.qos }}
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.backend.partition }}
@@ -24,11 +24,16 @@
 {% endif %}
 #SBATCH --output={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.out
 #SBATCH --error={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.err
+{% for pre in cfg.backend.preamble %}
+#SBATCH {{ pre }}
+{% endfor %}
 
 set -euo pipefail
 
 module purge
-module load cuda/12.6
+{% for mod in cfg.backend.modules %}
+module load {{ mod }}
+{% endfor %}
 
 ###############################################################################
 #  ENVIRONMENT VARIABLES
