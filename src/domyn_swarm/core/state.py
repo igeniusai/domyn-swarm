@@ -45,6 +45,11 @@ from ..helpers.logger import setup_logger
 logger = setup_logger(__name__, level=logging.INFO)
 
 
+def _escape_like(s: str) -> str:
+    # Escape %, _ and \ for SQLite LIKE ... ESCAPE '\'
+    return s.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
 def _read_query(fname: str) -> str:
     """
     Read an embedded SQL query from domyn_swarm/data/queries/<fname>.
@@ -250,3 +255,35 @@ class SwarmStateManager:
             cursor.execute(query)
             for record in cursor:
                 yield dict(record)
+
+    @classmethod
+    def get_last_swarm_name(cls) -> str | None:
+        """Get the last deployment name.
+
+        Returns:
+            str | None: Deployment name or None if no deployments exist.
+        """
+        db_path = cls._get_db_path()
+        query = _read_query("select_last_swarm.sql")
+        with sqlite3.connect(db_path) as cnx:
+            cnx.row_factory = sqlite3.Row
+            cursor = cnx.cursor()
+            cursor.execute(query)
+            record = cursor.fetchone()
+
+        if record is None:
+            return None
+
+        return record["deployment_name"]
+
+    @classmethod
+    def list_by_base_name(cls, base_name: str) -> list[str]:
+        pattern = f"{_escape_like(base_name)}-%"
+        db = cls._get_db_path()
+        sql = """SELECT deployment_name
+                FROM swarm
+                WHERE deployment_name = ?
+                    OR deployment_name LIKE ? ESCAPE '\\'
+                ORDER BY creation_dt DESC"""
+        with sqlite3.connect(db) as cnx:
+            return [r[0] for r in cnx.execute(sql, (base_name, pattern))]
