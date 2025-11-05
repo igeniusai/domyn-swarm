@@ -163,7 +163,7 @@ def down(
     ),
     all_: bool = typer.Option(False, "--all", help="Tear down all matching swarms."),
     config: Optional[typer.FileText] = typer.Option(
-        ..., "-c", "--config", help="Path to YAML config (must contain 'name')."
+        None, "-c", "--config", help="Path to YAML config (must contain 'name')."
     ),
 ):
     if name is None:
