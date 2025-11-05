@@ -14,6 +14,7 @@
 
 import io
 import math
+from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import yaml
@@ -116,6 +117,11 @@ class DomynLLMSwarmConfig(BaseModel):
     def read(cls, path: str) -> "DomynLLMSwarmConfig":
         config_path = to_path(path)
         return _load_swarm_config(config_path.open())
+
+    def persist(self, path: str | Path) -> None:
+        config_path = to_path(path)
+        with config_path.open("w") as f:
+            yaml.safe_dump(self.model_dump(), f)
 
     @model_validator(mode="before")
     @classmethod
