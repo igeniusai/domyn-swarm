@@ -54,7 +54,6 @@ export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
 {% endif %}
 export HF_HUB_OFFLINE=1
 export PYTHONNOUSERSITE=1
-export RAY_CGRAPH_get_timeout=1200
 
 
 # Calculated variables
@@ -229,8 +228,9 @@ function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
   REPLICA_ENV={{ swarm_directory }}/serving/replica-${REPL_ID}.env
   echo "VLLM_HOST_IP=$VLLM_HOST_IP" > $REPLICA_ENV
+  mkdir -p $TMPDIR/ray_tmp
 
-  singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
+  singularity instance start --bind $MOUNTS,$TMPDIR/ray_tmp:/tmp --contain --writable-tmpfs \
                 --env-file $REPLICA_ENV \
                 --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
                 --disable-usage-stats --head --block \
