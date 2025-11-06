@@ -45,6 +45,7 @@ export HF_HOME="{{ cfg.env.HF_HOME }}"
 {% for k, v in (cfg.env | default({}, true)).items() -%}
 {% set KEY = k|upper|replace('-', '_') %}
 export SINGULARITYENV_{{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
+export {{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
 {% endfor -%}
 
 export REPLICAS={{ cfg.replicas }}
@@ -210,18 +211,6 @@ done
 echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
 
 # NCCL configuration for multi-node communication
-export NCCL_DEBUG=WARN
-# export NCCL_OOB_NET_ENABLE=1
-# export NCCL_OOB_NET_IFNAME="mlx5"
-export NCCL_SOCKET_IFNAME=ib
-export NCCL_IB_HCA="mlx5"
-export NCCL_ASYNC_ERROR_HANDLING=1
-export TORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.6,max_split_size_mb:512
-export NCCL_IB_SL=1
-export NCCL_IB_CUDA_SUPPORT=1
-export NCCL_IB_GDR_LEVEL=SYS
-export NCCL_P2P_LEVEL=NVL
-export NCCL_CUMEM_ENABLE=1
 RAY_LOG_DIR="$LOG_DIR/ray"
 
 function start_ray_head() {
