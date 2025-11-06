@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import SwarmJob  # noqa: F401
+from .base import OutputJoinMode, SwarmJob  # noqa: F401
 from .chat_completion import (
     ChatCompletionJob,
     ChatCompletionPerplexityJob,
@@ -38,4 +38,5 @@ __all__ = [
     "JobRunner",
     "RunnerConfig",
     "run_sharded",
+    "OutputJoinMode",
 ]
