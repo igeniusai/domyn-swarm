@@ -121,7 +121,7 @@ class DomynLLMSwarmConfig(BaseModel):
     def persist(self, path: str | Path) -> None:
         config_path = to_path(path)
         with config_path.open("w") as f:
-            yaml.safe_dump(self.model_dump(), f)
+            yaml.safe_dump(self.model_dump(mode="json"), f)
 
     @model_validator(mode="before")
     @classmethod
