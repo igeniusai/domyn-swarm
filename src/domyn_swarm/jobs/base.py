@@ -62,6 +62,7 @@ settings = get_settings()
 class OutputJoinMode(str, Enum):
     APPEND = "append"
     REPLACE = "replace"
+    IO_ONLY = "io_only"
 
 
 class SwarmJob(abc.ABC):

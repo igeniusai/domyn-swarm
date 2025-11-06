@@ -180,9 +180,13 @@ class JobRunner:
         if out_df.index.name == self.cfg.id_col:
             out_df = out_df.reset_index()
 
+        keep: list[str] = []
         if mode == OutputJoinMode.APPEND:
             # left-join to preserve original row order and columns
             return df.merge(out_df, on=self.cfg.id_col, how="left")
+        elif mode == OutputJoinMode.IO_ONLY:
+            # keep only id + inputs + outputs
+            keep = [self.cfg.id_col, input_col] + (output_cols if output_cols else [])
         else:
             # REPLACE: return only id + outputs
             keep = [
@@ -190,7 +194,8 @@ class JobRunner:
                 for c in out_df.columns
                 if c == self.cfg.id_col or c in (output_cols or out_df.columns)
             ]
-            return out_df.loc[:, keep]
+
+        return out_df.loc[:, keep]
 
 
 async def run_sharded(
