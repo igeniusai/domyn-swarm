@@ -169,6 +169,7 @@ def cfg_stub(tmp_path):
         home_directory=tmp_path,
     )
     stub.get_deployment_plan = lambda: FakePlan(platform="lepton")
+    stub.persist = lambda path: None
     return stub
 
 
