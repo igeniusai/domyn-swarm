@@ -43,7 +43,7 @@ export HF_HOME="{{ cfg.env.HF_HOME }}"
 
 # User-defined environment variables (to be passed to Singularity)
 {% for k, v in (cfg.env | default({}, true)).items() -%}
-{% set KEY = k|upper|replace('-', '_') %}
+{% set KEY = k|replace('-', '_') %}
 export SINGULARITYENV_{{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
 export {{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
 {% endfor -%}
