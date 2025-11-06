@@ -13,14 +13,13 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
 
 from domyn_swarm.checkpoint.store import CheckpointStore, FlushBatch, ParquetShardStore
-from domyn_swarm.jobs.base import SwarmJob
+from domyn_swarm.jobs.base import OutputJoinMode, SwarmJob
 
 
 @dataclass
@@ -28,11 +27,6 @@ class RunnerConfig:
     id_col: str = "_row_id"
     checkpoint_every: int = 16
     total_concurrency: Optional[int] = None  # reserved for future admission control
-
-
-class OutputJoinMode(str, Enum):
-    APPEND = "append"
-    REPLACE = "replace"
 
 
 class JobRunner:

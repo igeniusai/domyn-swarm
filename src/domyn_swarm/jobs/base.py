@@ -39,6 +39,7 @@ import logging
 import os
 import threading
 import warnings
+from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Optional
 
@@ -48,7 +49,6 @@ from openai import AsyncOpenAI
 from tqdm import tqdm
 
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.jobs.runner import OutputJoinMode
 
 from ..checkpoint.manager import CheckpointManager
 from ..helpers.logger import setup_logger
@@ -57,6 +57,11 @@ from .batching import BatchExecutor
 logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
 
 settings = get_settings()
+
+
+class OutputJoinMode(str, Enum):
+    APPEND = "append"
+    REPLACE = "replace"
 
 
 class SwarmJob(abc.ABC):
