@@ -186,6 +186,7 @@ class JobRunner:
             return df.merge(out_df, on=self.cfg.id_col, how="left")
         elif mode == OutputJoinMode.IO_ONLY:
             # keep only id + inputs + outputs
+            out_df = df.merge(out_df, on=self.cfg.id_col, how="left")
             keep = [self.cfg.id_col, input_col] + (output_cols if output_cols else [])
         else:
             # REPLACE: return only id + outputs
