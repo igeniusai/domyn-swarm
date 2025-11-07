@@ -149,7 +149,7 @@ class SwarmJob(abc.ABC):
         timeout: float = 600,
         client=None,
         client_kwargs: dict | None = None,
-        output_mode: OutputJoinMode | None = OutputJoinMode.APPEND,
+        output_mode: OutputJoinMode = OutputJoinMode.APPEND,
         default_output_cols: Optional[List[str]] = None,
         **extra_kwargs,
     ):

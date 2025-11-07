@@ -19,7 +19,10 @@ import numpy as np
 import pandas as pd
 
 from domyn_swarm.checkpoint.store import CheckpointStore, FlushBatch, ParquetShardStore
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs.base import OutputJoinMode, SwarmJob
+
+logger = setup_logger(__name__)
 
 
 @dataclass
@@ -146,14 +149,14 @@ class JobRunner:
             #   - scalar outputs → synthesize a single column 'output'
             #   - list/tuple outputs → ambiguous; require explicit output_cols
             if isinstance(first, dict):
-                print("Output is dict; passing as-is.")
+                logger.debug("Output is dict; passing as-is.")
                 return local_outputs, None  # dict path (flush with output_cols=None)
             elif isinstance(first, (list, tuple)):
                 raise ValueError(
                     "List/tuple outputs require explicit `output_cols` naming."
                 )
             else:
-                print("Output is scalar; synthesizing 'output' column.")
+                logger.debug("Output is scalar; synthesizing 'output' column.")
                 # scalar → single column auto-named 'output'
                 return local_outputs, ["output"]
 
@@ -187,7 +190,13 @@ class JobRunner:
         elif mode == OutputJoinMode.IO_ONLY:
             # keep only id + inputs + outputs
             out_df = df.merge(out_df, on=self.cfg.id_col, how="left")
-            keep = [self.cfg.id_col, input_col] + (output_cols if output_cols else [])
+            if output_cols:
+                keep = [self.cfg.id_col, input_col] + output_cols
+            else:
+                output_columns = [
+                    c for c in out_df.columns if c not in (self.cfg.id_col, input_col)
+                ]
+                keep = [self.cfg.id_col, input_col] + output_columns
         else:
             # REPLACE: return only id + outputs
             keep = [
