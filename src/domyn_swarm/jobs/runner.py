@@ -25,6 +25,93 @@ from domyn_swarm.jobs.base import OutputJoinMode, SwarmJob
 logger = setup_logger(__name__)
 
 
+def _normalize_batch_outputs(
+    local_outputs: list[Any],
+    expected_cols: Optional[list[str]],
+) -> tuple[list[Any], Optional[list[str]]]:
+    """Normalize a batch of model outputs into (rows, columns-for-flush).
+
+    Args:
+        local_outputs: List of outputs from the model/job processing.
+        expected_cols: Optional list of expected column names for output.
+
+    Returns:
+        tuple: A tuple containing:
+            - rows: List of normalized output rows
+            - columns: List of column names for flushing (None for dict path)
+
+    Behavior:
+        If expected_cols is given:
+            - len==1:
+                * scalar -> pass as-is
+                * list/tuple len 1 -> unwrap
+                * dict -> extract that key
+            - len>1:
+                * list/tuple -> positional align to expected_cols
+                * dict -> project to expected_cols order
+                * scalar -> error
+        If expected_cols is None:
+            - dict -> pass through with columns=None (store will use dict path)
+            - scalar -> synthesize single column 'output'
+            - list/tuple -> error (ambiguous without names)
+    """
+    if not local_outputs:
+        return [], expected_cols
+
+    first = local_outputs[0]
+
+    # Case A: Caller provided explicit output column names
+    if expected_cols:
+        if len(expected_cols) == 1:
+            if isinstance(first, dict):
+                # convert dicts -> scalar per key
+                key = expected_cols[0]
+                rows = [o.get(key) for o in local_outputs]
+                return rows, expected_cols
+            elif isinstance(first, (list, tuple)):
+                if len(first) != 1:
+                    raise ValueError(
+                        f"Expected single-column output {expected_cols}, "
+                        f"but got list/tuple with length {len(first)}"
+                    )
+                rows = [o[0] for o in local_outputs]
+                return rows, expected_cols
+            else:
+                # scalar per item
+                return local_outputs, expected_cols
+        else:
+            # multi-column expected
+            if isinstance(first, (list, tuple)):
+                if any(len(o) != len(expected_cols) for o in local_outputs):
+                    raise ValueError(
+                        f"Output rows length mismatch vs columns {expected_cols}"
+                    )
+                # keep as list/tuple; flush will index by position
+                return local_outputs, expected_cols
+            elif isinstance(first, dict):
+                # convert dict -> row aligned to expected_cols
+                rows = [[o.get(c) for c in expected_cols] for o in local_outputs]
+                return rows, expected_cols
+            else:
+                raise ValueError(
+                    f"Multiple output columns {expected_cols} require list/tuple or dict outputs"
+                )
+
+    # Case B: No expected columns provided
+    #   - dict outputs → pass dicts with output_cols=None
+    #   - scalar outputs → synthesize a single column 'output'
+    #   - list/tuple outputs → ambiguous; require explicit output_cols
+    if isinstance(first, dict):
+        logger.debug("Output is dict; passing as-is.")
+        return local_outputs, None  # dict path (flush with output_cols=None)
+    elif isinstance(first, (list, tuple)):
+        raise ValueError("List/tuple outputs require explicit `output_cols` naming.")
+    else:
+        logger.debug("Output is scalar; synthesizing 'output' column.")
+        # scalar → single column auto-named 'output'
+        return local_outputs, ["output"]
+
+
 @dataclass
 class RunnerConfig:
     id_col: str = "_row_id"
@@ -95,71 +182,6 @@ class JobRunner:
 
         # Normalize a batch of outputs to what flush expects
         # Returns (rows, cols_for_flush) where cols_for_flush can be None => dict path
-        def _normalize_batch_outputs(
-            local_outputs: list[Any],
-            expected_cols: Optional[list[str]],
-        ) -> tuple[list[Any], Optional[list[str]]]:
-            if not local_outputs:
-                return [], expected_cols
-
-            first = local_outputs[0]
-
-            # Case A: Caller provided explicit output column names
-            if expected_cols:
-                if len(expected_cols) == 1:
-                    # scalar, list/tuple of len 1, or dict with that key
-                    if isinstance(first, dict):
-                        # convert dicts -> scalar per key
-                        key = expected_cols[0]
-                        rows = [o.get(key) for o in local_outputs]
-                        return rows, expected_cols
-                    elif isinstance(first, (list, tuple)):
-                        if len(first) != 1:
-                            raise ValueError(
-                                f"Expected single-column output {expected_cols}, "
-                                f"but got list/tuple with length {len(first)}"
-                            )
-                        rows = [o[0] for o in local_outputs]
-                        return rows, expected_cols
-                    else:
-                        # scalar per item
-                        return local_outputs, expected_cols
-                else:
-                    # multi-column expected
-                    if isinstance(first, (list, tuple)):
-                        if any(len(o) != len(expected_cols) for o in local_outputs):
-                            raise ValueError(
-                                f"Output rows length mismatch vs columns {expected_cols}"
-                            )
-                        # keep as list/tuple; flush will index by position
-                        return local_outputs, expected_cols
-                    elif isinstance(first, dict):
-                        # convert dict -> row aligned to expected_cols
-                        rows = [
-                            [o.get(c) for c in expected_cols] for o in local_outputs
-                        ]
-                        return rows, expected_cols
-                    else:
-                        raise ValueError(
-                            f"Multiple output columns {expected_cols} require list/tuple or dict outputs"
-                        )
-
-            # Case B: No expected columns provided
-            #   - dict outputs → pass dicts with output_cols=None
-            #   - scalar outputs → synthesize a single column 'output'
-            #   - list/tuple outputs → ambiguous; require explicit output_cols
-            if isinstance(first, dict):
-                logger.debug("Output is dict; passing as-is.")
-                return local_outputs, None  # dict path (flush with output_cols=None)
-            elif isinstance(first, (list, tuple)):
-                raise ValueError(
-                    "List/tuple outputs require explicit `output_cols` naming."
-                )
-            else:
-                logger.debug("Output is scalar; synthesizing 'output' column.")
-                # scalar → single column auto-named 'output'
-                return local_outputs, ["output"]
-
         async def _on_flush(local_indices: list[int], local_outputs: list[Any]):
             batch_ids = [ids[i] for i in local_indices]
             local_outputs = [local_outputs[i] for i in local_indices]
@@ -181,7 +203,12 @@ class JobRunner:
         )
         out_df = self.store.finalize()
         if out_df.index.name == self.cfg.id_col:
-            out_df = out_df.reset_index()
+            if self.cfg.id_col in out_df.columns:
+                # id is already a column → keep it and drop the index
+                out_df = out_df.reset_index(drop=True)
+            else:
+                # id only lives in the index → move it to a column
+                out_df = out_df.reset_index()
 
         keep: list[str] = []
         if mode == OutputJoinMode.APPEND:

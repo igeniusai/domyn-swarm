@@ -5,19 +5,18 @@ import pandas as pd
 import pytest
 
 
+# ------------------------------------------------------------
+# test_run_sharded_single_shard
+# ------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_run_sharded_single_shard(mocker):
-    # Import the module that contains run_sharded
     mod = importlib.import_module("domyn_swarm.jobs.runner")
 
-    # --- Arrange -------------------------------------------------------------
     df = pd.DataFrame(
-        {"messages": [f"m{i}" for i in range(6)]},
-        index=pd.RangeIndex(0, 6),
+        {"messages": [f"m{i}" for i in range(6)]}, index=pd.RangeIndex(0, 6)
     )
     store_uri = "file:///tmp/out.parquet"
 
-    # Capture constructed store URIs
     created_store_uris = []
 
     class FakeStore:
@@ -25,7 +24,6 @@ async def test_run_sharded_single_shard(mocker):
             created_store_uris.append(uri)
             self.uri = uri
 
-    # Capture JobRunner construction and run calls
     created_runners = []
     run_calls = []
 
@@ -35,17 +33,18 @@ async def test_run_sharded_single_shard(mocker):
             self.cfg = cfg
             created_runners.append(self)
 
-        async def run(self, job, sub_df, *, input_col, output_cols):
-            # Record that we were called and with which indices
+        async def run(self, job, sub_df, *, input_col, output_cols, output_mode=None):
+            # Record invocation
             run_calls.append(
                 {
                     "idx": sub_df.index.tolist(),
                     "input_col": input_col,
                     "output_cols": output_cols,
+                    "output_mode": output_mode,
                     "store_uri": getattr(self.store, "uri", None),
                 }
             )
-            # Produce a deterministic output: add a 'result' (or first output col) column
+            # Return df with the expected output col
             out = sub_df.copy()
             col = (
                 output_cols[0]
@@ -55,7 +54,6 @@ async def test_run_sharded_single_shard(mocker):
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 
-    # Patch in the module
     mocker.patch.object(mod, "ParquetShardStore", FakeStore)
     mocker.patch.object(mod, "JobRunner", FakeJobRunner)
 
@@ -65,7 +63,6 @@ async def test_run_sharded_single_shard(mocker):
         factory_calls["n"] += 1
         return object()
 
-    # --- Act ----------------------------------------------------------------
     result = await mod.run_sharded(
         job_factory,
         df,
@@ -76,35 +73,30 @@ async def test_run_sharded_single_shard(mocker):
         cfg=None,
     )
 
-    # --- Assert --------------------------------------------------------------
-    # Only one store constructed with the base URI (no suffix for nshards=1)
+    # Assertions
     assert created_store_uris == [store_uri]
-
-    # Only one JobRunner and one run() call
     assert len(created_runners) == 1
     assert len(run_calls) == 1
-
-    # Factory called exactly once
     assert factory_calls["n"] == 1
 
-    # Output shape & content
     assert list(result.index) == list(df.index)
     assert "result" in result.columns
     assert result["result"].tolist() == [f"m{i}-out" for i in range(6)]
 
-    # Correct args were forwarded to JobRunner.run
     call = run_calls[0]
     assert call["input_col"] == "messages"
     assert call["output_cols"] == ["result"]
     assert call["store_uri"] == store_uri
+    # output_mode is passed through by run_sharded; we don't assert its value here.
 
 
+# ------------------------------------------------------------
+# test_run_sharded_multiple_shards
+# ------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_run_sharded_multiple_shards(mocker):
     mod = importlib.import_module("domyn_swarm.jobs.runner")
 
-    # --- Arrange -------------------------------------------------------------
-    # 10 rows, split into 3 shards
     n = 10
     df = pd.DataFrame({"messages": [f"m{i}" for i in range(n)]}, index=np.arange(n))
     base_uri = "file:///tmp/out.parquet"
@@ -125,12 +117,13 @@ async def test_run_sharded_multiple_shards(mocker):
             self.cfg = cfg
             created_runners.append(self)
 
-        async def run(self, job, sub_df, *, input_col, output_cols):
+        async def run(self, job, sub_df, *, input_col, output_cols, output_mode=None):
             run_calls.append(
                 {
                     "idx": sub_df.index.tolist(),
                     "input_col": input_col,
                     "output_cols": output_cols,
+                    "output_mode": output_mode,
                     "store_uri": getattr(self.store, "uri", None),
                 }
             )
@@ -153,13 +146,10 @@ async def test_run_sharded_multiple_shards(mocker):
         return object()
 
     nshards = 3
-
-    # Derive expected shard URIs using the same logic as the function
     expected_uris = {
         base_uri.replace(".parquet", f"_shard{i}.parquet") for i in range(nshards)
     }
 
-    # --- Act ----------------------------------------------------------------
     result = await mod.run_sharded(
         job_factory,
         df,
@@ -170,30 +160,26 @@ async def test_run_sharded_multiple_shards(mocker):
         cfg=None,
     )
 
-    # --- Assert --------------------------------------------------------------
-    # We expect exactly nshards store URIs, each with the shard suffix
     assert set(created_store_uris) == expected_uris
     assert len(created_store_uris) == nshards
-
-    # One JobRunner per shard, one run() call per shard
     assert len(created_runners) == nshards
     assert len(run_calls) == nshards
-
-    # Factory called once per shard
     assert factory_calls["n"] == nshards
 
-    # Result is concatenation of shard outputs, sorted by index
     assert list(result.index) == list(range(n))
     assert "result" in result.columns
     assert result["result"].tolist() == [f"m{i}-out" for i in range(n)]
 
-    # Check each run call got correct args
     for call in run_calls:
         assert call["input_col"] == "messages"
         assert call["output_cols"] == ["result"]
         assert call["store_uri"] in expected_uris
+        # call["output_mode"] may be None or a mode; we don't enforce it here.
 
 
+# ------------------------------------------------------------
+# test_run_sharded_multiple_shards_respects_splitting
+# ------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_run_sharded_multiple_shards_respects_splitting(mocker):
     """
@@ -215,7 +201,7 @@ async def test_run_sharded_multiple_shards_respects_splitting(mocker):
             self.store = store
             self.cfg = cfg
 
-        async def run(self, job, sub_df, *, input_col, output_cols):
+        async def run(self, job, sub_df, *, input_col, output_cols, output_mode=None):
             run_indices.append(tuple(sub_df.index.tolist()))
             out = sub_df.copy()
             col = (
@@ -243,12 +229,9 @@ async def test_run_sharded_multiple_shards_respects_splitting(mocker):
         cfg=None,
     )
 
-    # Collect and validate coverage
     seen = []
     for idxs in run_indices:
         seen.extend(list(idxs))
 
-    # Disjoint coverage in any order, but overall set equals original indices
     assert set(seen) == set(df.index)
-    # Sanity: no duplicate indices across shards
     assert len(seen) == len(set(seen))
