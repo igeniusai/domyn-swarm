@@ -1,3 +1,34 @@
+## v0.22.0 (2025-11-07)
+
+### Feat
+
+- add io_only output mode
+- **jobs**: add output_mode to SwarmJob and update job runner accordingly
+- add config.yaml to swarm directory
+- add usage of modules and preamble from config in sbatch scripts
+- **cli**: add possibility to down a swarm by the name contained in the config file
+- **cli**: add describe command to display the configuration of a swarm
+
+### Fix
+
+- fix how _on_flush is called
+- remove unneeded prints, fix io_only case for keeping columns
+- fix issue with io_only output mode selecting on wrong df
+- fix circular import caused by OutputJoinMode
+- remove upper when setting environment variables
+- add exports for environment variables, remove NCCL exports
+- fix yaml serialization of config when persisting it
+- remove RAY_CGRAPH_get_timeout set in template
+- loading from state in a with statement won't instantiate a new swarm anymore
+- **logs**: make sure that the name is printed only if no tty is detected
+- **logs**: fix logging to enable the swarm name to stdout
+- **cli**: print swarm name in stdout after up command
+- fix wait_endpoint_s usage in lb.sh.j2
+- fix using wrong qos in llm_swarm.sh.j2
+- fix issue with slurm state not being correctly fetched
+- use correct configuration ifor timeout in lb.sh.j2
+- **cli**: add --force flag to down command and possibility to not specify the swarm name using the last created swarm
+
 ## v0.21.5 (2025-10-22)
 
 ### Fix
