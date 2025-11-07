@@ -180,6 +180,10 @@ def down(
             base_name = _load_swarm_config(config).name
             matches = SwarmStateManager.list_by_base_name(base_name)
 
+            logger.info(
+                f"Found {len(matches)} matching swarms for base name '{base_name}'"
+            )
+
             if not matches:
                 console.print(
                     f"[yellow]No swarms found for base name '{base_name}'.[/]"
@@ -192,7 +196,7 @@ def down(
                 if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
                     raise typer.Abort()
                 down_by_name(name=name, yes=yes)  # reuse your existing down logic
-                return
+                raise typer.Exit(0)
 
             if all_:
                 if not yes:
@@ -205,14 +209,23 @@ def down(
                         raise typer.Abort()
                 for n in matches:
                     down_by_name(name=n, yes=True)
-                return
+                raise typer.Exit(0)
 
             if select:
                 name = _pick_one(matches, console)
                 if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
                     raise typer.Abort()
                 down_by_name(name=name, yes=True)
-                return
+                raise typer.Exit(0)
+
+            if matches:
+                console.print(
+                    f"[red]Multiple swarms found for base name '{base_name}'. "
+                    "Please specify one using --name, use --select to pick one or use --all to delete all of them.[/]"
+                )
+                for n in matches:
+                    console.print(f" - {n}")
+                raise typer.Exit(1)
 
         logger.info(
             "No config provided or no matches found; attempting to shut down the last swarm."
@@ -226,6 +239,7 @@ def down(
             raise typer.Exit(code=1)
     else:
         down_by_name(name=name, yes=yes)
+    raise typer.Exit(0)
 
 
 if __name__ == "__main__":
