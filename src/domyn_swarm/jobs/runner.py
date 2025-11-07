@@ -184,7 +184,6 @@ class JobRunner:
         # Returns (rows, cols_for_flush) where cols_for_flush can be None => dict path
         async def _on_flush(local_indices: list[int], local_outputs: list[Any]):
             batch_ids = [ids[i] for i in local_indices]
-            local_outputs = [local_outputs[i] for i in local_indices]
             rows, cols = _normalize_batch_outputs(local_outputs, output_cols)
             await self.store.flush(
                 FlushBatch(ids=batch_ids, rows=rows),
@@ -210,7 +209,6 @@ class JobRunner:
                 # id only lives in the index → move it to a column
                 out_df = out_df.reset_index()
 
-        keep: list[str] = []
         if mode == OutputJoinMode.APPEND:
             # left-join to preserve original row order and columns
             return df.merge(out_df, on=self.cfg.id_col, how="left")
@@ -225,13 +223,11 @@ class JobRunner:
                 ]
                 keep = [self.cfg.id_col, input_col] + output_columns
         else:
-            # REPLACE: return only id + outputs
-            keep = [
-                c
-                for c in out_df.columns
-                if c == self.cfg.id_col or c in (output_cols or out_df.columns)
-            ]
-
+            if output_cols:
+                keep = [self.cfg.id_col] + output_cols
+            else:
+                output_columns = [c for c in out_df.columns if c != self.cfg.id_col]
+                keep = [self.cfg.id_col] + output_columns
         return out_df.loc[:, keep]
 
 

@@ -362,5 +362,5 @@ class SwarmJob(abc.ABC):
         return await executor.run(
             items,
             self._call_unit,
-            on_batch_done=lambda out, idxs: on_flush(idxs, out),
+            on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
         )
