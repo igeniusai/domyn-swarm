@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 
 import domyn_swarm.jobs.run as run_mod
-from domyn_swarm.jobs import SwarmJob
+from domyn_swarm.jobs import OutputJoinMode, SwarmJob
 from domyn_swarm.jobs.run import (
     _amain,
     _load_cls,
@@ -36,9 +36,11 @@ class DummySwarmJob(SwarmJob):
     max_concurrency = 2
     retries = 1
     timeout = 10
+    output_mode = OutputJoinMode.APPEND
 
     def __init__(self, **kwargs):
         self.params = kwargs
+        self.output_mode = kwargs.get("output_mode", OutputJoinMode.APPEND)
 
     async def transform(self, df):
         raise NotImplementedError()
