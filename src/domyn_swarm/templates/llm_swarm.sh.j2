@@ -7,7 +7,7 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user={{ cfg.backend.mail_user }}
 {% endif %}
-#SBATCH --qos=qos_llm_min
+#SBATCH --qos={{ cfg.backend.qos }}
 #SBATCH --exclusive=user
 #SBATCH --job-name={{ job_name }}
 #SBATCH --partition={{ cfg.backend.partition }}
@@ -24,11 +24,16 @@
 {% endif %}
 #SBATCH --output={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.out
 #SBATCH --error={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.err
+{% for pre in cfg.backend.preamble %}
+#SBATCH {{ pre }}
+{% endfor %}
 
 set -euo pipefail
 
 module purge
-module load cuda/12.6
+{% for mod in cfg.backend.modules %}
+module load {{ mod }}
+{% endfor %}
 
 ###############################################################################
 #  ENVIRONMENT VARIABLES
@@ -38,8 +43,9 @@ export HF_HOME="{{ cfg.env.HF_HOME }}"
 
 # User-defined environment variables (to be passed to Singularity)
 {% for k, v in (cfg.env | default({}, true)).items() -%}
-{% set KEY = k|upper|replace('-', '_') %}
+{% set KEY = k|replace('-', '_') %}
 export SINGULARITYENV_{{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
+export {{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
 {% endfor -%}
 
 export REPLICAS={{ cfg.replicas }}
@@ -49,7 +55,6 @@ export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
 {% endif %}
 export HF_HUB_OFFLINE=1
 export PYTHONNOUSERSITE=1
-export RAY_CGRAPH_get_timeout=1200
 
 
 # Calculated variables
@@ -206,26 +211,15 @@ done
 echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
 
 # NCCL configuration for multi-node communication
-export NCCL_DEBUG=WARN
-# export NCCL_OOB_NET_ENABLE=1
-# export NCCL_OOB_NET_IFNAME="mlx5"
-export NCCL_SOCKET_IFNAME=ib
-export NCCL_IB_HCA="mlx5"
-export NCCL_ASYNC_ERROR_HANDLING=1
-export TORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.6,max_split_size_mb:512
-export NCCL_IB_SL=1
-export NCCL_IB_CUDA_SUPPORT=1
-export NCCL_IB_GDR_LEVEL=SYS
-export NCCL_P2P_LEVEL=NVL
-export NCCL_CUMEM_ENABLE=1
 RAY_LOG_DIR="$LOG_DIR/ray"
 
 function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
   REPLICA_ENV={{ swarm_directory }}/serving/replica-${REPL_ID}.env
   echo "VLLM_HOST_IP=$VLLM_HOST_IP" > $REPLICA_ENV
+  mkdir -p $TMPDIR/ray_tmp
 
-  singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
+  singularity instance start --bind $MOUNTS,$TMPDIR/ray_tmp:/tmp --contain --writable-tmpfs \
                 --env-file $REPLICA_ENV \
                 --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
                 --disable-usage-stats --head --block \

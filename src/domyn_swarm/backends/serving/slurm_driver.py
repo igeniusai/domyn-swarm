@@ -143,16 +143,73 @@ class SlurmDriver:
         return head_node
 
     def get_job_state(self, jobid: int) -> str:
-        """Return Slurm job state (e.g., RUNNING, PENDING, FAILED, CANCELLED, TIMEOUT, UNKNOWN)."""
-        try:
-            out = subprocess.check_output(
-                ["squeue", "-j", str(jobid), "-h", "-o", "%T"], text=True
-            ).strip()
-            if out:
-                state = out.split()[0]
-                if state == "State":
-                    return "UNKNOWN"
+        """Get the current state of a Slurm job.
+
+        This method attempts to determine the job state using multiple approaches
+        in order of preference:
+
+        1. Live states from `squeue` for active jobs
+        2. Terminal states from `sacct` for completed jobs
+        3. Fallback to `scontrol show job` parsing
+
+        Args:
+            jobid (int): The Slurm job ID to query.
+
+        Returns:
+            str: The job state as a string. Possible values include:
+                - Live states: RUNNING, PENDING, CONFIGURING, COMPLETING, etc.
+                - Terminal states: COMPLETED, FAILED, CANCELLED, TIMEOUT,
+                  NODE_FAIL, OUT_OF_MEMORY, etc.
+                - 'UNKNOWN' if the state cannot be determined.
+
+        Note:
+            The method tries multiple Slurm commands to handle cases where jobs
+            may have transitioned between live and terminal states, or when
+            different commands may be unavailable or return different information.
+        """
+
+        def _run(cmd: list[str]) -> str:
+            try:
+                res = subprocess.run(cmd, check=False, text=True, capture_output=True)
+                if res.returncode == 0 and res.stdout:
+                    return res.stdout.strip()
+            except Exception:
+                pass
+            return ""
+
+        # 1) Live state via squeue
+        out = _run(["squeue", "-j", str(jobid), "-h", "-o", "%T"])
+        if out:
+            # %T returns a single token (e.g., RUNNING). Be cautious if someone changes the format.
+            state = out.split()[0].upper()
+            # Some sites prepend headers if -h is ignored; guard that:
+            if state != "STATE":
                 return state
-            return "UNKNOWN"
-        except Exception:
-            return "UNKNOWN"
+
+        # 2) Final/terminal state via sacct (exclude steps with -X, machine-parsable with -P)
+        #    This returns lines like "COMPLETED" or "FAILED" (one per job or step).
+        #    With -X, we avoid step rows and keep the job record only.
+        out = _run(["sacct", "-j", str(jobid), "-o", "State", "-n", "-X", "-P"])
+        if out:
+            # sacct may still return multiple lines in some schedulers (array parent/children).
+            # Take the first non-empty token; with -P, fields are ';'-separated, but we asked only State.
+            for line in out.splitlines():
+                s = line.strip()
+                if not s:
+                    continue
+                # Drop trailing details like "CANCELLED by 12345" or "FAILED+"
+                s = s.split()[0].split("+")[0].upper()
+                if s and s != "STATE":
+                    return s
+
+        # 3) Fallback: scontrol show job -o (one-line). Parse JobState=...
+        out = _run(["scontrol", "show", "job", "-o", str(jobid)])
+        if out:
+            # one line of key=val pairs, e.g., "... JobState=FAILED Reason=..."
+            for field in out.split():
+                if field.startswith("JobState="):
+                    state = field.split("=", 1)[1].split()[0].upper()
+                    if state:
+                        return state
+
+        return "UNKNOWN"

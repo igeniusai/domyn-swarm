@@ -56,7 +56,7 @@ class SlurmConfig(BaseModel):
     ray_dashboard_port: int = 8265
 
     # Additional SLURM settings, not yet exposed and used anywhere
-    module_load: list[str] = []
+    modules: list[str] = []
     preamble: list[str] = []  # additional SLURM directives
 
     template_path: utils.EnvPath = Field(

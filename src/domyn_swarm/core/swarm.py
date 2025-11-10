@@ -281,6 +281,11 @@ class DomynLLMSwarm(BaseModel):
             return
 
     def __enter__(self):
+        # If instantiating from state, the swarm will be already deployed,
+        # so just return self
+        if self.serving_handle is not None:
+            return self
+
         assert self._deployment is not None
 
         serving_spec = dict(self._plan.serving_spec, swarm_directory=self.swarm_dir)
@@ -316,6 +321,7 @@ class DomynLLMSwarm(BaseModel):
         Args:
             deployment_name (str): Deployment name.
         """
+        self.cfg.persist(self.swarm_dir / "config.yaml")
         self._state_mgr.save(deployment_name)
 
     @classmethod

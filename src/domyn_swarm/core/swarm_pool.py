@@ -16,8 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import Any, Generator, cast
 
-from domyn_swarm.config.swarm import DomynLLMSwarmConfig
-from domyn_swarm.core.swarm import DomynLLMSwarm
+from ..config.swarm import DomynLLMSwarmConfig
+from .swarm import DomynLLMSwarm
 
 
 @contextmanager

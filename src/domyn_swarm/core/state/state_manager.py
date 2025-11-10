@@ -36,6 +36,11 @@ from .models import SwarmRecord
 logger = setup_logger(__name__)
 
 
+def _escape_like(s: str) -> str:
+    # Escape %, _ and \ for SQLite LIKE ... ESCAPE '\'
+    return s.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
 class SwarmStateManager:
     DB_NAME = "swarm.db"
 
@@ -156,3 +161,30 @@ class SwarmStateManager:
             raise ValueError("State file does not contain valid LB job info")
         assert isinstance(slurm_cfg, SlurmConfig)
         return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)
+
+    @classmethod
+    def get_last_swarm_name(cls) -> str | None:
+        """Get the last deployment name.
+
+        Returns:
+            str | None: Deployment name or None if no deployments exist.
+        """
+        session_factory = make_session_factory(cls._get_db_path())
+        with session_factory() as s:
+            rec = s.query(SwarmRecord).order_by(SwarmRecord.creation_dt.desc()).first()
+        if rec is None:
+            return None
+        return rec.deployment_name
+
+    @classmethod
+    def list_by_base_name(cls, base_name: str) -> list[str]:
+        pattern = f"{_escape_like(base_name)}-%"
+        session_factory = make_session_factory(cls._get_db_path())
+        with session_factory() as s:
+            rows = (
+                s.query(SwarmRecord)
+                .filter(SwarmRecord.deployment_name.like(pattern, escape="\\"))
+                .order_by(SwarmRecord.creation_dt.desc())
+                .all()
+            )
+        return [r.deployment_name for r in rows]

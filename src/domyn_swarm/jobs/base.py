@@ -39,8 +39,9 @@ import logging
 import os
 import threading
 import warnings
+from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, List, Optional
 
 import pandas as pd
 from deprecated import deprecated
@@ -56,6 +57,12 @@ from .batching import BatchExecutor
 logger = setup_logger("domyn_swarm.jobs.base", level=logging.INFO)
 
 settings = get_settings()
+
+
+class OutputJoinMode(str, Enum):
+    APPEND = "append"
+    REPLACE = "replace"
+    IO_ONLY = "io_only"
 
 
 class SwarmJob(abc.ABC):
@@ -142,6 +149,8 @@ class SwarmJob(abc.ABC):
         timeout: float = 600,
         client=None,
         client_kwargs: dict | None = None,
+        output_mode: OutputJoinMode = OutputJoinMode.APPEND,
+        default_output_cols: Optional[List[str]] = None,
         **extra_kwargs,
     ):
         """Initialize the job with parameters and an optional LLM client.
@@ -160,6 +169,8 @@ class SwarmJob(abc.ABC):
             timeout: Request timeout in seconds.
             client: Optional pre-initialized LLM client (e.g., `AsyncOpenAI`).
             client_kwargs: Additional kwargs for the LLM client.
+            output_mode: How to join outputs to the input DataFrame.
+            default_output_cols: Default output columns if none are specified.
             **extra_kwargs: Additional parameters to pass to the job constructor.
 
         Raises:
@@ -206,6 +217,16 @@ class SwarmJob(abc.ABC):
         self.retries = retries
         self.timeout = timeout
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
+        self.output_mode = output_mode
+        self.default_output_cols = (
+            default_output_cols
+            if default_output_cols is not None
+            else (
+                [self.output_cols]
+                if isinstance(self.output_cols, str)
+                else self.output_cols
+            )
+        )
 
         headers = {}
         token = (

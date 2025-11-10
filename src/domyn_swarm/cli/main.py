@@ -13,11 +13,15 @@
 # limitations under the License.
 
 import logging
+import sys
 from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.table import Table
 from typing_extensions import Annotated
+
+from domyn_swarm.utils.cli import _pick_one
 
 from ..cli.init import init_app
 from ..cli.pool import pool_app
@@ -91,8 +95,12 @@ def launch_up(
     cfg = _load_swarm_config(config, replicas=replicas)
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
     try:
-        with swarm_ctx as _:
-            ...
+        with swarm_ctx as swarm:
+            # Print ONLY the name to stdout so command substitution works if not tty:
+            #   SWARM_NAME=$(domyn-swarm up -c config.yaml)
+            if not sys.stdout.isatty():
+                typer.echo(swarm.name)
+            raise typer.Exit(code=0)
     except KeyboardInterrupt:
         abort = typer.confirm(
             "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
@@ -103,10 +111,10 @@ def launch_up(
             except Exception as e:
                 logger.error(f"Error during cleanup: {e}")
                 pass
-            typer.echo("Swarm allocation cancelled by user")
+            typer.echo("Swarm allocation cancelled by user", err=True)
             raise typer.Abort()
         else:
-            typer.echo(f"Waiting for swarm {swarm_ctx.name}…")
+            typer.echo(f"Waiting for swarm {swarm_ctx.name}…", err=True)
 
 
 @app.command(
@@ -136,13 +144,108 @@ def check_status(
     render_status((name, swarm._platform, serving_status), console=console)
 
 
+def down_by_name(name: str, yes: bool) -> None:
+    swarm = SwarmStateManager.load(deployment_name=name)
+    serving_status = swarm.status()
+    if serving_status.phase == "RUNNING" and not yes:
+        confirm = typer.confirm(
+            f"Are you sure you want to shut down the running swarm {name}?"
+        )
+        if not confirm:
+            typer.secho("Aborting shutdown.", fg="red")
+            raise typer.Exit()
+    swarm.down()
+    typer.echo(f"✅ Swarm {name} shutdown request sent.")
+
+
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
-    name: str = typer.Argument(..., exists=True, help="Swarm name."),
+    name: Optional[str] = typer.Argument(default=None, help="Swarm name."),
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Force shutdown without confirmation.",
+        ),
+    ] = False,
+    select: bool = typer.Option(
+        False, "--select", help="Pick a single swarm when multiple matches."
+    ),
+    all_: bool = typer.Option(False, "--all", help="Tear down all matching swarms."),
+    config: Optional[typer.FileText] = typer.Option(
+        None, "-c", "--config", help="Path to YAML config (must contain 'name')."
+    ),
 ):
-    swarm = SwarmStateManager.load(deployment_name=name)
-    swarm.down()
-    typer.echo("✅ Swarm shutdown request sent.")
+    if name is None:
+        logger.warning("Swarm name not provided for shutdown")
+        if config is not None:
+            logger.info(
+                f"Loading swarm config from {config.name} to find matching swarms"
+            )
+            base_name = _load_swarm_config(config).name
+            matches = SwarmStateManager.list_by_base_name(base_name)
+
+            logger.info(
+                f"Found {len(matches)} matching swarms for base name '{base_name}'"
+            )
+
+            if not matches:
+                console.print(
+                    f"[yellow]No swarms found for base name '{base_name}'.[/]"
+                )
+                raise typer.Exit(0)
+
+            if len(matches) == 1 and not all_:
+                name = matches[0]
+                console.print(f"[cyan]Found 1 match:[/] {name}")
+                if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
+                    raise typer.Abort()
+                down_by_name(name=name, yes=yes)  # reuse your existing down logic
+                raise typer.Exit(0)
+
+            if all_:
+                if not yes:
+                    table = Table(title="Swarms to destroy")
+                    table.add_column("deployment_name")
+                    for n in matches:
+                        table.add_row(n)
+                    console.print(table)
+                    if not typer.confirm(f"Destroy ALL {len(matches)} swarms above?"):
+                        raise typer.Abort()
+                for n in matches:
+                    down_by_name(name=n, yes=True)
+                raise typer.Exit(0)
+
+            if select:
+                name = _pick_one(matches, console)
+                if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
+                    raise typer.Abort()
+                down_by_name(name=name, yes=True)
+                raise typer.Exit(0)
+
+            if matches:
+                console.print(
+                    f"[red]Multiple swarms found for base name '{base_name}'. "
+                    "Please specify one using --name, use --select to pick one or use --all to delete all of them.[/]"
+                )
+                for n in matches:
+                    console.print(f" - {n}")
+                raise typer.Exit(1)
+
+        logger.info(
+            "No config provided or no matches found; attempting to shut down the last swarm."
+        )
+        name = SwarmStateManager.get_last_swarm_name()
+        if name:
+            logger.info(f"Shutting down the last swarm: [bold cyan]{name}[/]")
+            down_by_name(name=name, yes=yes)
+        else:
+            logger.error("No swarms found to shut down.")
+            raise typer.Exit(code=1)
+    else:
+        down_by_name(name=name, yes=yes)
+    raise typer.Exit(0)
 
 
 if __name__ == "__main__":
