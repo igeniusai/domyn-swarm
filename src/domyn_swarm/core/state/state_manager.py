@@ -57,7 +57,9 @@ class SwarmStateManager:
         session_factory = make_session_factory(self._get_db_path())
         # Build payload
         cfg_obj = self.swarm.cfg
-        swarm_obj = self.swarm.model_dump(exclude={"cfg": True})
+        swarm_obj = self.swarm.model_dump(
+            mode="json", exclude={"cfg": True}, by_alias=True, exclude_none=True
+        )
         handle = self.swarm.serving_handle
         if handle is None:
             raise ValueError("Null Serving handle")
