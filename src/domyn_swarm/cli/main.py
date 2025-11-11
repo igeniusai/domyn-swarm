@@ -27,6 +27,7 @@ from ..cli.init import init_app
 from ..cli.pool import pool_app
 from ..cli.tui import render_status
 from ..config.swarm import _load_swarm_config
+from ..core.state.autoupgrade import ensure_db_up_to_date
 from ..core.state.state_manager import SwarmStateManager
 from ..core.swarm import DomynLLMSwarm
 from ..helpers.logger import setup_logger
@@ -61,6 +62,22 @@ console = Console()
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 
 
+@app.callback()
+def main_callback(ctx: typer.Context) -> None:
+    """
+    Root callback: runs before any subcommand.
+
+    We use this to transparently auto-upgrade the local swarm.db schema.
+    """
+    # If the user is explicitly running `domyn-swarm db ...`,
+    # let that subcommand control migrations.
+    if ctx.invoked_subcommand == "db":
+        return
+
+    # Safe to call for everything else; it’s idempotent and guarded.
+    ensure_db_up_to_date(noisy=True)
+
+
 @app.command("version", short_help="Show the version of the domyn-swarm CLI")
 def version(short: bool = False):
     v = get_version()
@@ -92,6 +109,10 @@ def launch_up(
         ),
     ] = None,
 ):
+    """
+    Launch a swarm allocation with the given configuration.
+    The configuration must be provided as a YAML file.
+    """
     cfg = _load_swarm_config(config, replicas=replicas)
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
     try:
@@ -145,6 +166,7 @@ def check_status(
 
 
 def down_by_name(name: str, yes: bool) -> None:
+    """Helper to shut down a swarm by name, with optional confirmation."""
     swarm = SwarmStateManager.load(deployment_name=name)
     serving_status = swarm.status()
     if serving_status.phase == "RUNNING" and not yes:
@@ -177,6 +199,13 @@ def down(
         None, "-c", "--config", help="Path to YAML config (must contain 'name')."
     ),
 ):
+    """
+    Shut down a swarm allocation.
+
+    If NAME is not provided, attempts to find the last created swarm.
+    If a CONFIG is provided, uses its 'name' field to find matching swarms.
+    Use --all to shut down all matching swarms, or --select to pick one interactively.
+    """
     if name is None:
         logger.warning("Swarm name not provided for shutdown")
         if config is not None:

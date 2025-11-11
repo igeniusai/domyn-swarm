@@ -89,6 +89,11 @@ class Settings(BaseSettings):
         description="Use ASCII glyphs instead of Unicode emojis in CLI output",
     )  # DOMYN_SWARM_ASCII
 
+    skip_db_upgrade: bool = Field(
+        default=False,
+        description="If true, skip automatic database schema upgrades on CLI startup",
+    )  # DOMYN_SWARM_SKIP_DB_UPGRADE
+
     # --- AzureML (placeholders) ---------------------------------------------
     # azure_subscription_id: Optional[str] = None
     # azure_resource_group: Optional[str] = None
