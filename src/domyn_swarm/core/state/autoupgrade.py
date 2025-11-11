@@ -16,10 +16,12 @@
 
 from __future__ import annotations
 
-import typer
+from pathlib import Path
+
 from rich.console import Console
 
 from domyn_swarm.config.settings import get_settings
+from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.helpers.logger import setup_logger
 
 from .migrate import get_current_rev, get_head_rev, upgrade_head
@@ -28,14 +30,20 @@ logger = setup_logger(__name__)
 
 _DB_UPGRADED = False  # process-local guard
 
+console = Console()
 
-def ensure_db_up_to_date(*, noisy: bool = True) -> None:
+
+def ensure_db_up_to_date(*, noisy: bool = False) -> None:
     """
-    Idempotently ensure the swarm.db schema is at Alembic HEAD.
+    Ensure the local swarm.db is at the latest Alembic revision.
 
-    - Runs at most once per process.
-    - If current != head, runs `upgrade_head`.
-    - If anything fails, logs and aborts the CLI.
+    - If DOMYN_SWARM_SKIP_DB_UPGRADE=1 → do nothing.
+    - If the DB file does not exist → create it and apply all migrations.
+    - If it exists but is unversioned → treat as "from scratch" and upgrade.
+    - If it's behind head → upgrade to head.
+    - If it's already at head → no-op.
+
+    This is intended to be called once per CLI invocation (guarded by _DB_UPGRADED).
     """
     global _DB_UPGRADED
     if _DB_UPGRADED:
@@ -43,38 +51,51 @@ def ensure_db_up_to_date(*, noisy: bool = True) -> None:
 
     settings = get_settings()
 
-    # Allow tests or power users to bypass auto-upgrade if really needed.
     if settings.skip_db_upgrade:
         logger.debug("Skipping DB auto-upgrade due to DOMYN_SWARM_SKIP_DB_UPGRADE=1")
         _DB_UPGRADED = True
         return
 
-    db_path = (settings.home / "swarm.db").as_posix()
+    db_path: Path = SwarmStateManager._get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_str = db_path.as_posix()
 
-    try:
-        current = get_current_rev(
-            db_path
-        )  # your helper: returns current revision or None
-        head = get_head_rev(db_path)  # your helper: returns Alembic head revision
-
-        if current == head:
-            logger.debug("State DB already at latest migration (rev=%s)", head)
-            _DB_UPGRADED = True
-            return
-
-        console = Console(stderr=True)
-
+    # First-run: DB file does not exist → create + migrate
+    if not db_path.exists():
         if noisy:
-            console.print("[yellow]New database version detected, upgrading…[/]")
-
-        upgrade_head(db_path)
-
+            console.print(
+                "[cyan]No swarm state DB found; creating and applying migrations…[/]"
+            )
+        upgrade_head(db_str)
         if noisy:
-            console.print("[green]Database schema upgraded.[/]")
-
+            console.print("[green]DB schema initialized.[/]")
         _DB_UPGRADED = True
+        return
 
-    except Exception as e:  # noqa: BLE001
-        logger.error("Failed to upgrade state DB: %s", e)
-        # For CLI usage, failing hard is usually better than silently corrupting state.
-        raise typer.Exit(code=1) from e
+    # Existing DB: figure out current vs head
+    try:
+        current = get_current_rev(db_str)  # may return None or raise if unversioned
+    except Exception as e:  # pragma: no cover (defensive)
+        logger.debug(f"Error reading current DB revision: {e!r}")
+        current = None
+
+    head = get_head_rev(db_str)
+
+    # Already up to date
+    if current == head:
+        _DB_UPGRADED = True
+        return
+
+    # Needs upgrade
+    if noisy:
+        if current is None:
+            console.print(f"[cyan]Unversioned DB found; upgrading to head ({head})…[/]")
+        else:
+            console.print(f"[cyan]Upgrading DB from {current} to {head}…[/]")
+
+    upgrade_head(db_str)
+
+    if noisy:
+        console.print("[green]DB schema is up to date.[/]")
+
+    _DB_UPGRADED = True
