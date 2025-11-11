@@ -64,7 +64,7 @@ class _FakeStateManager:
         return cls._swarm_instance
 
 
-def test_cli_version(monkeypatch):
+def test_cli_version(monkeypatch, disable_autoupgrade):
     monkeypatch.setattr("domyn_swarm.cli.main.get_version", lambda: "1.2.3")
 
     result = runner.invoke(app, ["version"])
@@ -73,7 +73,7 @@ def test_cli_version(monkeypatch):
     assert "1.2.3" in result.stdout
 
 
-def test_cli_version_short(monkeypatch):
+def test_cli_version_short(monkeypatch, disable_autoupgrade):
     monkeypatch.setattr("domyn_swarm.cli.main.get_version", lambda: "1.2.3")
 
     result = runner.invoke(app, ["version", "--short"])
@@ -81,7 +81,7 @@ def test_cli_version_short(monkeypatch):
     assert result.stdout.strip() == "1.2.3"
 
 
-def test_cli_up_requires_config(tmp_path, mocker):
+def test_cli_up_requires_config(tmp_path, mocker, disable_autoupgrade):
     # Arrange
     config = tmp_path / "config.yaml"
     config.write_text("fake_yaml: true")
@@ -127,7 +127,9 @@ def test_cli_up_requires_config(tmp_path, mocker):
 
 
 @pytest.mark.parametrize("replicas", [1, 3, 8])
-def test_cli_up_passes_replicas_override(tmp_path, mocker, replicas):
+def test_cli_up_passes_replicas_override(
+    tmp_path, mocker, replicas, disable_autoupgrade
+):
     config = tmp_path / "config.yaml"
     config.write_text("fake_yaml: true")
 
@@ -149,7 +151,7 @@ def test_cli_up_passes_replicas_override(tmp_path, mocker, replicas):
     assert load_mock.call_args.kwargs.get("replicas") == replicas
 
 
-def test_up_prints_only_name(monkeypatch):
+def test_up_prints_only_name(monkeypatch, disable_autoupgrade):
     class DummySwarm:
         name = "swarm-abc123"
 
@@ -177,7 +179,7 @@ def _reload_cli_with_fake_state_manager(mocker):
     return cli_module
 
 
-def test_down_happy_path_invokes_swarm_and_deletes(mocker):
+def test_down_happy_path_invokes_swarm_and_deletes(mocker, disable_autoupgrade):
     cli_module = _reload_cli_with_fake_state_manager(mocker)
     app = getattr(cli_module, "app")
 
@@ -201,7 +203,7 @@ def test_down_happy_path_invokes_swarm_and_deletes(mocker):
     assert swarm.deleted_name == name
 
 
-def test_down_bubbles_up_load_errors(mocker):
+def test_down_bubbles_up_load_errors(mocker, disable_autoupgrade):
     cli_module = _reload_cli_with_fake_state_manager(mocker)
     app = getattr(cli_module, "app")
 
@@ -217,7 +219,7 @@ def test_down_bubbles_up_load_errors(mocker):
         assert result.exit_code != 0
 
 
-def test_down_order_calls_down_before_delete_record(mocker):
+def test_down_order_calls_down_before_delete_record(mocker, disable_autoupgrade):
     cli_module = _reload_cli_with_fake_state_manager(mocker)
     app = getattr(cli_module, "app")
 
@@ -239,7 +241,7 @@ def test_down_order_calls_down_before_delete_record(mocker):
     assert calls.index("down") < calls.index("delete_record")
 
 
-def test_down_by_name_running_user_declines_aborts(mocker):
+def test_down_by_name_running_user_declines_aborts(mocker, disable_autoupgrade):
     """When RUNNING and user declines confirm, we abort and do NOT call down()."""
     # Patch state manager load to return a running stub
     stub = _DummySwarm(status_phase="RUNNING", name="s1")
@@ -256,7 +258,7 @@ def test_down_by_name_running_user_declines_aborts(mocker):
     assert not stub.down_called
 
 
-def test_down_by_name_running_user_confirms_executes(mocker):
+def test_down_by_name_running_user_confirms_executes(mocker, disable_autoupgrade):
     """When RUNNING and user confirms, down() is called and success message printed."""
     stub = _DummySwarm(status_phase="RUNNING", name="s1")
     mocker.patch.object(main, "SwarmStateManager", autospec=True)
@@ -270,7 +272,9 @@ def test_down_by_name_running_user_confirms_executes(mocker):
     assert stub.down_called
 
 
-def test_down_with_config_no_matches_prints_message_and_exits0(tmp_path, mocker):
+def test_down_with_config_no_matches_prints_message_and_exits0(
+    tmp_path, mocker, disable_autoupgrade
+):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -286,7 +290,7 @@ def test_down_with_config_no_matches_prints_message_and_exits0(tmp_path, mocker)
 
 
 def test_down_with_config_single_match_yes_skips_prompt_and_calls_down(
-    tmp_path, mocker
+    tmp_path, mocker, disable_autoupgrade
 ):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
@@ -312,7 +316,9 @@ def test_down_with_config_single_match_yes_skips_prompt_and_calls_down(
     assert called == {"name": "base-abc", "yes": True}
 
 
-def test_down_with_config_single_match_user_declines_aborts(tmp_path, mocker):
+def test_down_with_config_single_match_user_declines_aborts(
+    tmp_path, mocker, disable_autoupgrade
+):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -332,7 +338,9 @@ def test_down_with_config_single_match_user_declines_aborts(tmp_path, mocker):
     main.down_by_name.assert_not_called()
 
 
-def test_down_with_config_all_prompts_then_calls_all(tmp_path, mocker):
+def test_down_with_config_all_prompts_then_calls_all(
+    tmp_path, mocker, disable_autoupgrade
+):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -354,7 +362,7 @@ def test_down_with_config_all_prompts_then_calls_all(tmp_path, mocker):
     assert main.down_by_name.call_count == 2
 
 
-def test_down_with_config_all_decline_aborts(tmp_path, mocker):
+def test_down_with_config_all_decline_aborts(tmp_path, mocker, disable_autoupgrade):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -373,7 +381,9 @@ def test_down_with_config_all_decline_aborts(tmp_path, mocker):
     main.down_by_name.assert_not_called()
 
 
-def test_down_with_config_select_picks_one_and_confirms(tmp_path, mocker):
+def test_down_with_config_select_picks_one_and_confirms(
+    tmp_path, mocker, disable_autoupgrade
+):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -395,7 +405,7 @@ def test_down_with_config_select_picks_one_and_confirms(tmp_path, mocker):
 # ---------- Fallback (no name, no config) ----------
 
 
-def test_down_fallback_to_last_swarm_success(mocker):
+def test_down_fallback_to_last_swarm_success(mocker, disable_autoupgrade):
     mocker.patch.object(main, "SwarmStateManager", autospec=True)
     main.SwarmStateManager.get_last_swarm_name.return_value = "last-one"  # type: ignore[attr-defined]
 
@@ -408,7 +418,7 @@ def test_down_fallback_to_last_swarm_success(mocker):
     main.down_by_name.assert_called_once_with(name="last-one", yes=False)
 
 
-def test_down_fallback_to_last_swarm_missing_exits_1(mocker):
+def test_down_fallback_to_last_swarm_missing_exits_1(mocker, disable_autoupgrade):
     mocker.patch.object(main, "SwarmStateManager", autospec=True)
     main.SwarmStateManager.get_last_swarm_name.return_value = None  # type: ignore[attr-defined]
 
