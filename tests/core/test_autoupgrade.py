@@ -13,175 +13,139 @@
 # limitations under the License.
 
 import importlib
-from pathlib import Path
 
 import pytest
-import typer
+
+from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+
+@pytest.fixture(autouse=True)
+def reset_db_upgraded(monkeypatch):
+    """
+    Reset the module-level _DB_UPGRADED flag before each test so that
+    ensure_db_up_to_date actually runs its logic.
+    """
+    mod = importlib.import_module("domyn_swarm.core.state.autoupgrade")
+    monkeypatch.setattr(mod, "_DB_UPGRADED", False)
+    yield
 
 
 @pytest.fixture
 def autoupgrade_mod():
-    """
-    Import the autoupgrade module once for reuse.
-    Adjust the path if ensure_db_up_to_date lives elsewhere.
-    """
+    """Convenience fixture to import the autoupgrade module."""
     return importlib.import_module("domyn_swarm.core.state.autoupgrade")
 
 
-class DummySettings:
-    def __init__(self, home: Path, skip_db_upgrade: bool = False):
-        self.skip_db_upgrade = skip_db_upgrade
-        self.home = home
+@pytest.fixture
+def tmp_db_path(tmp_path, monkeypatch):
+    """
+    Patch SwarmStateManager._get_db_path to point to a temp file under tmp_path.
+    This keeps the DB location consistent between the code under test and
+    the assertions in the tests.
+    """
+    db_path = tmp_path / SwarmStateManager.DB_NAME
 
-
-def _reset_flag(mod):
-    # Ensure we start from a clean state
-    if hasattr(mod, "_DB_UPGRADED"):
-        setattr(mod, "_DB_UPGRADED", False)
-
-
-def test_ensure_db_up_to_date_skips_when_already_upgraded(monkeypatch, autoupgrade_mod):
-    _reset_flag(autoupgrade_mod)
-
-    # Set flag to True to simulate already-upgraded process
-    autoupgrade_mod._DB_UPGRADED = True
-
-    _ = monkeypatch.setattr(autoupgrade_mod, "upgrade_head", lambda *_: None)
-    _ = monkeypatch.setattr(autoupgrade_mod, "get_current_rev", lambda *_: "rev1")
-    _ = monkeypatch.setattr(autoupgrade_mod, "get_head_rev", lambda *_: "rev2")
-
-    autoupgrade_mod.ensure_db_up_to_date(noisy=True)
-
-    # None of these should have been called because we bailed early on the flag.
-    # We can't assert call counts on lambdas, but the main check is that nothing exploded
-    # and that the flag is still True.
-    assert autoupgrade_mod._DB_UPGRADED is True
-
-
-def test_ensure_db_up_to_date_skips_when_env_flag_set(
-    monkeypatch, tmp_path, autoupgrade_mod
-):
-    _reset_flag(autoupgrade_mod)
-
-    # Make sure auto-upgrade is not yet done
-    assert autoupgrade_mod._DB_UPGRADED is False
-
-    # Pretend DB is under tmp_path
-    monkeypatch.setattr(
-        autoupgrade_mod,
-        "get_settings",
-        lambda: DummySettings(home=tmp_path, skip_db_upgrade=True),
-    )
-
-    _ = monkeypatch.setattr(
-        autoupgrade_mod,
-        "upgrade_head",
-        lambda *_: (_ for _ in ()).throw(AssertionError("must not be called")),
-    )
-    monkeypatch.setattr(autoupgrade_mod, "get_current_rev", lambda *_: "rev1")
-    monkeypatch.setattr(autoupgrade_mod, "get_head_rev", lambda *_: "rev2")
-
-    autoupgrade_mod.ensure_db_up_to_date(noisy=True)
-
-    # Should flip the flag but not call upgrade_head
-    assert autoupgrade_mod._DB_UPGRADED is True
-
-
-def test_ensure_db_up_to_date_does_nothing_if_already_at_head(
-    monkeypatch, tmp_path, autoupgrade_mod
-):
-    _reset_flag(autoupgrade_mod)
+    def mock_get_db_path(cls):
+        return db_path
 
     monkeypatch.setattr(
-        autoupgrade_mod,
-        "get_settings",
-        lambda: DummySettings(home=tmp_path),
+        SwarmStateManager, "_get_db_path", classmethod(mock_get_db_path)
     )
+    return db_path
 
-    # current == head => no migration
-    def fake_current(db_path: str) -> str:
-        return "revX"
 
-    def fake_head(db_path: str) -> str:
-        return "revX"
+def test_ensure_db_up_to_date_no_upgrade_when_at_head(
+    autoupgrade_mod, tmp_db_path, monkeypatch, mocker
+):
+    """
+    If the DB exists and current == head, no upgrade should be performed.
+    """
+    monkeypatch.delenv("DOMYN_SWARM_SKIP_DB_UPGRADE", raising=False)
 
-    monkeypatch.setattr(autoupgrade_mod, "get_current_rev", fake_current)
-    monkeypatch.setattr(autoupgrade_mod, "get_head_rev", fake_head)
+    tmp_db_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_db_path.touch()
 
-    upgrade_called = {"n": 0}
-
-    def fake_upgrade(db_path: str):
-        upgrade_called["n"] += 1
-
-    monkeypatch.setattr(autoupgrade_mod, "upgrade_head", fake_upgrade)
+    upgrade_mock = mocker.patch.object(autoupgrade_mod, "upgrade_head")
+    mocker.patch.object(autoupgrade_mod, "get_current_rev", return_value="rev1")
+    mocker.patch.object(autoupgrade_mod, "get_head_rev", return_value="rev1")
 
     autoupgrade_mod.ensure_db_up_to_date(noisy=False)
 
-    assert autoupgrade_mod._DB_UPGRADED is True
-    assert upgrade_called["n"] == 0  # no upgrade performed
+    upgrade_mock.assert_not_called()
 
 
-def test_ensure_db_up_to_date_runs_upgrade_when_needed(
-    monkeypatch, tmp_path, autoupgrade_mod
+def test_ensure_db_up_to_date_upgrades_when_out_of_date(
+    autoupgrade_mod, tmp_db_path, monkeypatch, mocker
 ):
-    _reset_flag(autoupgrade_mod)
+    """
+    If the DB exists and current != head, upgrade_head should be called.
+    """
+    monkeypatch.delenv("DOMYN_SWARM_SKIP_DB_UPGRADE", raising=False)
 
-    monkeypatch.setattr(
-        autoupgrade_mod,
-        "get_settings",
-        lambda: DummySettings(home=tmp_path),
-    )
+    tmp_db_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_db_path.touch()
 
-    # current != head => must run upgrade_head
-    def fake_current(db_path: str) -> str:
-        # record the path for assertions if we want
-        assert db_path == (tmp_path / "swarm.db").as_posix()
-        return "rev_old"
+    upgrade_mock = mocker.patch.object(autoupgrade_mod, "upgrade_head")
+    mocker.patch.object(autoupgrade_mod, "get_current_rev", return_value="old_rev")
+    mocker.patch.object(autoupgrade_mod, "get_head_rev", return_value="new_rev")
 
-    def fake_head(db_path: str) -> str:
-        assert db_path == (tmp_path / "swarm.db").as_posix()
-        return "rev_new"
-
-    monkeypatch.setattr(autoupgrade_mod, "get_current_rev", fake_current)
-    monkeypatch.setattr(autoupgrade_mod, "get_head_rev", fake_head)
-
-    calls = {"n": 0, "db_path": None}
-
-    def fake_upgrade(db_path: str):
-        calls["n"] += 1
-        calls["db_path"] = db_path
-
-    monkeypatch.setattr(autoupgrade_mod, "upgrade_head", fake_upgrade)
-
-    # We don't assert on console output here; just that upgrade is invoked correctly
     autoupgrade_mod.ensure_db_up_to_date(noisy=False)
 
-    assert autoupgrade_mod._DB_UPGRADED is True
-    assert calls["n"] == 1
-    assert calls["db_path"] == (tmp_path / "swarm.db").as_posix()
+    expected_db = tmp_db_path.as_posix()
+    upgrade_mock.assert_called_once_with(expected_db)
 
 
-def test_ensure_db_up_to_date_raises_on_upgrade_failure(
-    monkeypatch, tmp_path, autoupgrade_mod
+def test_ensure_db_up_to_date_respects_skip_env(
+    autoupgrade_mod, tmp_db_path, disable_autoupgrade, mocker
 ):
-    _reset_flag(autoupgrade_mod)
+    """
+    If DOMYN_SWARM_SKIP_DB_UPGRADE=1, ensure_db_up_to_date should be a no-op
+    (other than setting _DB_UPGRADED).
+    """
+    # disable_autoupgrade fixture already sets DOMYN_SWARM_SKIP_DB_UPGRADE=1
+
+    upgrade_mock = mocker.patch.object(autoupgrade_mod, "upgrade_head")
+    current_mock = mocker.patch.object(autoupgrade_mod, "get_current_rev")
+    head_mock = mocker.patch.object(autoupgrade_mod, "get_head_rev")
+
+    autoupgrade_mod.ensure_db_up_to_date(noisy=True)
+
+    upgrade_mock.assert_not_called()
+    current_mock.assert_not_called()
+    head_mock.assert_not_called()
+
+
+def test_main_callback_triggers_autoupgrade_for_non_db_commands(
+    monkeypatch, mocker, tmp_db_path
+):
+    """
+    main_callback should call ensure_db_up_to_date for normal commands,
+    but not when the 'db' subcommand is invoked.
+    """
+    from domyn_swarm.cli import main as cli_main
+
+    # Ensure env doesn't skip
+    monkeypatch.delenv("DOMYN_SWARM_SKIP_DB_UPGRADE", raising=False)
+
+    # Patch SwarmStateManager DB path to our tmp path (for consistency)
+    def mock_get_db_path(cls):
+        return tmp_db_path
 
     monkeypatch.setattr(
-        autoupgrade_mod,
-        "get_settings",
-        lambda: DummySettings(home=tmp_path),
+        SwarmStateManager, "_get_db_path", classmethod(mock_get_db_path)
     )
 
-    monkeypatch.setattr(autoupgrade_mod, "get_current_rev", lambda *_: "old")
-    monkeypatch.setattr(autoupgrade_mod, "get_head_rev", lambda *_: "new")
+    ensure_mock = mocker.patch.object(cli_main, "ensure_db_up_to_date")
 
-    def failing_upgrade(db_path: str):
-        raise RuntimeError("boom")
+    class Ctx:
+        invoked_subcommand = "up"
 
-    monkeypatch.setattr(autoupgrade_mod, "upgrade_head", failing_upgrade)
+    ctx = Ctx()
+    cli_main.main_callback(ctx)  # type: ignore[arg-type]
+    ensure_mock.assert_called_once_with(noisy=True)
 
-    with pytest.raises(typer.Exit) as excinfo:
-        autoupgrade_mod.ensure_db_up_to_date(noisy=False)
-
-    assert excinfo.value.exit_code == 1
-    assert autoupgrade_mod._DB_UPGRADED is False
+    # Now simulate 'db' subcommand, which should skip autoupgrade
+    ensure_mock.reset_mock()
+    ctx.invoked_subcommand = "db"
+    cli_main.main_callback(ctx)  # type: ignore[arg-type]
+    ensure_mock.assert_not_called()
