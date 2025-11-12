@@ -15,9 +15,8 @@
 import io
 import math
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
-import yaml
 from pydantic import (
     BaseModel,
     Field,
@@ -26,6 +25,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+import yaml
 
 from domyn_swarm import utils
 from domyn_swarm.config.backend import BackendConfig
@@ -84,7 +84,7 @@ class DomynLLMSwarmConfig(BaseModel):
     backend: BackendConfig | None = Field(
         description="Backend configuration for the swarm",
     )
-    _plan: Optional[DeploymentPlan] = PrivateAttr(default=None)
+    _plan: DeploymentPlan | None = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
 
@@ -95,7 +95,8 @@ class DomynLLMSwarmConfig(BaseModel):
         This keeps BC: legacy configs with no `backends` continue to use `platform`.
         """
         if self.backend:
-            # Build deployment plans with `self` as context (to access replicas, hf_home, vllm args, etc.)
+            # Build deployment plans with `self` as context
+            # (to access replicas, hf_home, vllm args, etc.)
             self._plan = self.backend.build(self)
             if not self._plan:
                 raise ValueError("At least one backend must be configured")
@@ -152,17 +153,15 @@ class DomynLLMSwarmConfig(BaseModel):
         # CPUs per task
         cpus_per_task = data.get("cpus_per_task")
         if cpus_per_task is None:
-            if replicas_per_node:
-                cpus_per_task = max(1, 32 // replicas_per_node)
-            else:
-                cpus_per_task = 32
+            cpus_per_task = max(1, 32 // replicas_per_node) if replicas_per_node else 32
 
         # Requires Ray?
         requires_ray = gpus_per_replica > gpus_per_node and nodes > 1
 
         if requires_ray and gpus_per_replica % gpus_per_node != 0:
             raise ValueError(
-                "When gpus_per_replica > gpus_per_node, gpus_per_replica must be a multiple of gpus_per_node"
+                "When gpus_per_replica > gpus_per_node, gpus_per_replica "
+                "must be a multiple of gpus_per_node"
             )
 
         # Fill computed fields

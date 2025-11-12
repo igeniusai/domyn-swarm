@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 import time
-from typing import Callable
 
 import requests
 
@@ -31,11 +31,7 @@ def wait_http_200(
 ) -> None:
     deadline = now() + timeout_s
     settings = get_settings()
-    token = (
-        settings.api_token
-        or settings.vllm_api_key
-        or settings.singularityenv_vllm_api_key
-    )
+    token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
     while now() < deadline:
         try:
             if token:

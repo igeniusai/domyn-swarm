@@ -33,19 +33,20 @@ Sub-classes included:
 """
 
 import abc
+from collections.abc import Awaitable, Callable
 import dataclasses
+from enum import Enum
 import inspect
 import logging
 import os
-import threading
-import warnings
-from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, Optional
+import threading
+from typing import Any
+import warnings
 
-import pandas as pd
 from deprecated import deprecated
 from openai import AsyncOpenAI
+import pandas as pd
 from tqdm import tqdm
 
 from domyn_swarm.config.settings import get_settings
@@ -75,9 +76,11 @@ class SwarmJob(abc.ABC):
 
     Key Features:
         - **Automatic Checkpointing**: Periodically saves progress to enable recovery from failures
-        - **Concurrent Processing**: Configurable parallelism with rate limiting and timeout handling
+        - **Concurrent Processing**: Configurable parallelism with rate limiting
+            and timeout handling
         - **Retry Logic**: Built-in exponential backoff for handling transient failures
-        - **Provider Agnostic**: Supports multiple LLM providers (OpenAI, vLLM, etc.) via pluggable clients
+        - **Provider Agnostic**: Supports multiple LLM providers (OpenAI, vLLM, etc.)
+            via pluggable clients
         - **Callback System**: Extensible event hooks for monitoring and custom behavior
         - **DataFrame Integration**: Native pandas DataFrame support for batch processing
 
@@ -94,12 +97,11 @@ class SwarmJob(abc.ABC):
                 results = []
                 for item in items:
                     response = await self.client.chat.completions.create(
-                        model=self.model,
-                        messages=item,
-                        **self.kwargs
+                        model=self.model, messages=item, **self.kwargs
                     )
                     results.append(response.choices[0].message.content)
                 return results
+
 
         job = MyLLMJob(model="gpt-4", max_concurrency=5)
         results_df = await job.run(input_df, tag="experiment_1")
@@ -150,7 +152,7 @@ class SwarmJob(abc.ABC):
         client=None,
         client_kwargs: dict | None = None,
         output_mode: OutputJoinMode = OutputJoinMode.APPEND,
-        default_output_cols: Optional[List[str]] = None,
+        default_output_cols: list[str] | None = None,
         **extra_kwargs,
     ):
         """Initialize the job with parameters and an optional LLM client.
@@ -161,7 +163,8 @@ class SwarmJob(abc.ABC):
             model: Model name to use (e.g., "gpt-4").
             provider: LLM provider (default: "openai").
             input_column_name: Name of the input column in the DataFrame.
-            output_column_name: [DEPRECATED] Name of the output column(s) in the DataFrame. Use output_cols instead.
+            output_column_name: [DEPRECATED] Name of the output column(s) in the DataFrame.
+                Use output_cols instead.
             output_cols: Name of the output column(s) in the DataFrame.
             checkpoint_interval: Number of items to process before checkpointing.
             max_concurrency: Maximum number of concurrent requests to process.
@@ -190,14 +193,16 @@ class SwarmJob(abc.ABC):
         if output_column_name is not None and output_cols is not None:
             warnings.warn(
                 "Both 'output_column_name' and 'output_cols' parameters are provided. "
-                "The 'output_column_name' parameter is deprecated and will be ignored in favor of 'output_cols'.",
+                "The 'output_column_name' parameter is deprecated and "
+                "will be ignored in favor of 'output_cols'.",
                 DeprecationWarning,
                 stacklevel=2,
             )
 
         if output_column_name is not None:
             warnings.warn(
-                "The 'output_column_name' parameter is deprecated and will be removed in a future version. "
+                "The 'output_column_name' parameter is "
+                "deprecated and will be removed in a future version. "
                 "Use 'output_cols' instead.",
                 DeprecationWarning,
                 stacklevel=2,
@@ -221,19 +226,11 @@ class SwarmJob(abc.ABC):
         self.default_output_cols = (
             default_output_cols
             if default_output_cols is not None
-            else (
-                [self.output_cols]
-                if isinstance(self.output_cols, str)
-                else self.output_cols
-            )
+            else ([self.output_cols] if isinstance(self.output_cols, str) else self.output_cols)
         )
 
         headers = {}
-        token = (
-            settings.api_token
-            or settings.vllm_api_key
-            or settings.singularityenv_vllm_api_key
-        )
+        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
         if token:
             logger.info("Using API_TOKEN from environment for authentication")
             headers["Authorization"] = f"Bearer {token.get_secret_value()}"
@@ -279,7 +276,8 @@ class SwarmJob(abc.ABC):
             thread_name = threading.current_thread().name
             manager.flush(out_list, new_ids, self.output_cols, idx_map)
             tqdm.write(
-                f"[{thread_name}] Checkpoint flushed {len(new_ids)} rows, new total: {len(manager.done_df)}"
+                f"[{thread_name}] Checkpoint flushed {len(new_ids)} "
+                f"rows, new total: {len(manager.done_df)}"
             )
 
         self.register_callback("on_batch_done", flush)
@@ -298,16 +296,10 @@ class SwarmJob(abc.ABC):
 
         Supports retrying and invokes the 'on_batch_done' callback if registered.
         """
-        executor = BatchExecutor(
-            self.max_concurrency, self.checkpoint_interval, self.retries
-        )
-        return await executor.run(
-            seq, fn, on_batch_done=self.get_callback("on_batch_done")
-        )
+        executor = BatchExecutor(self.max_concurrency, self.checkpoint_interval, self.retries)
+        return await executor.run(seq, fn, on_batch_done=self.get_callback("on_batch_done"))
 
-    @deprecated(
-        reason="The `transform` method is deprecated in favor of `transform_items`."
-    )
+    @deprecated(reason="The `transform` method is deprecated in favor of `transform_items`.")
     async def transform(self, df: pd.DataFrame):
         """
         Subclasses must implement this to process a DataFrame slice.
@@ -328,7 +320,7 @@ class SwarmJob(abc.ABC):
         return {
             k: v
             for k, v in self.__dict__.items()
-            if isinstance(v, (str, int, float, bool, list, dict, type(None)))
+            if isinstance(v, str | int | float | bool | list | dict | type(None))
             and k not in {"endpoint", "model", "client", "_callbacks", "results"}
         }
 
@@ -346,6 +338,7 @@ class SwarmJob(abc.ABC):
             )
         return out[0]
 
+    @abc.abstractmethod
     async def transform_items(self, items: list[Any]) -> list[Any]:
         """Pure transform: items -> results (same order). No I/O or checkpointing."""
         raise NotImplementedError("Sub-classes must implement `transform_items`.")

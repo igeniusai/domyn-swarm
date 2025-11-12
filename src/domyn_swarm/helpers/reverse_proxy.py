@@ -25,6 +25,9 @@ from requests.exceptions import RequestException
 from rich import print as rprint
 
 from domyn_swarm import utils
+from domyn_swarm.helpers.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def get_unused_port(start=50000, end=65535):
@@ -39,15 +42,16 @@ def get_unused_port(start=50000, end=65535):
         IOError: If no free ports are available in the specified range.
     """
     for port in range(start, end + 1):
+        sock = socket.socket()
         try:
-            sock = socket.socket()
             sock.bind(("", port))
             sock.listen(1)
             sock.close()
             return port
         except OSError:
+            sock.close()
             continue
-    raise IOError("No free ports available in range {}-{}".format(start, end))
+    raise OSError(f"No free ports available in range {start}-{end}")
 
 
 def get_login_node_suffix() -> str:
@@ -60,9 +64,7 @@ def get_login_node_suffix() -> str:
 
 
 def run_command(command: str):
-    process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-    )
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     output, errors = process.communicate()
     return_code = process.returncode
     assert return_code == 0, f"Command failed with error: {errors.decode('utf-8')}"
@@ -166,7 +168,8 @@ def launch_reverse_proxy(
         html_path.parent.mkdir(parents=True, exist_ok=True)
         with open(html_path, "w") as f:
             f.write(
-                f"<h1>Reverse proxy for {lb_node}</h1>\n<p>vLLM port: {vllm_port}</p>\n<p>Ray dashboard port: {ray_dashboard_port}</p>"
+                f"<h1>Reverse proxy for {lb_node}</h1>\n<p>vLLM port: "
+                f"{vllm_port}</p>\n<p>Ray dashboard port: {ray_dashboard_port}</p>"
             )
         launch_nginx_singularity(
             sif_path=image_path,
@@ -182,9 +185,7 @@ def launch_reverse_proxy(
         login_node_suffix=login_node_suffix,
     )
 
-    rprint(
-        "\n[INFO] Run the following command in your local terminal to create the SSH tunnel:"
-    )
+    rprint("\n[INFO] Run the following command in your local terminal to create the SSH tunnel:")
     rprint(ssh_cmd)
     rprint("[DONE]")
 

@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from domyn_swarm.config.slurm import SlurmConfig
 
@@ -27,7 +27,7 @@ class SrunCommandBuilder:
         self.jobid = jobid
         self.nodelist = nodelist
         self.env: dict[str, str] = {}
-        self.mail_user: Optional[str] = None
+        self.mail_user: str | None = None
         self.extra_args: list[str] = []
 
     def with_env(self, env: dict[str, str]) -> SrunCommandBuilder:

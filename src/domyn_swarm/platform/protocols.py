@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, runtime_checkable
+import sys
+from typing import Any, Protocol, runtime_checkable
 
 
 class JobStatus(str, Enum):
@@ -43,7 +44,7 @@ class ServingPhase(str, Enum):
 class ServingStatus:
     phase: ServingPhase
     url: str | None
-    detail: Optional[dict[str, Any]] = None
+    detail: dict[str, Any] | None = None
 
 
 @dataclass
@@ -93,13 +94,9 @@ class ServingBackend(Protocol):
     This represents the "Create an endpoint" half of the user's target model.
     """
 
-    def create_or_update(
-        self, name: str, spec: dict, extras: dict
-    ) -> ServingHandle: ...
+    def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle: ...
 
-    def wait_ready(
-        self, handle: ServingHandle, timeout_s: int, extras: dict
-    ) -> ServingHandle: ...
+    def wait_ready(self, handle: ServingHandle, timeout_s: int, extras: dict) -> ServingHandle: ...
 
     def delete(self, handle: ServingHandle) -> None: ...
 
@@ -119,13 +116,13 @@ class ComputeBackend(Protocol):
         self,
         *,
         name: str,
-        image: Optional[str],
+        image: str | None,
         command: Sequence[str],
-        env: Optional[Mapping[str, str]] = None,
-        resources: Optional[dict] = None,
+        env: Mapping[str, str] | None = None,
+        resources: dict | None = None,
         detach: bool = False,
-        nshards: Optional[int] = None,
-        shard_id: Optional[int] = None,
+        nshards: int | None = None,
+        shard_id: int | None = None,
         extras: dict | None = None,
     ) -> JobHandle: ...
 
@@ -135,22 +132,22 @@ class ComputeBackend(Protocol):
 
     def default_python(self, cfg) -> str: ...
 
-    def default_image(self, cfg) -> Optional[str]: ...
+    def default_image(self, cfg) -> str | None: ...
 
-    def default_resources(self, cfg) -> Optional[dict]: ...
+    def default_resources(self, cfg) -> dict | None: ...
 
-    def default_env(self, cfg) -> Dict[str, str]: ...
+    def default_env(self, cfg) -> dict[str, str]: ...
 
 
 class DefaultComputeMixin:
     def default_python(self, cfg) -> str:
         return sys.executable
 
-    def default_image(self, cfg) -> Optional[str]:
+    def default_image(self, cfg) -> str | None:
         return None
 
-    def default_resources(self, cfg) -> Optional[dict]:
+    def default_resources(self, cfg) -> dict | None:
         return None
 
-    def default_env(self, cfg) -> Dict[str, str]:
+    def default_env(self, cfg) -> dict[str, str]:
         return {}

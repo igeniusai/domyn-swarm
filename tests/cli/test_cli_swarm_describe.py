@@ -33,16 +33,12 @@ class FakeSwarm:
 def _patch_state_load(mocker, swarm: FakeSwarm):
     return mocker.patch.object(
         SW, "SwarmStateManager", autospec=True
-    ).load.return_value.__setattr__(
-        "__wrapped__", swarm
-    )  # just to keep type linters calm
+    ).load.return_value.__setattr__("__wrapped__", swarm)  # just to keep type linters calm
 
 
 def test_describe_table_calls_renderer_with_expected_payload(mocker):
     # Arrange: fake state + renderer spy
-    swarm = FakeSwarm(
-        platform="slurm", endpoint="http://ep", cfg=DummyCfg(foo=7, bar="x")
-    )
+    swarm = FakeSwarm(platform="slurm", endpoint="http://ep", cfg=DummyCfg(foo=7, bar="x"))
     # Patch the state loader to return our fake swarm
     mock_sm = mocker.patch.object(SW, "SwarmStateManager", autospec=True)
     mock_sm.load.return_value = swarm

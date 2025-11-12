@@ -128,9 +128,7 @@ def mock_backend(monkeypatch) -> LeptonServingBackend:
 
     import domyn_swarm.backends.serving.lepton as lepton_module
 
-    monkeypatch.setattr(
-        lepton_module, "get_env_var_by_name", lambda envs, name: "test-secret"
-    )
+    monkeypatch.setattr(lepton_module, "get_env_var_by_name", lambda envs, name: "test-secret")
     monkeypatch.setattr(
         lepton_module,
         "sanitize_tokens_in_deployment",
@@ -202,16 +200,12 @@ def test_create_or_update_uses_defaults_when_env_and_token_missing(monkeypatch):
     deployment_api = FakeDeploymentAPI(endpoint_url="http://fallback.com")
     secret_api = FakeSecretAPI()
 
-    monkeypatch.setattr(
-        backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api)
-    )
+    monkeypatch.setattr(backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api))
 
     import domyn_swarm.backends.serving.lepton as lepton_module
 
     monkeypatch.setattr(lepton_module, "get_env_var_by_name", lambda envs, name: None)
-    monkeypatch.setattr(
-        lepton_module, "sanitize_tokens_in_deployment", lambda deployed: deployed
-    )
+    monkeypatch.setattr(lepton_module, "sanitize_tokens_in_deployment", lambda deployed: deployed)
 
     spec = create_test_spec(envs=[], api_tokens=[])
 
@@ -246,14 +240,10 @@ def test_create_or_update_raises_runtime_error_when_deployment_creation_fails(
 def test_wait_ready_succeeds_when_deployment_becomes_ready(monkeypatch):
     """Test that wait_ready succeeds when deployment transitions to ready state."""
     backend = LeptonServingBackend()
-    deployment_api = FakeDeploymentAPI(
-        ready_after_calls=2, endpoint_url="http://ready.com"
-    )
+    deployment_api = FakeDeploymentAPI(ready_after_calls=2, endpoint_url="http://ready.com")
     secret_api = FakeSecretAPI()
 
-    monkeypatch.setattr(
-        backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api)
-    )
+    monkeypatch.setattr(backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api))
     _mock_time_functions(monkeypatch)
 
     handle = ServingHandle(id="test-endpoint", url="", meta={"name": "test-endpoint"})
@@ -268,9 +258,7 @@ def test_wait_ready_raises_timeout_error_when_deployment_never_ready(monkeypatch
     deployment_api = FakeDeploymentAPI(ready_after_calls=10_000)  # Never ready
     secret_api = FakeSecretAPI()
 
-    monkeypatch.setattr(
-        backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api)
-    )
+    monkeypatch.setattr(backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api))
     _mock_time_to_advance_quickly(monkeypatch)
 
     handle = ServingHandle(id="test-endpoint", url="", meta={"name": "test-endpoint"})
@@ -313,9 +301,7 @@ def test_delete_removes_both_deployment_and_secret(monkeypatch):
     deployment_api = FakeDeploymentAPI()
     secret_api = FakeSecretAPI()
 
-    monkeypatch.setattr(
-        backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api)
-    )
+    monkeypatch.setattr(backend, "_client", lambda: FakeLeptonClient(deployment_api, secret_api))
 
     handle = ServingHandle(
         id="test-endpoint",
@@ -347,9 +333,7 @@ def test_delete_handles_api_errors_gracefully(monkeypatch):
         lambda: FakeLeptonClient(FailingDeploymentAPI(), FailingSecretAPI()),
     )
 
-    handle = ServingHandle(
-        id="test-endpoint", url="", meta={"token_secret_name": "test-secret"}
-    )
+    handle = ServingHandle(id="test-endpoint", url="", meta={"token_secret_name": "test-secret"})
 
     # Should not raise any exceptions
     backend.delete(handle)
@@ -410,9 +394,7 @@ def test_status_running_when_ready_and_http_ok(mock_backend, monkeypatch, mocker
     assert mock_backend._deployment_api.get_call_count == 1
 
 
-def test_status_initializing_when_ready_but_http_down(
-    mock_backend, monkeypatch, mocker
-):
+def test_status_initializing_when_ready_but_http_down(mock_backend, monkeypatch, mocker):
     # Ready at the platform level, but HTTP probe fails
     import requests
 
@@ -433,9 +415,7 @@ def test_status_initializing_when_ready_but_http_down(
 
 def test_status_pending_when_creating_state(mock_backend, monkeypatch, mocker):
     # Force the FakeDeploymentAPI to report "Creating" (transitional) on first call
-    mock_backend._deployment_api.ready_after_calls = (
-        100  # first get() returns "Creating"
-    )
+    mock_backend._deployment_api.ready_after_calls = 100  # first get() returns "Creating"
 
     # Even if HTTP would be OK, status() should stop at PENDING for non-Ready state
     import domyn_swarm.backends.serving.lepton as lepton_module

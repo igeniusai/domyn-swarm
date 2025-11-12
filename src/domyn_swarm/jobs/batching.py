@@ -98,18 +98,13 @@ class BatchExecutor:
             while not queue.empty():
                 idx, item = await queue.get()
                 async with sem:
-                    out[idx] = (
-                        await fn(*item) if isinstance(item, tuple) else await fn(item)
-                    )
+                    out[idx] = await fn(*item) if isinstance(item, tuple) else await fn(item)
 
                 async with lock:
                     completed += 1
                     pending_ids.append(idx)
 
-                    flush_now = (
-                        completed % self.checkpoint_interval == 0
-                        or completed == len(items)
-                    )
+                    flush_now = completed % self.checkpoint_interval == 0 or completed == len(items)
                     if flush_now and on_batch_done:
                         await on_batch_done(out, pending_ids)
                         total_progress_bar.update(len(pending_ids))

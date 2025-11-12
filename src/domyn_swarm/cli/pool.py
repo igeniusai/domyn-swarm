@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Annotated
+
 import typer
 import yaml
-from typing_extensions import Annotated
 
 from domyn_swarm.config.pool import SwarmPoolConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig

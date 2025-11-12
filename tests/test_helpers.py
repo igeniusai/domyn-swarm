@@ -42,7 +42,7 @@ def test_get_unused_port_returns_valid_port():
     assert isinstance(port, int)
     assert 50000 <= port <= 51000
 
-    # Try binding to it — should succeed since it’s truly unused
+    # Try binding to it — should succeed since it's truly unused
     s = socket.socket()
     try:
         s.bind(("", port))
@@ -113,10 +113,7 @@ def test_generate_ssh_tunnel_cmd_basic():
         user="fdambro1", localhost_port=8888, nginx_port=9000, login_node_suffix="35"
     )
 
-    expected = (
-        "ssh -N -L 8888:login35.leonardo.local:9000 "
-        "fdambro1@login35-ext.leonardo.cineca.it"
-    )
+    expected = "ssh -N -L 8888:login35.leonardo.local:9000 fdambro1@login35-ext.leonardo.cineca.it"
 
     assert cmd == expected
 

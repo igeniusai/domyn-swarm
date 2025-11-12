@@ -41,9 +41,7 @@ def test_get_job_status_returns_trimmed_status(monkeypatch):
 def test_get_job_status_raises_runtime_error_on_failure(monkeypatch):
     def fake_run(argv, capture_output, text, check):
         # Simulate squeue error with check=True by raising CalledProcessError
-        raise subprocess.CalledProcessError(
-            returncode=1, cmd=argv, output="", stderr="boom"
-        )
+        raise subprocess.CalledProcessError(returncode=1, cmd=argv, output="", stderr="boom")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 

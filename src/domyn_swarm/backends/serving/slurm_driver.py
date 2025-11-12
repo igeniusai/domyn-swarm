@@ -65,7 +65,8 @@ class SlurmDriver:
         if self.cfg.backend.requires_ray:
             if self.cfg.backend.requires_ray:
                 logger.info(
-                    "Detected gpus_per_replica > gpus_per_node with multiple nodes: enabling Ray support."
+                    "Detected gpus_per_replica > gpus_per_node with "
+                    "multiple nodes: enabling Ray support."
                 )
             array_spec = f"0-{replicas - 1}%{replicas}"
             # In this case, the nodes are the total number of nodes to be allocated
@@ -83,9 +84,7 @@ class SlurmDriver:
         out = subprocess.check_output(sbatch_cmd, text=True).strip()
         job_id = out.split(";")[0]
 
-        logger.info(
-            f"Submitted replicas job {job_id} with command: {' '.join(sbatch_cmd)}"
-        )
+        logger.info(f"Submitted replicas job {job_id} with command: {' '.join(sbatch_cmd)}")
 
         return int(job_id)
 
@@ -192,7 +191,8 @@ class SlurmDriver:
         out = _run(["sacct", "-j", str(jobid), "-o", "State", "-n", "-X", "-P"])
         if out:
             # sacct may still return multiple lines in some schedulers (array parent/children).
-            # Take the first non-empty token; with -P, fields are ';'-separated, but we asked only State.
+            # Take the first non-empty token; with -P, fields are ';'-separated,
+            # but we asked only State.
             for line in out.splitlines():
                 s = line.strip()
                 if not s:

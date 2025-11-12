@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+import logging
+from typing import TYPE_CHECKING
 
 import requests
 from requests import RequestException
@@ -68,18 +68,16 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     }
     """
 
-    workspace: Optional[str] = None  # if multiple workspaces, else default
+    workspace: str | None = None  # if multiple workspaces, else default
 
     _client_cached = None
-    workspace: Optional[str] = None  # if multiple workspaces, else default
+    workspace: str | None = None  # if multiple workspaces, else default
 
     def _client(self) -> "APIClient":
         if self._client_cached is None:
             _require_lepton()  # quick availability check
             token = (
-                settings.lepton_api_token.get_secret_value()
-                if settings.lepton_api_token
-                else None
+                settings.lepton_api_token.get_secret_value() if settings.lepton_api_token else None
             )
             self._client_cached = make_lepton_client(
                 token=token,
@@ -102,9 +100,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
 
         client = self._client()
 
-        lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(
-            spec, by_alias=True
-        )
+        lepton_dep_user_spec = LeptonDeploymentUserSpec.model_validate(spec, by_alias=True)
 
         dep = LeptonDeployment(
             metadata=Metadata(name=name),
@@ -148,9 +144,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
             },
         )
 
-    def wait_ready(
-        self, handle: ServingHandle, timeout_s: int, extras: dict
-    ) -> ServingHandle:
+    def wait_ready(self, handle: ServingHandle, timeout_s: int, extras: dict) -> ServingHandle:
         _require_lepton()
         import time
 
@@ -164,7 +158,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         start = time.time()
         while True:
             dep: LeptonDeployment = client.deployment.get(handle.meta["name"])
-            status: Optional[LeptonDeploymentStatus] = dep.status
+            status: LeptonDeploymentStatus | None = dep.status
             state = status.state if status else None
             if state == LeptonDeploymentState.Ready and status and status.endpoint:
                 break
@@ -218,16 +212,14 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         try:
             dep: LeptonDeployment = client.deployment.get(name)
         except Exception as e:
-            # Network/API issue – report unknown with context
+            # Network/API issue - report unknown with context
             return ServingStatus(
                 phase=ServingPhase.UNKNOWN,
                 url=handle.url,
                 detail={"reason": "lepton_get_failed", "error": str(e)},
             )
 
-        state: Optional[LeptonDeploymentState] = (
-            dep.status.state if dep and dep.status else None
-        )
+        state: LeptonDeploymentState | None = dep.status.state if dep and dep.status else None
         url = (
             dep.status.endpoint.external_endpoint
             if dep and dep.status and dep.status.endpoint
@@ -245,9 +237,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
                 detail={"raw_state": getattr(state, "value", str(state))},
             )
         if state is None:
-            return ServingStatus(
-                phase=ServingPhase.UNKNOWN, url=url, detail={"raw_state": None}
-            )
+            return ServingStatus(phase=ServingPhase.UNKNOWN, url=url, detail={"raw_state": None})
         if state != LeptonDeploymentState.Ready:
             # Deploying / Scaling / Updating etc.
             return ServingStatus(
@@ -258,7 +248,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
 
         # State says Ready — verify HTTP is answering to avoid false positives
         http_ok = False
-        http_code: Optional[int] = None
+        http_code: int | None = None
         if url:
             try:
                 r = requests.get(f"{url.rstrip('/')}/health", timeout=1.5)
@@ -279,7 +269,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
                 },
             )
 
-        # Lepton says Ready but HTTP not yet responding – treat as initializing
+        # Lepton says Ready but HTTP not yet responding - treat as initializing
         return ServingStatus(
             phase=ServingPhase.INITIALIZING,
             url=url,

@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -27,8 +28,8 @@ logger = setup_logger(__name__)
 
 def _normalize_batch_outputs(
     local_outputs: list[Any],
-    expected_cols: Optional[list[str]],
-) -> tuple[list[Any], Optional[list[str]]]:
+    expected_cols: list[str] | None,
+) -> tuple[list[Any], list[str] | None]:
     """Normalize a batch of model outputs into (rows, columns-for-flush).
 
     Args:
@@ -68,7 +69,7 @@ def _normalize_batch_outputs(
                 key = expected_cols[0]
                 rows = [o.get(key) for o in local_outputs]
                 return rows, expected_cols
-            elif isinstance(first, (list, tuple)):
+            elif isinstance(first, list | tuple):
                 if len(first) != 1:
                     raise ValueError(
                         f"Expected single-column output {expected_cols}, "
@@ -81,11 +82,9 @@ def _normalize_batch_outputs(
                 return local_outputs, expected_cols
         else:
             # multi-column expected
-            if isinstance(first, (list, tuple)):
+            if isinstance(first, list | tuple):
                 if any(len(o) != len(expected_cols) for o in local_outputs):
-                    raise ValueError(
-                        f"Output rows length mismatch vs columns {expected_cols}"
-                    )
+                    raise ValueError(f"Output rows length mismatch vs columns {expected_cols}")
                 # keep as list/tuple; flush will index by position
                 return local_outputs, expected_cols
             elif isinstance(first, dict):
@@ -104,7 +103,7 @@ def _normalize_batch_outputs(
     if isinstance(first, dict):
         logger.debug("Output is dict; passing as-is.")
         return local_outputs, None  # dict path (flush with output_cols=None)
-    elif isinstance(first, (list, tuple)):
+    elif isinstance(first, list | tuple):
         raise ValueError("List/tuple outputs require explicit `output_cols` naming.")
     else:
         logger.debug("Output is scalar; synthesizing 'output' column.")
@@ -116,7 +115,7 @@ def _normalize_batch_outputs(
 class RunnerConfig:
     id_col: str = "_row_id"
     checkpoint_every: int = 16
-    total_concurrency: Optional[int] = None  # reserved for future admission control
+    total_concurrency: int | None = None  # reserved for future admission control
 
 
 class JobRunner:
@@ -153,8 +152,8 @@ class JobRunner:
         df: pd.DataFrame,
         *,
         input_col: str,
-        output_cols: Optional[list[str]],
-        output_mode: Optional[OutputJoinMode] = None,
+        output_cols: list[str] | None,
+        output_mode: OutputJoinMode | None = None,
     ) -> pd.DataFrame:
         """
         Run a streaming job and either:
@@ -192,7 +191,8 @@ class JobRunner:
 
         if not hasattr(job, "transform_streaming"):
             raise TypeError(
-                "Job must implement `transform_streaming(items, on_flush=..., checkpoint_every=...)`"
+                "Job must implement "
+                "`transform_streaming(items, on_flush=..., checkpoint_every=...)`"
             )
 
         await job.transform_streaming(
@@ -216,18 +216,18 @@ class JobRunner:
             # keep only id + inputs + outputs
             out_df = df.merge(out_df, on=self.cfg.id_col, how="left")
             if output_cols:
-                keep = [self.cfg.id_col, input_col] + output_cols
+                keep = [self.cfg.id_col, input_col, *output_cols]
             else:
                 output_columns = [
                     c for c in out_df.columns if c not in (self.cfg.id_col, input_col)
                 ]
-                keep = [self.cfg.id_col, input_col] + output_columns
+                keep = [self.cfg.id_col, input_col, *output_columns]
         else:
             if output_cols:
-                keep = [self.cfg.id_col] + output_cols
+                keep = [self.cfg.id_col, *output_cols]
             else:
                 output_columns = [c for c in out_df.columns if c != self.cfg.id_col]
-                keep = [self.cfg.id_col] + output_columns
+                keep = [self.cfg.id_col, *output_columns]
         return out_df.loc[:, keep]
 
 
@@ -236,7 +236,7 @@ async def run_sharded(
     df: pd.DataFrame,
     *,
     input_col: str,
-    output_cols: Optional[list[str]],
+    output_cols: list[str] | None,
     store_uri: str,  # e.g. file:///..., s3://...
     nshards: int = 1,
     cfg: RunnerConfig | None = None,
@@ -257,9 +257,7 @@ async def run_sharded(
         su = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
         store = ParquetShardStore(su)
         runner = JobRunner(store, cfg)
-        return await runner.run(
-            job_factory(), sub, input_col=input_col, output_cols=output_cols
-        )
+        return await runner.run(job_factory(), sub, input_col=input_col, output_cols=output_cols)
 
     parts = await asyncio.gather(*[_one_shard(i, idx) for i, idx in enumerate(indices)])
     return pd.concat(parts).sort_index()

@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import logging
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 
-import domyn_swarm.utils as utils
 from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.core.swarm import DomynLLMSwarm, _load_job
 from domyn_swarm.helpers.logger import setup_logger
+import domyn_swarm.utils as utils
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
@@ -31,17 +31,15 @@ job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 @job_app.command("submit-script")
 def submit_script(
     script_file: Path = typer.Argument(..., exists=True, readable=True),
-    config: Optional[typer.FileText] = typer.Option(
+    config: typer.FileText | None = typer.Option(
         None,
         "-c",
         "--config",
         exists=True,
         help="YAML that defines/creates a new swarm",
     ),
-    name: str | None = typer.Option(
-        None, "-n", "--name", exists=True, help="Swarm name."
-    ),
-    args: List[str] = typer.Argument(None, help="extra CLI args passed to script"),
+    name: str | None = typer.Option(None, "-n", "--name", exists=True, help="Swarm name."),
+    args: list[str] = typer.Argument(None, help="extra CLI args passed to script"),
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
@@ -69,22 +67,18 @@ def submit_job(
         default="domyn_swarm.jobs:ChatCompletionJob",
         help="Job class to run, in the form `module:ClassName`",
     ),
-    input: Path = typer.Option(
-        ..., "--input", exists=True, click_type=utils.ClickEnvPath()
-    ),
+    input: Path = typer.Option(..., "--input", exists=True, click_type=utils.ClickEnvPath()),
     output: Path = typer.Option(..., "--output", click_type=utils.ClickEnvPath()),
     input_column: str = typer.Option("messages", "--input-column"),
     output_column: str = typer.Option("results", "--output-column"),
     job_kwargs: str = typer.Option(
         "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
     ),
-    job_name: Optional[str] = typer.Option(
-        None, "--job-name", help="Optional job name for logging"
-    ),
-    config: Optional[typer.FileText] = typer.Option(
+    job_name: str | None = typer.Option(None, "--job-name", help="Optional job name for logging"),
+    config: typer.FileText | None = typer.Option(
         None, "-c", "--config", exists=True, help="YAML that starts a fresh swarm"
     ),
-    name: Optional[str] = typer.Option(None, "-n", "--name", help="Swarm name."),
+    name: str | None = typer.Option(None, "-n", "--name", help="Swarm name."),
     checkpoint_dir: Path | None = typer.Option(
         None,
         "--checkpoint-dir",
@@ -125,16 +119,18 @@ def submit_job(
         None,
         "--limit",
         "-l",
-        help="Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset",
+        help="Limit the size to be read from the input dataset. "
+        "Useful when debugging and testing to reduce the size of the dataset",
     ),
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Detach the job from the current terminal"
     ),
-    mail_user: Optional[str] = typer.Option(
+    mail_user: str | None = typer.Option(
         None,
         "--mail-user",
         "-m",
-        help="Email address to receive job notifications. If set, email notifications will be enabled.",
+        help="Email address to receive job notifications. "
+        "If set, email notifications will be enabled.",
     ),
 ):
     """
@@ -159,9 +155,7 @@ def submit_job(
         try:
             with swarm_ctx as swarm:
                 checkpoint_dir = (
-                    swarm.swarm_dir / "checkpoints"
-                    if checkpoint_dir is None
-                    else checkpoint_dir
+                    swarm.swarm_dir / "checkpoints" if checkpoint_dir is None else checkpoint_dir
                 )
                 job = _load_job(
                     job_class,
@@ -191,12 +185,10 @@ def submit_job(
                 "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
             )
             if abort:
-                try:
+                with contextlib.suppress(Exception):
                     swarm_ctx.cleanup()
-                except Exception:
-                    pass
                 typer.echo("Swarm allocation cancelled by user")
-                raise typer.Abort()
+                raise typer.Abort() from None
             else:
                 typer.echo("Continuing to wait for job to complete …")
     elif name is None:
@@ -205,9 +197,7 @@ def submit_job(
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
         checkpoint_dir = (
-            swarm.swarm_dir / "checkpoints"
-            if checkpoint_dir is None
-            else checkpoint_dir
+            swarm.swarm_dir / "checkpoints" if checkpoint_dir is None else checkpoint_dir
         )
         job = _load_job(
             job_class,

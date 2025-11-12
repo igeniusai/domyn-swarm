@@ -18,13 +18,14 @@ State is managed with a SQLite DB, located in the
 domyn-swarm home directory.
 """
 
-import json
-import logging
-import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 from importlib.resources import files
+import json
+import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
+import sqlite3
+from typing import TYPE_CHECKING, Any
 
 from domyn_swarm.config.slurm import SlurmConfig
 

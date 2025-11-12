@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from rich.box import HEAVY
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -38,7 +36,7 @@ def render_swarm_status(
     backend: str,
     st: ServingStatus,
     *,
-    console: Optional[Console] = None,
+    console: Console | None = None,
 ) -> None:
     """Renders a comprehensive status view for a single swarm deployment.
 
@@ -102,11 +100,7 @@ def render_swarm_status(
             diag.add_row("Platform", _color_state(raw))
 
         # Any remaining keys → Extras
-        extras = {
-            k: v
-            for k, v in st.detail.items()
-            if k not in {"http", "rep", "lb", "raw_state"}
-        }
+        extras = {k: v for k, v in st.detail.items() if k not in {"http", "rep", "lb", "raw_state"}}
         if extras:
             extras_kv = ", ".join(f"{k}={v}" for k, v in extras.items())
             diag.add_row("Extra", Text(extras_kv, overflow="fold"))

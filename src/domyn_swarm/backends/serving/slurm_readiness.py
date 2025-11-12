@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import time
-from typing import Optional
 
 from rich.console import Console
 from rich.status import Status
@@ -29,7 +28,6 @@ SLURM_BAD_STATES = {
     "CANCELLED",
     "TIMEOUT",
     "BOOT_FAIL",
-    "CANCELLED",
     "NODE_FAIL",
 }
 
@@ -50,7 +48,7 @@ class SlurmReadiness(ServingReadiness):
         driver: SlurmDriver,
         endpoint_port: int,
         poll_interval_s: float = 10.0,
-        console: Optional[Console] = None,
+        console: Console | None = None,
     ):
         self.driver = driver
         self.endpoint_port = endpoint_port
@@ -61,17 +59,11 @@ class SlurmReadiness(ServingReadiness):
         jobid = handle.meta.get("jobid")
         lb_jobid = handle.meta.get("lb_jobid")
         if jobid is None or lb_jobid is None:
-            raise RuntimeError(
-                "SlurmReadiness requires 'jobid' and 'lb_jobid' in handle.meta"
-            )
+            raise RuntimeError("SlurmReadiness requires 'jobid' and 'lb_jobid' in handle.meta")
 
-        with self.console.status(
-            "[bold green]Waiting for LB and replicas to start..."
-        ) as status:
+        with self.console.status("[bold green]Waiting for LB and replicas to start...") as status:
             self._wait_jobs_running(jobid, lb_jobid, status)
-            lb_node = handle.meta.get("lb_node") or self.driver.get_node_from_jobid(
-                lb_jobid
-            )
+            lb_node = handle.meta.get("lb_node") or self.driver.get_node_from_jobid(lb_jobid)
             handle.meta["lb_node"] = lb_node
             status.update(f"[yellow]LB job running on {lb_node}, probing HTTP…")
 
@@ -91,9 +83,7 @@ class SlurmReadiness(ServingReadiness):
             lb = self.driver.get_job_state(lb_jobid)
 
             if rep == "UNKNOWN" or lb == "UNKNOWN":
-                status.update(
-                    f"[yellow]squeue UNKNOWN for job {jobid} or {lb_jobid}, retrying …"
-                )
+                status.update(f"[yellow]squeue UNKNOWN for job {jobid} or {lb_jobid}, retrying …")
             elif rep in SLURM_BAD_STATES:
                 raise RuntimeError(f"Replica array ended in {rep}")
             elif lb in SLURM_BAD_STATES:

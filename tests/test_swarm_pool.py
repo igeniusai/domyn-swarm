@@ -42,6 +42,5 @@ def test_create_swarm_pool_with_configs():
 
 
 def test_create_swarm_pool_invalid_input():
-    with pytest.raises(ValueError):
-        with create_swarm_pool(123):
-            pass
+    with pytest.raises(ValueError), create_swarm_pool(123):
+        pass

@@ -14,7 +14,6 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,41 +42,41 @@ class Settings(BaseSettings):
         description="Path to domyn-swarm home directory",
     )
     # Path to YAML with overridable defaults (used by your defaults loader)
-    defaults_file: Optional[Path] = Field(
+    defaults_file: Path | None = Field(
         default_factory=lambda data: data["home"] / "defaults.yaml",
         alias="DOMYN_SWARM_DEFAULTS",
         description="Path to YAML with overridable defaults (used by your defaults loader)",
     )
 
     # --- Secrets / tokens ----------------------------------------------------
-    api_token: Optional[SecretStr] = Field(
+    api_token: SecretStr | None = Field(
         default=None,
         description="API token for authenticating with the domyn-swarm vllm server",
     )  # DOMYN_SWARM_API_TOKEN
-    vllm_api_key: Optional[SecretStr] = Field(
+    vllm_api_key: SecretStr | None = Field(
         default_factory=lambda data: data.get("api_token"),
         alias="VLLM_API_KEY",
         description="Alternative env var for API token, used by vLLM",
     )
-    singularityenv_vllm_api_key: Optional[SecretStr] = Field(
+    singularityenv_vllm_api_key: SecretStr | None = Field(
         default_factory=lambda data: data.get("vllm_api_key"),
         alias="SINGULARITYENV_VLLM_API_KEY",
         description="Alternative env var for API token, used inside Singularity containers",
     )
 
     # --- Slurm ---------------------------------------------------------------
-    mail_user: Optional[str] = Field(
+    mail_user: str | None = Field(
         description="Email address for Slurm job notifications (if enabled)",
         default=None,
     )  # DOMYN_SWARM_MAIL_USER
 
     # --- Lepton --------------------------------------------------------------
-    lepton_api_token: Optional[SecretStr] = Field(
+    lepton_api_token: SecretStr | None = Field(
         default=None,
         alias="LEPTONAI_API_TOKEN",
         description="API token for authenticating with Lepton AI",
     )
-    lepton_workspace_id: Optional[str] = Field(
+    lepton_workspace_id: str | None = Field(
         default=None,
         alias="LEPTON_WORKSPACE_ID",
         description="Workspace ID for Lepton AI",

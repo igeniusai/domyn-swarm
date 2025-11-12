@@ -14,12 +14,13 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Optional
+import json
+from typing import Any, Literal
 
-import typer
 from rich.console import Console
+import typer
 
 from domyn_swarm.core.state import SwarmStateManager
 from domyn_swarm.helpers.logger import setup_logger
@@ -31,8 +32,8 @@ class SwarmSummary:
     name: str
     backend: str  # "slurm" | "lepton" | ...
     phase: str  # str(ServingPhase) or best-effort string
-    url: Optional[str] = None
-    http: Optional[int | str] = None
+    url: str | None = None
+    http: int | str | None = None
     extra: dict[str, Any] | None = None
 
 
@@ -82,9 +83,7 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
             except Exception as e:
                 logger.debug(f"Status probe failed for {name}: {e}")
 
-        yield SwarmSummary(
-            name=name, backend=backend, phase=phase, url=url, http=http, extra=extra
-        )
+        yield SwarmSummary(name=name, backend=backend, phase=phase, url=url, http=http, extra=extra)
 
 
 @swarm_app.command("list")

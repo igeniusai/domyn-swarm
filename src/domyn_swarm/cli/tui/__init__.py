@@ -1,17 +1,16 @@
-from typing import Iterable, Optional, Tuple
+from collections.abc import Iterable
 
 from rich.console import Console
 
 from ...platform.protocols import ServingStatus
 from ..tui.status import render_swarm_status
 from ..tui.status_list import render_multi_status
-from .list_view import render_swarm_list  # noqa: F401
 
 
 def render_status(
-    items: Iterable[Tuple[str, str, ServingStatus]] | Tuple[str, str, ServingStatus],
+    items: Iterable[tuple[str, str, ServingStatus]] | tuple[str, str, ServingStatus],
     *,
-    console: Optional[Console] = None,
+    console: Console | None = None,
 ) -> None:
     """
     Convenience wrapper:
@@ -31,4 +30,4 @@ def render_status(
         render_multi_status(items_list, console=console)
 
 
-__all__ = ["render_swarm_status", "render_multi_status", "render_status"]
+__all__ = ["render_multi_status", "render_status", "render_swarm_status"]

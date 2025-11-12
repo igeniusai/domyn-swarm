@@ -15,9 +15,7 @@
 
 def assert_cli_ok(result, msg="CLI command failed unexpectedly"):
     """Assert a CLI result was successful."""
-    assert result.exit_code == 0, (
-        f"{msg}\n\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    )
+    assert result.exit_code == 0, f"{msg}\n\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
 
 
 def assert_cli_error(result, expected_code=1, msg="CLI command should have failed"):

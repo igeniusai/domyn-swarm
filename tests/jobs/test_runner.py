@@ -12,9 +12,7 @@ import pytest
 async def test_run_sharded_single_shard(mocker):
     mod = importlib.import_module("domyn_swarm.jobs.runner")
 
-    df = pd.DataFrame(
-        {"messages": [f"m{i}" for i in range(6)]}, index=pd.RangeIndex(0, 6)
-    )
+    df = pd.DataFrame({"messages": [f"m{i}" for i in range(6)]}, index=pd.RangeIndex(0, 6))
     store_uri = "file:///tmp/out.parquet"
 
     created_store_uris = []
@@ -46,11 +44,7 @@ async def test_run_sharded_single_shard(mocker):
             )
             # Return df with the expected output col
             out = sub_df.copy()
-            col = (
-                output_cols[0]
-                if isinstance(output_cols, list) and output_cols
-                else "result"
-            )
+            col = output_cols[0] if isinstance(output_cols, list) and output_cols else "result"
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 
@@ -128,11 +122,7 @@ async def test_run_sharded_multiple_shards(mocker):
                 }
             )
             out = sub_df.copy()
-            col = (
-                output_cols[0]
-                if isinstance(output_cols, list) and output_cols
-                else "result"
-            )
+            col = output_cols[0] if isinstance(output_cols, list) and output_cols else "result"
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 
@@ -146,9 +136,7 @@ async def test_run_sharded_multiple_shards(mocker):
         return object()
 
     nshards = 3
-    expected_uris = {
-        base_uri.replace(".parquet", f"_shard{i}.parquet") for i in range(nshards)
-    }
+    expected_uris = {base_uri.replace(".parquet", f"_shard{i}.parquet") for i in range(nshards)}
 
     result = await mod.run_sharded(
         job_factory,
@@ -204,11 +192,7 @@ async def test_run_sharded_multiple_shards_respects_splitting(mocker):
         async def run(self, job, sub_df, *, input_col, output_cols, output_mode=None):
             run_indices.append(tuple(sub_df.index.tolist()))
             out = sub_df.copy()
-            col = (
-                output_cols[0]
-                if isinstance(output_cols, list) and output_cols
-                else "result"
-            )
+            col = output_cols[0] if isinstance(output_cols, list) and output_cols else "result"
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 

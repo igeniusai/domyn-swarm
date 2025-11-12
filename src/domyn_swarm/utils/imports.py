@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import importlib
-from typing import Optional
 
 _LeptonAPIClient = None  # type: ignore[assignment]
 _LEPTON_IMPORT_ERR: Exception | None = None
@@ -60,7 +59,7 @@ def _require_lepton() -> None:
         ) from _LEPTON_IMPORT_ERR
 
 
-def make_lepton_client(*, token: Optional[str] = None, workspace: Optional[str] = None):
+def make_lepton_client(*, token: str | None = None, workspace: str | None = None):
     """
     Instantiate APIClient lazily (no import-time side effects).
     If the SDK requires auth (e.g., `lep login`), pass a token via env/CI.
@@ -78,5 +77,5 @@ def make_lepton_client(*, token: Optional[str] = None, workspace: Optional[str] 
         raise RuntimeError(
             "Failed to initialize Lepton API client. "
             "Run `lep login` locally or set LEPTONAI_API_TOKEN in CI. "
-            "In tests, monkeypatch `make_lepton_client` or your backend’s `_client()`."
+            "In tests, monkeypatch `make_lepton_client` or your backend's `_client()`."
         ) from e

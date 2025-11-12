@@ -42,16 +42,12 @@ def test_find_defaults_file_prefers_settings_defaults_file(mocker, tmp_path: Pat
     assert p == defaults
 
 
-def test_find_defaults_file_uses_searchers_when_no_settings_value(
-    mocker, tmp_path: Path
-):
+def test_find_defaults_file_uses_searchers_when_no_settings_value(mocker, tmp_path: Path):
     defaults = tmp_path / "defaults.yaml"
     _write_yaml(defaults, {"a": 1})
 
     # No explicit defaults_file set in settings
-    mocker.patch.object(
-        mod, "get_settings", return_value=SimpleNamespace(defaults_file=None)
-    )
+    mocker.patch.object(mod, "get_settings", return_value=SimpleNamespace(defaults_file=None))
 
     # First searcher returns None, second returns our file
     mocker.patch.object(mod, "_DEFAULT_FILES", [lambda: None, lambda: defaults])
@@ -61,9 +57,7 @@ def test_find_defaults_file_uses_searchers_when_no_settings_value(
 
 
 def test_find_defaults_file_returns_none_when_nothing_found(mocker):
-    mocker.patch.object(
-        mod, "get_settings", return_value=SimpleNamespace(defaults_file=None)
-    )
+    mocker.patch.object(mod, "get_settings", return_value=SimpleNamespace(defaults_file=None))
     mocker.patch.object(mod, "_DEFAULT_FILES", [lambda: None, lambda: None])
     assert mod._find_defaults_file() is None
 
