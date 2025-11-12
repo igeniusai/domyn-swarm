@@ -128,7 +128,7 @@ include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
 respect-gitignore = true
 extend-exclude = [
   ".venv", "venv", "build", "dist", "**/__pycache__",
-  "migrations", "docs/_build"
+  "migrations", "docs/_build", "examples"
 ]
 
 [tool.ruff.format]

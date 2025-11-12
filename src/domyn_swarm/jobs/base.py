@@ -320,7 +320,7 @@ class SwarmJob(abc.ABC):
         return {
             k: v
             for k, v in self.__dict__.items()
-            if isinstance(v, (str, int, float, bool, list, dict, type(None)))
+            if isinstance(v, str | int | float | bool | list | dict | type(None))
             and k not in {"endpoint", "model", "client", "_callbacks", "results"}
         }
 

@@ -69,7 +69,7 @@ def _normalize_batch_outputs(
                 key = expected_cols[0]
                 rows = [o.get(key) for o in local_outputs]
                 return rows, expected_cols
-            elif isinstance(first, (list, tuple)):
+            elif isinstance(first, list | tuple):
                 if len(first) != 1:
                     raise ValueError(
                         f"Expected single-column output {expected_cols}, "
@@ -82,7 +82,7 @@ def _normalize_batch_outputs(
                 return local_outputs, expected_cols
         else:
             # multi-column expected
-            if isinstance(first, (list, tuple)):
+            if isinstance(first, list | tuple):
                 if any(len(o) != len(expected_cols) for o in local_outputs):
                     raise ValueError(f"Output rows length mismatch vs columns {expected_cols}")
                 # keep as list/tuple; flush will index by position
@@ -103,7 +103,7 @@ def _normalize_batch_outputs(
     if isinstance(first, dict):
         logger.debug("Output is dict; passing as-is.")
         return local_outputs, None  # dict path (flush with output_cols=None)
-    elif isinstance(first, (list, tuple)):
+    elif isinstance(first, list | tuple):
         raise ValueError("List/tuple outputs require explicit `output_cols` naming.")
     else:
         logger.debug("Output is scalar; synthesizing 'output' column.")

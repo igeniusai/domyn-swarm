@@ -122,7 +122,7 @@ class ParquetShardStore(CheckpointStore):
             else:
                 logger.info(f"Output columns are: {output_cols}")
                 for i, c in enumerate(output_cols):
-                    if isinstance(batch.rows[0], (list, tuple)):
+                    if isinstance(batch.rows[0], list | tuple):
                         tmp[c] = [r[i] for r in batch.rows]
                     elif isinstance(batch.rows[0], dict):
                         tmp[c] = [r[c] for r in batch.rows]

@@ -150,7 +150,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     # Resolve output columns for new-style (fallback to legacy CLI flag)
     output_cols = None
     if hasattr(job_cls, "output_cols"):
-        o = job_cls.output_cols
+        o = job_cls.output_cols  # type: ignore[attr-defined]
         output_cols = o if isinstance(o, list) else [o]
     elif "output_cols" in job_kwargs:
         o = job_kwargs["output_cols"]
