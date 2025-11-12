@@ -135,6 +135,24 @@ def check_status(
 
 
 def down_by_name(name: str, yes: bool) -> None:
+    """
+    Shut down a swarm by its name, with optional confirmation.
+    This function loads a swarm by name and shuts it down. If the swarm is currently
+    running and the yes parameter is False, it will prompt the user for confirmation
+    before proceeding with the shutdown.
+    Args:
+        name (str): The name of the swarm to shut down.
+        yes (bool): If True, skip confirmation prompt for running swarms.
+    Returns:
+        None
+    Raises:
+        typer.Exit: If user cancels the shutdown when prompted for confirmation.
+    Example:
+        >>> down_by_name("my-swarm", yes=False)
+        # Will prompt for confirmation if swarm is running
+        >>> down_by_name("my-swarm", yes=True)
+        # Will shut down without confirmation
+    """
     swarm = SwarmStateManager.load(deployment_name=name)
     serving_status = swarm.status()
     if serving_status.phase == "RUNNING" and not yes:
@@ -144,6 +162,68 @@ def down_by_name(name: str, yes: bool) -> None:
             raise typer.Exit()
     swarm.down()
     typer.echo(f"✅ Swarm {name} shutdown request sent.")
+
+
+def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) -> None:
+    """
+    Shut down swarms matching the base name in the provided config file.
+    If multiple swarms match, the user can choose to shut down all, select one,
+    or be prompted for confirmation.
+    Args:
+        config (typer.FileText): File handle to the YAML config containing the swarm name.
+        yes (bool): If True, skip confirmation prompts.
+        all_ (bool): If True, shut down all matching swarms.
+        select (bool): If True, prompt the user to select one swarm to shut down.
+    Raises:
+        typer.Exit: Exits the program after shutting down swarms or if no action is taken.
+    """
+    logger.info(f"Loading swarm config from {config.name} to find matching swarms")
+    base_name = _load_swarm_config(config).name
+    matches = SwarmStateManager.list_by_base_name(base_name)
+
+    logger.info(f"Found {len(matches)} matching swarms for base name '{base_name}'")
+
+    if not matches:
+        console.print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
+        raise typer.Exit(0)
+
+    if len(matches) == 1 and not all_:
+        name = matches[0]
+        console.print(f"[cyan]Found 1 match:[/] {name}")
+        if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
+            raise typer.Abort()
+        down_by_name(name=name, yes=yes)  # reuse your existing down logic
+        raise typer.Exit(0)
+
+    if all_:
+        if not yes:
+            table = Table(title="Swarms to destroy")
+            table.add_column("deployment_name")
+            for n in matches:
+                table.add_row(n)
+            console.print(table)
+            if not typer.confirm(f"Destroy ALL {len(matches)} swarms above?"):
+                raise typer.Abort()
+        for n in matches:
+            down_by_name(name=n, yes=True)
+        raise typer.Exit(0)
+
+    if select:
+        name = _pick_one(matches, console)
+        if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
+            raise typer.Abort()
+        down_by_name(name=name, yes=True)
+        raise typer.Exit(0)
+
+    if matches:
+        console.print(
+            f"[red]Multiple swarms found for base name '{base_name}'. "
+            "Please specify one using --name, use --select to pick "
+            "one or use --all to delete all of them.[/]"
+        )
+        for n in matches:
+            console.print(f" - {n}")
+        raise typer.Exit(1)
 
 
 @app.command("down", short_help="Shut down a swarm allocation")
@@ -168,53 +248,7 @@ def down(
     if name is None:
         logger.warning("Swarm name not provided for shutdown")
         if config is not None:
-            logger.info(f"Loading swarm config from {config.name} to find matching swarms")
-            base_name = _load_swarm_config(config).name
-            matches = SwarmStateManager.list_by_base_name(base_name)
-
-            logger.info(f"Found {len(matches)} matching swarms for base name '{base_name}'")
-
-            if not matches:
-                console.print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
-                raise typer.Exit(0)
-
-            if len(matches) == 1 and not all_:
-                name = matches[0]
-                console.print(f"[cyan]Found 1 match:[/] {name}")
-                if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
-                    raise typer.Abort()
-                down_by_name(name=name, yes=yes)  # reuse your existing down logic
-                raise typer.Exit(0)
-
-            if all_:
-                if not yes:
-                    table = Table(title="Swarms to destroy")
-                    table.add_column("deployment_name")
-                    for n in matches:
-                        table.add_row(n)
-                    console.print(table)
-                    if not typer.confirm(f"Destroy ALL {len(matches)} swarms above?"):
-                        raise typer.Abort()
-                for n in matches:
-                    down_by_name(name=n, yes=True)
-                raise typer.Exit(0)
-
-            if select:
-                name = _pick_one(matches, console)
-                if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
-                    raise typer.Abort()
-                down_by_name(name=name, yes=True)
-                raise typer.Exit(0)
-
-            if matches:
-                console.print(
-                    f"[red]Multiple swarms found for base name '{base_name}'. "
-                    "Please specify one using --name, use --select to pick "
-                    "one or use --all to delete all of them.[/]"
-                )
-                for n in matches:
-                    console.print(f" - {n}")
-                raise typer.Exit(1)
+            down_by_config(config=config, yes=yes, all_=all_, select=select)
 
         logger.info(
             "No config provided or no matches found; attempting to shut down the last swarm."

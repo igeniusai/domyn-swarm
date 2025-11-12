@@ -158,9 +158,6 @@ ignore = [
   "B008",
 ]
 
-# Don’t nag about re-export patterns in __init__.py
-ignore-init-module-imports = true
-
 [tool.ruff.lint.isort]
 combine-as-imports = true
 force-sort-within-sections = true
