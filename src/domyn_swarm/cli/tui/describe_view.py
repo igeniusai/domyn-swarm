@@ -13,15 +13,16 @@
 # limitations under the License.
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
-import yaml
 from rich.box import HEAVY
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.text import Text
+import yaml
 
 from .tables import _kv_table
 
@@ -37,8 +38,8 @@ def render_swarm_description(
     name: str,
     backend: str,
     cfg: Mapping[str, Any] | None,
-    endpoint: Optional[str] = None,
-    console: Optional[Console] = None,
+    endpoint: str | None = None,
+    console: Console | None = None,
 ) -> None:
     """
     Render a full-width description panel for a single swarm (no live status).
@@ -73,8 +74,7 @@ def render_swarm_description(
     gpus_per_replica = isinstance(cfg, Mapping) and cfg.get("gpus_per_replica")
     port = isinstance(cfg, Mapping) and cfg.get("port")
     image = isinstance(cfg, Mapping) and (
-        cfg.get("image")
-        or (cfg.get("backend", {}) or {}).get("endpoint", {}).get("image")
+        cfg.get("image") or (cfg.get("backend", {}) or {}).get("endpoint", {}).get("image")
     )
 
     if model:

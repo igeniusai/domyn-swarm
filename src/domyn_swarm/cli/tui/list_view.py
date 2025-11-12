@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from rich.console import Console
 from rich.padding import Padding
@@ -47,9 +47,7 @@ def render_swarm_list(rows: Iterable[object], *, console: Console):
         if hb:
             notes_parts.append(str(hb))
         # small digest, not the whole dict
-        for k in ("rep", "lb", "raw_state"):
-            if k in extra:
-                notes_parts.append(f"{k}={extra[k]}")
+        notes_parts.extend([f"{k}={extra[k]}" for k in ("rep", "lb", "raw_state") if k in extra])
         notes = ", ".join(notes_parts) if notes_parts else "—"
 
         t.add_row(name, backend, phase_badge(phase), url_txt, notes)

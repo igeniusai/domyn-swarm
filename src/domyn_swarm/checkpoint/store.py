@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-import uuid
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+import logging
+from typing import Any, Protocol
+import uuid
 
 import pandas as pd
 
@@ -24,7 +24,7 @@ from domyn_swarm.helpers.logger import setup_logger
 try:
     import fsspec  # type: ignore
 except Exception as _e:  # pragma: no cover
-    fsspec = None  # noqa: F401
+    fsspec = None
 
 logger = setup_logger("domyn_swarm.checkpoint.store", level=logging.INFO)
 
@@ -44,9 +44,7 @@ class FlushBatch:
 class CheckpointStore(Protocol):
     def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame: ...
 
-    async def flush(
-        self, batch: FlushBatch, output_cols: Optional[list[str]]
-    ) -> None: ...
+    async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None: ...
 
     def finalize(self) -> pd.DataFrame: ...
 
@@ -58,7 +56,7 @@ class ParquetShardStore(CheckpointStore):
     --------
     >>> store = ParquetShardStore("s3://bucket/checkpoints/run.parquet")
     >>> todo = store.prepare(df, id_col="_row_id")
-    >>> await store.flush(FlushBatch(ids=[...], rows=[...] ), output_cols=["result"])  # many times
+    >>> await store.flush(FlushBatch(ids=[...], rows=[...]), output_cols=["result"])  # many times
     >>> out = store.finalize()  # merges shards and writes the final parquet
     """
 
@@ -71,7 +69,8 @@ class ParquetShardStore(CheckpointStore):
             self.base_uri = self.dir_uri.rstrip("/") + ".parquet"
         if fsspec is None:
             raise ImportError(
-                "Install fsspec and relevant filesystem extras (s3fs, gcsfs, adlfs, ...) to use ParquetShardStore"
+                "Install fsspec and relevant filesystem extras "
+                "(s3fs, gcsfs, adlfs, ...) to use ParquetShardStore"
             )
         self.fs, _ = fsspec.core.url_to_fs(self.dir_uri)
         self.fs.mkdirs(self.dir_uri, exist_ok=True)
@@ -82,9 +81,7 @@ class ParquetShardStore(CheckpointStore):
         df = df.copy()
         self.id_col = id_col
         if self.fs.exists(self.base_uri):
-            done = pd.read_parquet(
-                self.base_uri, storage_options=self.fs.storage_options
-            )
+            done = pd.read_parquet(self.base_uri, storage_options=self.fs.storage_options)
             self.done_ids = set(
                 done.index.tolist()
                 if self.id_col in done.index.names
@@ -93,7 +90,7 @@ class ParquetShardStore(CheckpointStore):
         mask = ~df[id_col].isin(list(self.done_ids))
         return df.loc[mask]
 
-    async def flush(self, batch: FlushBatch, output_cols: Optional[list[str]]) -> None:
+    async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
         """Flush a batch of data to a parquet file.
 
         This method processes a batch of data and writes it to a parquet file in the
@@ -131,7 +128,8 @@ class ParquetShardStore(CheckpointStore):
                         tmp[c] = [r[c] for r in batch.rows]
                     else:
                         raise ValueError(
-                            "When multiple output columns are specified, each row must be a tuple or dict"
+                            "When multiple output columns are specified, "
+                            "each row must be a tuple or dict"
                         )
         part = self.dir_uri + f"part-{uuid.uuid4().hex}.parquet"
         tmp = tmp.set_index(self.id_col, drop=True)
@@ -147,9 +145,7 @@ class ParquetShardStore(CheckpointStore):
         if not parts:
             # Return existing merged file if present
             if self.fs.exists(self.base_uri):
-                return pd.read_parquet(
-                    self.base_uri, storage_options=self.fs.storage_options
-                )
+                return pd.read_parquet(self.base_uri, storage_options=self.fs.storage_options)
             return pd.DataFrame().set_index(self.id_col)
         dfs: list[pd.DataFrame] = [
             pd.read_parquet(p, storage_options=self.fs.storage_options) for p in parts

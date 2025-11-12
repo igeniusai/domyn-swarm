@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import OutputJoinMode, SwarmJob  # noqa: F401
+from .base import OutputJoinMode, SwarmJob
 from .chat_completion import (
     ChatCompletionJob,
     ChatCompletionPerplexityJob,
@@ -21,22 +21,22 @@ from .chat_completion import (
     MultiTurnChatCompletionJob,
     MultiTurnTranslationJob,
     PerplexityMixin,
-)  # noqa: F401
+)
 from .compat import run_job_unified
 from .runner import JobRunner, RunnerConfig, run_sharded
 
 __all__ = [
     "ChatCompletionJob",
-    "CompletionJob",
-    "MultiChatCompletionJob",
-    "PerplexityMixin",
     "ChatCompletionPerplexityJob",
-    "MultiTurnChatCompletionJob",
-    "SwarmJob",
-    "MultiTurnTranslationJob",
-    "run_job_unified",
+    "CompletionJob",
     "JobRunner",
-    "RunnerConfig",
-    "run_sharded",
+    "MultiChatCompletionJob",
+    "MultiTurnChatCompletionJob",
+    "MultiTurnTranslationJob",
     "OutputJoinMode",
+    "PerplexityMixin",
+    "RunnerConfig",
+    "SwarmJob",
+    "run_job_unified",
+    "run_sharded",
 ]

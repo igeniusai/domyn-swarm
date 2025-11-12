@@ -19,13 +19,10 @@ import importlib
 import json
 import logging
 import os
-import sys
-import threading
-import warnings
 from pathlib import Path
-from typing import Optional, Type, Union
+import sys
+import warnings
 
-import numpy as np
 import pandas as pd
 
 from domyn_swarm.helpers.data import compute_hash, parquet_hash
@@ -44,12 +41,12 @@ def _load_cls(path: str) -> type[SwarmJob]:
 
 async def run_swarm_in_threads(
     df: pd.DataFrame,
-    job_cls: Type["SwarmJob"],
+    job_cls: type["SwarmJob"],
     *,
     job_kwargs: dict,
     tag: str,
-    checkpoint_dir: Union[str, Path] = ".checkpoints",
-    num_threads: Optional[int] = None,
+    checkpoint_dir: str | Path = ".checkpoints",
+    num_threads: int | None = None,
 ) -> pd.DataFrame:
     """
     Runs SwarmJob across multiple threads with individual asyncio event loops.
@@ -71,6 +68,7 @@ async def run_swarm_in_threads(
     warnings.warn(
         "run_swarm_in_threads is deprecated; sharding handled by run_job_unified.",
         DeprecationWarning,
+        stacklevel=2,
     )
 
     def make_job():
@@ -87,54 +85,6 @@ async def run_swarm_in_threads(
         tag=tag,
         checkpoint_dir=str(checkpoint_dir),
     )
-    MAX_PARALLELISM = os.cpu_count()
-    if num_threads is None:
-        num_threads = MAX_PARALLELISM if MAX_PARALLELISM is not None else 1
-
-    logger.info(
-        f"[bold green]Running job in {num_threads} threads (max: {MAX_PARALLELISM})[/bold green]"
-    )
-
-    checkpoint_dir = Path(checkpoint_dir)
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    shards = np.array_split(df.index, num_threads)
-    shards = [df.loc[idx].copy() for idx in shards]
-
-    # TODO: Potentially dangerous
-    results: list[pd.DataFrame] = [pd.DataFrame()] * num_threads
-    threads: list[threading.Thread] = []
-
-    def thread_worker(i: int, shard_df: pd.DataFrame):
-        async def runner():
-            job = job_cls(**job_kwargs)
-            result = await job.run(
-                shard_df, tag=f"{tag}_shard{i}", checkpoint_dir=checkpoint_dir
-            )
-            results[i] = result
-
-        asyncio.run(runner())
-
-    for i, shard in enumerate(shards):
-        t = threading.Thread(target=thread_worker, args=(i, shard), daemon=True)
-        t.start()
-        threads.append(t)
-
-    for t in threads:
-        t.join()
-
-    logger.info("[bold green]✅ All shards finished. Merging...[/bold green]")
-
-    final_df = pd.concat(results).sort_index()
-
-    # TODO: Find a way to clean up per-shard checkpoints if needed
-    # This could be done by removing the individual shard files after merging
-    # for i in range(num_threads):
-    #     shard_path = checkpoint_dir / f"{job_cls.__class__.__name__}_{tag}_shard{i}.parquet"
-    #     if shard_path.exists():
-    #         os.remove(shard_path)
-
-    return final_df
 
 
 def parse_args(cli_args=None):
@@ -143,18 +93,12 @@ def parse_args(cli_args=None):
 
     parser = argparse.ArgumentParser(description="Run a SwarmJob on a Parquet input.")
 
-    parser.add_argument(
-        "--job-class", type=str, help="Job class path in format 'pkg.module:Class'"
-    )
+    parser.add_argument("--job-class", type=str, help="Job class path in format 'pkg.module:Class'")
     parser.add_argument("--model", type=str, help="Model name")
     parser.add_argument("--input-parquet", type=Path, help="Path to input Parquet file")
-    parser.add_argument(
-        "--output-parquet", type=Path, help="Path to output Parquet file"
-    )
+    parser.add_argument("--output-parquet", type=Path, help="Path to output Parquet file")
     parser.add_argument("--endpoint", type=str, help="Endpoint URL")
-    parser.add_argument(
-        "--job-kwargs", type=str, default="{}", help="Extra JSON string kwargs"
-    )
+    parser.add_argument("--job-kwargs", type=str, default="{}", help="Extra JSON string kwargs")
     parser.add_argument(
         "--nthreads",
         type=int,
@@ -180,7 +124,7 @@ def parse_args(cli_args=None):
     return parser.parse_args(args=cli_args)
 
 
-def build_job_from_args(args) -> tuple[Type[SwarmJob], dict]:
+def build_job_from_args(args) -> tuple[type[SwarmJob], dict]:
     cls_path = args.job_class or os.environ["JOB_CLASS"]
     model = args.model or os.environ["MODEL"]
     endpoint = args.endpoint or os.environ["ENDPOINT"]
@@ -206,7 +150,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     # Resolve output columns for new-style (fallback to legacy CLI flag)
     output_cols = None
     if hasattr(job_cls, "output_cols"):
-        o = getattr(job_cls, "output_cols")
+        o = job_cls.output_cols
         output_cols = o if isinstance(o, list) else [o]
     elif "output_cols" in job_kwargs:
         o = job_kwargs["output_cols"]

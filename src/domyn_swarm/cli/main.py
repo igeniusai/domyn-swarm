@@ -14,12 +14,11 @@
 
 import logging
 import sys
-from typing import Optional
+from typing import Annotated
 
-import typer
 from rich.console import Console
 from rich.table import Table
-from typing_extensions import Annotated
+import typer
 
 from domyn_swarm.utils.cli import _pick_one
 
@@ -36,9 +35,7 @@ from .swarm import swarm_app
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
-app.add_typer(
-    job_app, name="job", help="Submit a workload to a Domyn-Swarm allocation."
-)
+app.add_typer(job_app, name="job", help="Submit a workload to a Domyn-Swarm allocation.")
 app.add_typer(
     pool_app,
     name="pool",
@@ -66,9 +63,7 @@ def version(short: bool = False):
 def launch_up(
     config: Annotated[
         typer.FileText,
-        typer.Option(
-            ..., "-c", "--config", help="Path to YAML config for LLMSwarmConfig"
-        ),
+        typer.Option(..., "-c", "--config", help="Path to YAML config for LLMSwarmConfig"),
     ],
     reverse_proxy: Annotated[
         bool,
@@ -78,7 +73,7 @@ def launch_up(
         ),
     ] = False,
     replicas: Annotated[
-        Optional[int],
+        int | None,
         typer.Option(
             "--replicas",
             "-r",
@@ -106,7 +101,7 @@ def launch_up(
                 logger.error(f"Error during cleanup: {e}")
                 pass
             typer.echo("Swarm allocation cancelled by user", err=True)
-            raise typer.Abort()
+            raise typer.Abort() from None
         else:
             typer.echo(f"Waiting for swarm {swarm_ctx.name}…", err=True)
 
@@ -120,7 +115,8 @@ def check_status(
         str,
         typer.Argument(
             ...,
-            help="Name of the swarm allocation to check status for. If not provided, checks all allocations.",
+            help="Name of the swarm allocation to check status for. "
+            "If not provided, checks all allocations.",
         ),
     ],
 ) -> None:
@@ -142,9 +138,7 @@ def down_by_name(name: str, yes: bool) -> None:
     swarm = SwarmStateManager.load(deployment_name=name)
     serving_status = swarm.status()
     if serving_status.phase == "RUNNING" and not yes:
-        confirm = typer.confirm(
-            f"Are you sure you want to shut down the running swarm {name}?"
-        )
+        confirm = typer.confirm(f"Are you sure you want to shut down the running swarm {name}?")
         if not confirm:
             typer.secho("Aborting shutdown.", fg="red")
             raise typer.Exit()
@@ -154,7 +148,7 @@ def down_by_name(name: str, yes: bool) -> None:
 
 @app.command("down", short_help="Shut down a swarm allocation")
 def down(
-    name: Optional[str] = typer.Argument(default=None, help="Swarm name."),
+    name: str | None = typer.Argument(default=None, help="Swarm name."),
     yes: Annotated[
         bool,
         typer.Option(
@@ -167,27 +161,21 @@ def down(
         False, "--select", help="Pick a single swarm when multiple matches."
     ),
     all_: bool = typer.Option(False, "--all", help="Tear down all matching swarms."),
-    config: Optional[typer.FileText] = typer.Option(
+    config: typer.FileText | None = typer.Option(
         None, "-c", "--config", help="Path to YAML config (must contain 'name')."
     ),
 ):
     if name is None:
         logger.warning("Swarm name not provided for shutdown")
         if config is not None:
-            logger.info(
-                f"Loading swarm config from {config.name} to find matching swarms"
-            )
+            logger.info(f"Loading swarm config from {config.name} to find matching swarms")
             base_name = _load_swarm_config(config).name
             matches = SwarmStateManager.list_by_base_name(base_name)
 
-            logger.info(
-                f"Found {len(matches)} matching swarms for base name '{base_name}'"
-            )
+            logger.info(f"Found {len(matches)} matching swarms for base name '{base_name}'")
 
             if not matches:
-                console.print(
-                    f"[yellow]No swarms found for base name '{base_name}'.[/]"
-                )
+                console.print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
                 raise typer.Exit(0)
 
             if len(matches) == 1 and not all_:
@@ -221,7 +209,8 @@ def down(
             if matches:
                 console.print(
                     f"[red]Multiple swarms found for base name '{base_name}'. "
-                    "Please specify one using --name, use --select to pick one or use --all to delete all of them.[/]"
+                    "Please specify one using --name, use --select to pick "
+                    "one or use --all to delete all of them.[/]"
                 )
                 for n in matches:
                     console.print(f" - {n}")

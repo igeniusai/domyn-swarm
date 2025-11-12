@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Iterable, Optional, Tuple
+from collections.abc import Iterable
 
 from rich.box import HEAVY
 from rich.columns import Columns
@@ -26,9 +26,9 @@ from domyn_swarm.platform.protocols import ServingStatus
 
 
 def render_multi_status(
-    items: Iterable[Tuple[str, str, ServingStatus]],
+    items: Iterable[tuple[str, str, ServingStatus]],
     *,
-    console: Optional[Console] = None,
+    console: Console | None = None,
 ) -> None:
     """Renders compact status panels for multiple swarms in a columnar layout.
 

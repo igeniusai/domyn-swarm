@@ -16,10 +16,10 @@ import importlib
 import json
 import logging
 import os
+from pathlib import Path
+from typing import Any
 import uuid
 import warnings
-from pathlib import Path
-from typing import Any, Optional
 
 from pydantic import (
     BaseModel,
@@ -110,8 +110,7 @@ class DomynLLMSwarm(BaseModel):
     cfg = DomynLLMSwarmConfig(...)
     with DomynLLMSwarm(cfg=cfg) as swarm:
         # Swarm is now running and accessible at swarm.endpoint
-        result = swarm.submit_job(my_job, input_path="data.parquet",
-                                 output_path="results.parquet")
+        result = swarm.submit_job(my_job, input_path="data.parquet", output_path="results.parquet")
     # Resources automatically cleaned up on exit
     ```
 
@@ -136,7 +135,7 @@ class DomynLLMSwarm(BaseModel):
             input_path="batch.parquet",
             output_path="predictions.parquet",
             num_threads=8,
-            limit=1000  # Process first 1000 rows only
+            limit=1000,  # Process first 1000 rows only
         )
 
         # Asynchronous execution
@@ -144,7 +143,7 @@ class DomynLLMSwarm(BaseModel):
             job=LongRunningJob(),
             input_path="large_dataset.parquet",
             output_path="results.parquet",
-            detach=True
+            detach=True,
         )
     ```
 
@@ -152,11 +151,7 @@ class DomynLLMSwarm(BaseModel):
     ```python
     with DomynLLMSwarm(cfg=cfg) as swarm:
         # Run analysis script on head node
-        swarm.submit_script(
-            Path("analysis.py"),
-            extra_args=["--mode", "evaluation"],
-            detach=False
-        )
+        swarm.submit_script(Path("analysis.py"), extra_args=["--mode", "evaluation"], detach=False)
     ```
 
     State Management
@@ -221,19 +216,15 @@ class DomynLLMSwarm(BaseModel):
         ),
         description="Unique name for this swarm deployment",
     )
-    endpoint: Optional[str] = None  # LB endpoint, set after job submission
-    delete_on_exit: Optional[bool] = (
+    endpoint: str | None = None  # LB endpoint, set after job submission
+    delete_on_exit: bool | None = (
         False  # Delete the resources for this cluster at the end of the job
     )
-    serving_handle: Optional[ServingHandle] = (
-        None  # ServingHandle, set after deployment
-    )
+    serving_handle: ServingHandle | None = None  # ServingHandle, set after deployment
     _platform: str = PrivateAttr("")
     swarm_dir: utils.EnvPath = Field(
         description="Directory where swarm-related files are stored",
-        default_factory=lambda data: data["cfg"].home_directory
-        / "swarms"
-        / data["name"],
+        default_factory=lambda data: data["cfg"].home_directory / "swarms" / data["name"],
     )
 
     @computed_field
@@ -290,13 +281,9 @@ class DomynLLMSwarm(BaseModel):
 
         serving_spec = dict(self._plan.serving_spec, swarm_directory=self.swarm_dir)
 
-        logger.info(
-            f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}..."
-        )
+        logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}...")
 
-        handle = self._deployment.up(
-            self.name, serving_spec, timeout_s=self.cfg.wait_endpoint_s
-        )
+        handle = self._deployment.up(self.name, serving_spec, timeout_s=self.cfg.wait_endpoint_s)
         # We save the handle before waiting to be ready, so we can clean up
         self.serving_handle = handle
         handle = self._deployment.wait_ready(timeout_s=self.cfg.wait_endpoint_s)
@@ -353,7 +340,7 @@ class DomynLLMSwarm(BaseModel):
         num_threads: int = 1,
         detach: bool = False,
         limit: int | None = None,
-        mail_user: Optional[str] = None,
+        mail_user: str | None = None,
         checkpoint_dir: str | Path | None = None,
     ) -> int | None:
         """
@@ -414,7 +401,7 @@ class DomynLLMSwarm(BaseModel):
         ...     my_job,
         ...     input_path=Path("batch.parquet"),
         ...     output_path=Path("predictions.parquet"),
-        ...     num_threads=4
+        ...     num_threads=4,
         ... )
         """
         if checkpoint_dir is None:
@@ -432,9 +419,7 @@ class DomynLLMSwarm(BaseModel):
         python_interpreter = compute.default_python(self.cfg)
         image = compute.default_image(self.cfg.backend)
 
-        resources = self._plan.job_resources or compute.default_resources(
-            self.cfg.backend
-        )
+        resources = self._plan.job_resources or compute.default_resources(self.cfg.backend)
         env_overrides = compute.default_env(self.cfg)
 
         exe = [
@@ -455,11 +440,7 @@ class DomynLLMSwarm(BaseModel):
         if limit:
             exe.append(f"--limit={limit}")
 
-        token = (
-            settings.api_token
-            or settings.vllm_api_key
-            or settings.singularityenv_vllm_api_key
-        )
+        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
 
         env = {
             "ENDPOINT": self.endpoint,
@@ -480,7 +461,8 @@ class DomynLLMSwarm(BaseModel):
         job_name = f"{self.name}-{job_name}"
 
         logger.info(
-            f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job to swarm {self.name} on {self._platform}"
+            f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "
+            "to swarm {self.name} on {self._platform}"
         )
 
         job_handle = self._deployment.run(
@@ -512,9 +494,7 @@ class DomynLLMSwarm(BaseModel):
             "MODEL": self.model,
         }
         # Global backend env from config
-        if getattr(self.cfg, "backend", None) and getattr(
-            self.cfg.backend, "env", None
-        ):
+        if getattr(self.cfg, "backend", None) and getattr(self.cfg.backend, "env", None):
             env.update(self.cfg.backend.env)  # type: ignore[attr-defined]
         # Backend-specific overrides
         overrides = compute.default_env(self.cfg)
@@ -559,9 +539,7 @@ class DomynLLMSwarm(BaseModel):
 
             >>> # Submit script in detached mode with arguments
             >>> pid = swarm.submit_script(
-            ...     Path("my_script.py"),
-            ...     detach=True,
-            ...     extra_args=["--config", "config.yaml"]
+            ...     Path("my_script.py"), detach=True, extra_args=["--config", "config.yaml"]
             ... )
         """
 
@@ -611,18 +589,12 @@ class DomynLLMSwarm(BaseModel):
             lb_node = handle.meta.get("lb_node")
             if not lb_jobid or not lb_node:
                 raise RuntimeError("LB Job ID/Node missing in Slurm handle.")
-            assert self.cfg.backend is not None and isinstance(
-                self.cfg.backend, SlurmConfig
-            )
-            return SlurmComputeBackend(
-                cfg=self.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node
-            )
+            assert self.cfg.backend is not None and isinstance(self.cfg.backend, SlurmConfig)
+            return SlurmComputeBackend(cfg=self.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node)
         elif self._plan and self._plan.platform == "lepton":
             return self._plan.compute
         else:
-            raise RuntimeError(
-                f"Unsupported platform for compute backend: {self._plan.platform}"
-            )
+            raise RuntimeError(f"Unsupported platform for compute backend: {self._plan.platform}")
 
     def status(self) -> ServingStatus:
         """Get the current status of the swarm."""
@@ -647,7 +619,7 @@ def _start_swarm(
     """Common context-manager + reverse proxy logic."""
     with DomynLLMSwarm(cfg=cfg) as _:
         if reverse_proxy:
-            warnings.warn("This feature is not currently enabled")
+            warnings.warn("This feature is not currently enabled", stacklevel=2)
             # from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
 
             # # TODO check this

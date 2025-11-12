@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping
 import logging
-import re
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, TypeVar, cast
+import re
+from typing import Any, TypeVar, cast
 
 import typer
 import yaml
@@ -33,7 +34,7 @@ settings = get_settings()
 # ----------------------- tiny helpers -----------------------
 
 
-def _load_yaml(path: Path) -> Dict[str, Any]:
+def _load_yaml(path: Path) -> dict[str, Any]:
     if path.exists():
         try:
             return yaml.safe_load(path.read_text()) or {}
@@ -42,7 +43,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     return {}
 
 
-def _save_yaml(path: Path, data: Dict[str, Any]) -> None:
+def _save_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, sort_keys=False))
 
@@ -56,11 +57,11 @@ def _get(d: Mapping[str, Any], dotted: str, default: T | None = None) -> T | Non
         if not isinstance(cur, Mapping) or part not in cur:
             return default
         cur = cur[part]
-    # We trust the caller’s expected type (guided by `default`)
+    # We trust the caller's expected type (guided by `default`)
     return cast(T | None, cur)
 
 
-def _set(d: Dict[str, Any], dotted: str, value: Any):
+def _set(d: dict[str, Any], dotted: str, value: Any):
     parts = dotted.split(".")
     cur = d
     for p in parts[:-1]:
@@ -68,7 +69,7 @@ def _set(d: Dict[str, Any], dotted: str, value: Any):
     cur[parts[-1]] = value
 
 
-def _prompt_str(label: str, default: Optional[str] = None, allow_empty=False) -> str:
+def _prompt_str(label: str, default: str | None = None, allow_empty=False) -> str:
     while True:
         val = typer.prompt(label, default=default if default is not None else "")
         if allow_empty:
@@ -80,9 +81,9 @@ def _prompt_str(label: str, default: Optional[str] = None, allow_empty=False) ->
 
 def _prompt_int(
     label: str,
-    default: Optional[int] = None,
-    min_v: Optional[int] = None,
-    max_v: Optional[int] = None,
+    default: int | None = None,
+    min_v: int | None = None,
+    max_v: int | None = None,
 ) -> int:
     while True:
         val = typer.prompt(label, default=str(default) if default is not None else "")
@@ -92,9 +93,7 @@ def _prompt_int(
             typer.secho("Please enter a valid integer.", fg=typer.colors.RED)
             continue
         if (min_v is not None and n < min_v) or (max_v is not None and n > max_v):
-            typer.secho(
-                f"Value must be between {min_v} and {max_v}.", fg=typer.colors.RED
-            )
+            typer.secho(f"Value must be between {min_v} and {max_v}.", fg=typer.colors.RED)
             continue
         return n
 
@@ -128,23 +127,17 @@ def _yesno(label: str, default: bool = True) -> bool:
 # ----------------------- interactive flow -----------------------
 
 
-def _configure_slurm_defaults(existing: Dict[str, Any]) -> Dict[str, Any]:
+def _configure_slurm_defaults(existing: dict[str, Any]) -> dict[str, Any]:
     base = "slurm"
     base_endpoint = f"{base}.endpoint"
-    typer.secho(
-        "\nConfigure defaults for SLURM endpoint", fg=typer.colors.CYAN, bold=True
-    )
+    typer.secho("\nConfigure defaults for SLURM endpoint", fg=typer.colors.CYAN, bold=True)
 
     image = _prompt_str(
         "Path to Singularity/Container image for inference server",
         default=_get(existing, f"{base}.image", ""),
     )
-    partition = _prompt_str(
-        "SLURM partition", default=_get(existing, f"{base}.partition", "")
-    )
-    account = _prompt_str(
-        "SLURM account", default=_get(existing, f"{base}.account", "")
-    )
+    partition = _prompt_str("SLURM partition", default=_get(existing, f"{base}.partition", ""))
+    account = _prompt_str("SLURM account", default=_get(existing, f"{base}.account", ""))
     qos = _prompt_str(
         "SLURM QoS (optional)",
         default=_get(existing, f"{base}.qos", ""),
@@ -171,9 +164,7 @@ def _configure_slurm_defaults(existing: Dict[str, Any]) -> Dict[str, Any]:
         default=_get(existing, f"{base_endpoint}.cpus_per_task", 2),
         min_v=1,
     )
-    mem = _prompt_mem(
-        "Memory per task", default=_get(existing, f"{base_endpoint}.mem", "16GB")
-    )
+    mem = _prompt_mem("Memory per task", default=_get(existing, f"{base_endpoint}.mem", "16GB"))
     tpc = _prompt_int(
         "Threads per core",
         default=_get(existing, f"{base_endpoint}.threads_per_core", 1),
@@ -192,7 +183,7 @@ def _configure_slurm_defaults(existing: Dict[str, Any]) -> Dict[str, Any]:
         default=str(_get(existing, f"{base_endpoint}.nginx_timeout", "60s")),
     )
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     _set(out, f"{base}.image", image)
     _set(out, f"{base}.partition", partition)
     if qos.strip():
@@ -210,12 +201,10 @@ def _configure_slurm_defaults(existing: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _configure_lepton_defaults(existing: Dict[str, Any]) -> Dict[str, Any]:
-    typer.secho(
-        "\nConfigure defaults for LEPTON (DGX Cloud)", fg=typer.colors.CYAN, bold=True
-    )
+def _configure_lepton_defaults(existing: dict[str, Any]) -> dict[str, Any]:
+    typer.secho("\nConfigure defaults for LEPTON (DGX Cloud)", fg=typer.colors.CYAN, bold=True)
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     # You can keep this minimal—defaults file is for *defaults*, not per-deployment specifics
     # Add only values you want to use as fallbacks in your config model.
     base = "lepton"
@@ -253,9 +242,7 @@ def _configure_lepton_defaults(existing: Dict[str, Any]) -> Dict[str, Any]:
 # ----------------------- CLI command -----------------------
 
 
-@init_app.command(
-    "defaults", help="Create a defaults.yaml configuration file to be used later."
-)
+@init_app.command("defaults", help="Create a defaults.yaml configuration file to be used later.")
 def create_defaults(
     output: str = typer.Option(
         settings.home / "defaults.yaml",
@@ -263,27 +250,26 @@ def create_defaults(
         "--output",
         help="Path to save the defaults YAML configuration file.",
     ),
-    force: bool = typer.Option(
-        False, "--force", help="Overwrite existing file if it exists."
-    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing file if it exists."),
 ):
     """
     Interactively create a defaults.yaml used by Domyn-Swarm to prefill configuration values.
     """
     path = Path(output)
-    if path.exists() and not force:
-        if not _yesno(f"File '{path}' exists. Overwrite?", default=False):
-            raise typer.Abort()
+    if (
+        path.exists()
+        and not force
+        and not _yesno(f"File '{path}' exists. Overwrite?", default=False)
+    ):
+        raise typer.Abort()
 
     existing = _load_yaml(path)
 
-    typer.secho(
-        "Which platforms do you want defaults for?", fg=typer.colors.CYAN, bold=True
-    )
+    typer.secho("Which platforms do you want defaults for?", fg=typer.colors.CYAN, bold=True)
     want_slurm = _yesno("Configure Slurm defaults?", default=True)
     want_lepton = _yesno("Configure Lepton (DGX Cloud) defaults?", default=False)
 
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     if want_slurm:
         result.update(_configure_slurm_defaults(existing))

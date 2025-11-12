@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from domyn_swarm.platform.protocols import (
     ComputeBackend,
@@ -43,7 +42,7 @@ class Deployment:
     compute: ComputeBackend = None  # type: ignore[assignment]
 
     extras: dict = field(default_factory=dict)
-    _handle: Optional[ServingHandle] = None
+    _handle: ServingHandle | None = None
 
     def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
         """Create and wait for a serving endpoint to be ready."""
@@ -63,13 +62,13 @@ class Deployment:
         self,
         *,
         name: str,
-        image: Optional[str],
+        image: str | None,
         command: list[str],
         env: dict[str, str],
-        resources: Optional[dict] = None,
+        resources: dict | None = None,
         detach: bool = False,
-        nshards: Optional[int] = None,
-        shard_id: Optional[int] = None,
+        nshards: int | None = None,
+        shard_id: int | None = None,
     ) -> JobHandle:
         """Submit a job to the compute backend that targets the serving endpoint."""
         return self.compute.submit(
