@@ -390,7 +390,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
 
                 # update the index skipping assistant message
                 idx = i + 2
-            outs.append(running)
+            outs.append([running])
         return outs
 
 
@@ -502,5 +502,5 @@ class MultiTurnTranslationJob(SwarmJob):
                     response_dict["reasoning_content"] = choice.message.reasoning_content
                 running.append(response_dict)
 
-            outs.append(running)
+            outs.append([running])
         return outs
