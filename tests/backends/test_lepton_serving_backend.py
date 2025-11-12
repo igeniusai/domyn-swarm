@@ -397,9 +397,9 @@ def test_status_running_when_ready_and_http_ok(mock_backend, monkeypatch, mocker
     h = _handle()
     st = mock_backend.status(h)
 
-    # One HTTP probe to /v1/models with a small timeout
+    # One HTTP probe to /health with a small timeout
     get_mock.assert_called_once()
-    assert get_mock.call_args.args[0] == "http://test.com/v1/models"
+    assert get_mock.call_args.args[0] == "http://test.com/health"
     assert get_mock.call_args.kwargs.get("timeout") in (1.0, 1.5, 2.0)
 
     # Phase and URL cached on handle

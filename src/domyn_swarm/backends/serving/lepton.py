@@ -261,7 +261,7 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
         http_code: Optional[int] = None
         if url:
             try:
-                r = requests.get(f"{url.rstrip('/')}/v1/models", timeout=1.5)
+                r = requests.get(f"{url.rstrip('/')}/health", timeout=1.5)
                 http_code = r.status_code
                 http_ok = r.status_code == 200
             except RequestException:

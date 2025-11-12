@@ -46,7 +46,7 @@ def _http_get_sequencer(sequence):
     """
     seq = list(sequence)
 
-    def _get(url, timeout=5.0):
+    def _get(url, timeout=5.0, headers=None):
         # Keep verifying the function passes timeout=5.0
         assert math.isclose(timeout, 5.0)
         if seq:
@@ -138,7 +138,7 @@ def test_passes_url_to_http_get_and_uses_default_poll_interval():
     # We don't check sleep intervals here; just ensure the URL reaches http_get
     seen = {}
 
-    def http_get(url, timeout=5.0):
+    def http_get(url, timeout=5.0, headers=None):
         seen["url"] = url
         return SimpleNamespace(status_code=200)
 

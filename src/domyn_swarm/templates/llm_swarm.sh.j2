@@ -71,6 +71,7 @@ GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
 export SWARM_DIR="{{ swarm_directory }}"
 export LOG_DIR={{ swarm_directory }}/logs/replicas/replica-${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
+export VLLM_API_KEY="${SINGULARITYENV_VLLM_API_KEY:-${VLLM_API_KEY:-${API_TOKEN:-}}}"
 mkdir -p "$LOG_DIR"
 
 ###############################################################################
@@ -134,7 +135,12 @@ function wait_for_vllm_ready() {
 
   echo "[head] waiting for $endpoint ..."
   while :; do
-    resp=$(curl -sf -w '\n%{http_code}' "http://$endpoint/v1/models" || true)
+
+    if [[ -n $VLLM_API_KEY ]]; then
+      resp=$(curl -sf -H "Authorization: Bearer $VLLM_API_KEY" -w '\n%{http_code}' "http://$endpoint/health" || true)
+    else
+      resp=$(curl -sf -w '\n%{http_code}' "http://$endpoint/health" || true)
+    fi
     body=${resp%$'\n'*}
     code=${resp##*$'\n'}
 
@@ -286,8 +292,15 @@ function start_vllm_server() {
 
 function wait_for_vllm_server_ready() {
   echo "[head] checking vLLM status ..."
+  local endpoint="$HEAD_NODE:$REST_PORT"
   while :; do
-    resp=$(curl -sf -w '\n%{http_code}' "http://$HEAD_NODE:$REST_PORT/v1/models" || true)
+
+    if [[ -n $VLLM_API_KEY ]]; then
+      resp=$(curl -sf -H "Authorization: Bearer $VLLM_API_KEY" -w '\n%{http_code}' "http://$endpoint/health" || true)
+    else
+      resp=$(curl -sf -w '\n%{http_code}' "http://$endpoint/health" || true)
+    fi
+
     body=${resp%$'\n'*}
     code=${resp##*$'\n'}
 

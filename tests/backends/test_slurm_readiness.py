@@ -128,7 +128,7 @@ def test_wait_ready_happy_path(monkeypatch):
     assert out is handle
     assert handle.meta["lb_node"] == "n01"
     assert handle.url == "http://n01:9000"
-    assert called["url"] == "http://n01:9000/v1/models"
+    assert called["url"] == "http://n01:9000/health"
     assert called["timeout_s"] == 123
 
 

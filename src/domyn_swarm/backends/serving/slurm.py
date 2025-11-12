@@ -142,8 +142,17 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             handle.meta["lb_jobid"]
         )
         base = f"http://{lb_node}:{self.cfg.endpoint.port}"
+        api_token = (
+            settings.api_token
+            or settings.vllm_api_key
+            or settings.singularityenv_vllm_api_key
+        )
         try:
-            r = requests.get(f"{base}/v1/models", timeout=1.5)
+            if api_token:
+                headers = {"Authorization": f"Bearer {api_token.get_secret_value()}"}
+                r = requests.get(f"{base}/health", headers=headers, timeout=1.5)
+            else:
+                r = requests.get(f"{base}/health", timeout=1.5)
             http_ok = r.status_code == 200
             # Optional: verify expected model is listed
             model_ok = False

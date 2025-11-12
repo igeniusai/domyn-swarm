@@ -41,7 +41,7 @@ logger = setup_logger(__name__)
 class SlurmReadiness(ServingReadiness):
     """
     Slurm readiness: wait for replica array & LB jobs to be RUNNING,
-    resolve LB node, then poll LB HTTP /v1/models for 200.
+    resolve LB node, then poll LB HTTP /health for 200.
     """
 
     def __init__(
@@ -77,7 +77,7 @@ class SlurmReadiness(ServingReadiness):
 
             base = f"http://{lb_node}:{self.endpoint_port}"
             wait_http_200(
-                f"{base}/v1/models",
+                f"{base}/health",
                 timeout_s=timeout_s,
                 poll_interval_s=self.poll_interval_s,
             )
