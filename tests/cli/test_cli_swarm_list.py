@@ -76,9 +76,7 @@ def test_iter_summaries_probe_success_populates_fields(mocker):
             "other": "x",
         },
     )
-    mocker.patch(
-        "domyn_swarm.DomynLLMSwarm.from_state", return_value=_fake_swarm_with_status(st)
-    )
+    mocker.patch("domyn_swarm.DomynLLMSwarm.from_state", return_value=_fake_swarm_with_status(st))
 
     out = list(SW._iter_summaries(probe=True))
     assert len(out) == 1
@@ -97,9 +95,7 @@ def test_iter_summaries_probe_skips_unknown(mocker):
         return_value=[_rec("dead", "slurm", "")],
     )
     st = ServingStatus(phase=ServingPhase.UNKNOWN, url=None, detail=None)
-    mocker.patch(
-        "domyn_swarm.DomynLLMSwarm.from_state", return_value=_fake_swarm_with_status(st)
-    )
+    mocker.patch("domyn_swarm.DomynLLMSwarm.from_state", return_value=_fake_swarm_with_status(st))
 
     out = list(SW._iter_summaries(probe=True))
     assert out == []
@@ -110,9 +106,7 @@ def test_iter_summaries_probe_errors_are_soft(mocker):
         "domyn_swarm.core.state.SwarmStateManager.list_all",
         return_value=[_rec("oops", "lepton", "http://rec:9000")],
     )
-    mocker.patch(
-        "domyn_swarm.DomynLLMSwarm.from_state", side_effect=RuntimeError("boom")
-    )
+    mocker.patch("domyn_swarm.DomynLLMSwarm.from_state", side_effect=RuntimeError("boom"))
 
     out = list(SW._iter_summaries(probe=True))
     assert len(out) == 1

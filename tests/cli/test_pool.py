@@ -14,8 +14,8 @@
 
 import pathlib
 
-import yaml
 from typer.testing import CliRunner
+import yaml
 
 from domyn_swarm.cli.pool import pool_app
 from domyn_swarm.config.pool import SwarmPoolElement
@@ -77,9 +77,7 @@ def test_deploy_pool_parses_yaml(monkeypatch, tmp_path):
                 },
             )(),
         )
-        monkeypatch.setattr(
-            "domyn_swarm.cli.pool.DomynLLMSwarmConfig", DummySwarmConfig
-        )
+        monkeypatch.setattr("domyn_swarm.cli.pool.DomynLLMSwarmConfig", DummySwarmConfig)
         monkeypatch.setattr("domyn_swarm.cli.pool.DomynLLMSwarm", dummy_swarm)
         monkeypatch.setattr(
             "domyn_swarm.cli.pool.create_swarm_pool", lambda *args: DummyContext(*args)

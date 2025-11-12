@@ -170,9 +170,7 @@ def test_build_command_contains_expected_order_and_tokens(cfg_ctx):
 
     # sanity: correct sub-sequence order for critical flags
     joined = " ".join(cmd)
-    assert re.search(r"vllm\s+serve\s+{}".format(re.escape(cfg_ctx.model)), joined)
+    assert re.search(rf"vllm\s+serve\s+{re.escape(cfg_ctx.model)}", joined)
     assert re.search(r"--host\s+0\.0\.0\.0", joined)
-    assert re.search(r"--port\s+{}".format(cfg_ctx.port), joined)
-    assert re.search(
-        r"--tensor-parallel-size\s+{}".format(cfg_ctx.gpus_per_replica), joined
-    )
+    assert re.search(rf"--port\s+{cfg_ctx.port}", joined)
+    assert re.search(rf"--tensor-parallel-size\s+{cfg_ctx.gpus_per_replica}", joined)

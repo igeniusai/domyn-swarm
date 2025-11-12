@@ -93,9 +93,7 @@ class FakeDeployment:
 
     def wait_ready(self, timeout_s):
         self.ensure_ready_calls += 1
-        return SimpleNamespace(
-            id="ready", url="http://ready:9000", meta={"name": "ready"}
-        )
+        return SimpleNamespace(id="ready", url="http://ready:9000", meta={"name": "ready"})
 
 
 class FakeComputeBackend:
@@ -160,7 +158,8 @@ def patch_to_path(monkeypatch):
 
 @pytest.fixture
 def cfg_stub(tmp_path):
-    # Minimal cfg: must provide .model, .wait_endpoint_s, .get_deployment_plan(), and optional .backend.env
+    # Minimal cfg: must provide .model, .wait_endpoint_s,
+    # .get_deployment_plan(), and optional .backend.env
     stub = SimpleNamespace(
         name="name",
         model="m1",
@@ -208,7 +207,7 @@ def test_enter_sets_endpoint_persists_and_sets_compute(cfg_stub):
         assert s.endpoint == "http://ready:9000"
         assert isinstance(s.serving_handle, SimpleNamespace)
         # Deployment was called with a sanitized name
-        name, spec, timeout_s = swarm._deployment.up_calls[-1]  # type: ignore[attr-defined]
+        _, spec, timeout_s = swarm._deployment.up_calls[-1]  # type: ignore[attr-defined]
         assert timeout_s == cfg_stub.wait_endpoint_s
         assert spec["replicas"] == "1"
         assert spec["resource_shape"] == "gpu.4xh200"
@@ -225,9 +224,7 @@ def test_exit_with_delete_on_exit_calls_cleanup(cfg_stub):
     with swarm:
         pass
     # After exiting context, cleanup called → deployment.down invoked once
-    assert swarm._deployment.down_calls == [
-        "my_swarm" if False else swarm.serving_handle.id
-    ]  # type: ignore[attr-defined]
+    assert swarm._deployment.down_calls == ["my_swarm" if False else swarm.serving_handle.id]  # type: ignore[attr-defined]
 
 
 @pytest.mark.skip(reason="Validation not implemented yet")
@@ -344,11 +341,7 @@ def test_from_state_forwards_to_state_manager(monkeypatch, patch_state_mgr):
     monkeypatch.setattr(
         mod.SwarmStateManager,
         "load",
-        classmethod(
-            lambda cls, deployment_name: SimpleNamespace(
-                deployment_name=deployment_name
-            )
-        ),
+        classmethod(lambda cls, deployment_name: SimpleNamespace(deployment_name=deployment_name)),
     )
     out = DomynLLMSwarm.from_state(deployment_name="name")
     assert out.deployment_name == "name"

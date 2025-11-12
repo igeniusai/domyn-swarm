@@ -14,9 +14,9 @@
 
 """Test the state persistence."""
 
-import sqlite3
 from datetime import datetime
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -137,17 +137,13 @@ class TestSwarmStateManager:
         state_manager._create_db_if_missing()
         with sqlite3.connect(db_path) as cnx:
             cursor = cnx.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='swarm';"
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swarm';")
             # one-element tuple
             name = cursor.fetchone()
 
         assert name[0] == "swarm"
 
-    def test_create_already_present_table(
-        self, state_manager: SwarmStateManager
-    ) -> None:
+    def test_create_already_present_table(self, state_manager: SwarmStateManager) -> None:
         """The table must be left untouched if it exists.
 
         Args:
@@ -158,9 +154,7 @@ class TestSwarmStateManager:
         db_path = state_manager._get_db_path()
         with sqlite3.connect(db_path) as cnx:
             cursor = cnx.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='swarm';"
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swarm';")
             # one-element tuple
             name = cursor.fetchone()
 

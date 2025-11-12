@@ -34,9 +34,7 @@ class DummyJob(SwarmJob):
 @pytest.mark.asyncio
 async def test_swarm_job_checkpointing(tmp_path):
     df = pd.DataFrame({"messages": ["hi", "yo", "hello"]})
-    job = DummyJob(
-        endpoint="http://localhost", model="fake", checkpoint_dir=str(tmp_path)
-    )
+    job = DummyJob(endpoint="http://localhost", model="fake", checkpoint_dir=str(tmp_path))
 
     result = await job.run(df, tag="test", checkpoint_dir=tmp_path)
     assert set(result.columns) >= {"messages", "result"}

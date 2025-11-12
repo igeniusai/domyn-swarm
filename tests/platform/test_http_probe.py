@@ -49,10 +49,7 @@ def _http_get_sequencer(sequence):
     def _get(url, timeout=5.0, headers=None):
         # Keep verifying the function passes timeout=5.0
         assert math.isclose(timeout, 5.0)
-        if seq:
-            item = seq.pop(0)
-        else:
-            item = sequence[-1]
+        item = seq.pop(0) if seq else sequence[-1]
         if isinstance(item, Exception):
             raise item
         return SimpleNamespace(status_code=int(item))
@@ -116,9 +113,7 @@ def test_times_out_after_deadline():
 
     timeout_s = 10
     poll = 3
-    with pytest.raises(
-        RuntimeError, match="Timeout waiting for http://svc/slow to return 200 OK"
-    ):
+    with pytest.raises(RuntimeError, match="Timeout waiting for http://svc/slow to return 200 OK"):
         wait_http_200(
             "http://svc/slow",
             timeout_s=timeout_s,

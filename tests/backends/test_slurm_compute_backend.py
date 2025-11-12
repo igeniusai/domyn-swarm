@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import shlex
 from pathlib import Path
+import shlex
 from types import SimpleNamespace
 
 import pytest
