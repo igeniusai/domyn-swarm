@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+from functools import lru_cache
 import logging
 import os
-from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, TypeVar
 
 import yaml
 
@@ -32,9 +33,7 @@ _REQUIRED = object()  # sentinel
 # Search order (first hit wins)
 _DEFAULT_FILES = (
     # explicit path via env
-    lambda: Path(os.environ["DOMYN_SWARM_DEFAULTS"])
-    if os.getenv("DOMYN_SWARM_DEFAULTS")
-    else None,
+    lambda: Path(os.environ["DOMYN_SWARM_DEFAULTS"]) if os.getenv("DOMYN_SWARM_DEFAULTS") else None,
     # project local
     lambda: Path.cwd() / "defaults.yaml",
     lambda: Path.cwd() / ".domyn_swarm" / "defaults.yaml",
@@ -45,7 +44,7 @@ _DEFAULT_FILES = (
 )
 
 
-def _find_defaults_file() -> Optional[Path]:
+def _find_defaults_file() -> Path | None:
     s = get_settings()
     if s.defaults_file and Path(s.defaults_file).is_file():
         return Path(s.defaults_file)

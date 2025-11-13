@@ -63,9 +63,7 @@ def ensure_db_up_to_date(*, noisy: bool = False) -> None:
     # First-run: DB file does not exist → create + migrate
     if not db_path.exists():
         if noisy:
-            console.print(
-                "[cyan]No swarm state DB found; creating and applying migrations…[/]"
-            )
+            console.print("[cyan]No swarm state DB found; creating and applying migrations…[/]")
         upgrade_head(db_str)
         if noisy:
             console.print("[green]DB schema initialized.[/]")

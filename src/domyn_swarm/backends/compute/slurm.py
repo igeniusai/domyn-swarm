@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping, Sequence
+import contextlib
+from dataclasses import dataclass
 import shlex
 import subprocess
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING
 
 from rich import print as rprint
 from rich.syntax import Syntax
@@ -49,13 +51,13 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         self,
         *,
         name: str,
-        image: Optional[str],
+        image: str | None,
         command: Sequence[str],
-        env: Optional[Mapping[str, str]] = None,
-        resources: Optional[dict] = None,
+        env: Mapping[str, str] | None = None,
+        resources: dict | None = None,
         detach: bool = False,
-        nshards: Optional[int] = None,
-        shard_id: Optional[int] = None,
+        nshards: int | None = None,
+        shard_id: int | None = None,
         extras: dict | None = None,
     ) -> JobHandle:
         builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
@@ -91,9 +93,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         # synchronous
         subprocess.run(cmd, check=True)
-        return JobHandle(
-            id=name, status=JobStatus.SUCCEEDED, meta={"cmd": shlex.join(cmd)}
-        )
+        return JobHandle(id=name, status=JobStatus.SUCCEEDED, meta={"cmd": shlex.join(cmd)})
 
     def wait(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus:
         pid = handle.meta.get("pid")
@@ -106,10 +106,8 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     def cancel(self, handle: JobHandle) -> None:
         pid = handle.meta.get("pid")
         if pid is not None:
-            try:
+            with contextlib.suppress(Exception):
                 subprocess.run(["kill", "-TERM", str(pid)], check=False)
-            except Exception:
-                pass
 
     def default_python(self, cfg: "DomynLLMSwarmConfig") -> str:
         if self.cfg.venv_path and self.cfg.venv_path.is_dir():

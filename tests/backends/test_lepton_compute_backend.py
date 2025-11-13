@@ -13,9 +13,7 @@
 # limitations under the License.
 
 from types import SimpleNamespace
-from typing import Optional
 
-import pytest
 from leptonai.api.v1.types.deployment import (
     EnvValue,
     EnvVar,
@@ -23,6 +21,7 @@ from leptonai.api.v1.types.deployment import (
     LeptonDeploymentState,
 )
 from leptonai.api.v1.types.job import LeptonJobUserSpec
+import pytest
 
 from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
 from domyn_swarm.platform.protocols import JobStatus
@@ -34,7 +33,7 @@ from domyn_swarm.platform.protocols import JobStatus
 class MockCreatedJob:
     """Mock object returned from client.job.create() with optional metadata.id_."""
 
-    def __init__(self, job_id: Optional[str]):
+    def __init__(self, job_id: str | None):
         self.metadata = SimpleNamespace(id_=job_id)
 
 
@@ -48,7 +47,7 @@ class MockJobStatus:
 class MockJobAPI:
     """Mock implementation of Lepton Job API for testing."""
 
-    def __init__(self, created_id: Optional[str] = "job-123", state=None):
+    def __init__(self, created_id: str | None = "job-123", state=None):
         self.last_created_job = None
         self.created_id = created_id
         self.state = state
@@ -189,9 +188,7 @@ class TestJobSubmission:
         """Test that submit() raises RuntimeError when job creation fails."""
         backend = LeptonComputeBackend()
         failing_job_api = MockJobAPI(created_id=None)  # No ID returned = failure
-        monkeypatch.setattr(
-            backend, "_client", lambda: MockLeptonClient(failing_job_api)
-        )
+        monkeypatch.setattr(backend, "_client", lambda: MockLeptonClient(failing_job_api))
 
         with pytest.raises(RuntimeError, match="Failed to create Lepton job"):
             backend.submit(
@@ -257,9 +254,7 @@ class TestJobCancellation:
                 raise RuntimeError("API error")
 
         backend = LeptonComputeBackend()
-        monkeypatch.setattr(
-            backend, "_client", lambda: MockLeptonClient(FailingJobAPI())
-        )
+        monkeypatch.setattr(backend, "_client", lambda: MockLeptonClient(FailingJobAPI()))
 
         # Should not raise an exception
         backend.cancel(SimpleNamespace(id="job-err"))

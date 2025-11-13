@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 import time
-from typing import Callable
 
 import requests
+
+from domyn_swarm.config.settings import get_settings
 
 
 def wait_http_200(
@@ -28,9 +30,15 @@ def wait_http_200(
     http_get: Callable = requests.get,
 ) -> None:
     deadline = now() + timeout_s
+    settings = get_settings()
+    token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
     while now() < deadline:
         try:
-            r = http_get(url, timeout=5.0)
+            if token:
+                headers = {"Authorization": f"Bearer {token.get_secret_value()}"}
+                r = http_get(url, headers=headers, timeout=5.0)
+            else:
+                r = http_get(url, timeout=5.0)
             if r.status_code == 200:
                 return
         except requests.RequestException:

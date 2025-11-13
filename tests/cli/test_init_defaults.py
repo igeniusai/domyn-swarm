@@ -14,8 +14,8 @@
 
 from pathlib import Path
 
-import yaml
 from typer.testing import CliRunner
+import yaml
 
 import domyn_swarm.cli.init as mod
 
@@ -190,9 +190,7 @@ def test_configure_lepton_defaults_sets_expected_fields(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr(
-        mod.typer, "prompt", lambda label, default="": next(prompt_answers)
-    )
+    monkeypatch.setattr(mod.typer, "prompt", lambda label, default="": next(prompt_answers))
 
     out = mod._configure_lepton_defaults(existing={})
     assert out["lepton"]["workspace_id"] == "ws123"

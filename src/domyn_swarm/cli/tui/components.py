@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
+from typing import Any
 
 from rich.table import Table
 from rich.text import Text
@@ -68,7 +68,7 @@ def _color_state(state: Any) -> Text:
     return Text(s, style="bold cyan")
 
 
-def _fmt_http(detail: dict[str, Any] | None) -> Optional[Text]:
+def _fmt_http(detail: dict[str, Any] | None) -> Text | None:
     """Format HTTP status information for display in the TUI.
 
     Args:
@@ -94,7 +94,7 @@ def _fmt_http(detail: dict[str, Any] | None) -> Optional[Text]:
     return Text(str(http), style="bold red")
 
 
-def _add_if(details: Table, label: str, value: Optional[Text | str]):
+def _add_if(details: Table, label: str, value: Text | str | None):
     """Add a row to the table if the value is not None.
 
     Args:

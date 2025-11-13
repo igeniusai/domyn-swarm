@@ -1,3 +1,19 @@
+# Copyright 2025 iGenius S.p.A
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Test the state persistence."""
+
 from pathlib import Path
 
 import pytest
@@ -36,9 +52,7 @@ class TestSwarmStateManager:
             return path
 
         # Patch the classmethod target with a plain function; Python will bind cls.
-        monkeypatch.setattr(
-            SwarmStateManager, "_get_db_path", classmethod(mock_db_path)
-        )
+        monkeypatch.setattr(SwarmStateManager, "_get_db_path", classmethod(mock_db_path))
 
         # Create the schema (swarm table) in that DB
         _init_schema(path)
@@ -48,7 +62,7 @@ class TestSwarmStateManager:
     @pytest.fixture
     def swarm(
         self,
-        db_path: Path,  # noqa: ARG002 (used indirectly via patched _get_db_path)
+        db_path: Path,
     ) -> DomynLLMSwarm:
         """Construct a DomynLLMSwarm wired to the temporary DB via SwarmStateManager."""
         return DomynLLMSwarm(
@@ -187,22 +201,16 @@ class TestSwarmStateManager:
     # Convenience helpers: get_last_swarm_name / list_by_base_name
     # --------------------------------------------------------------------- #
 
-    def test_get_last_swarm_name_none_when_empty(
-        self, state_manager: SwarmStateManager
-    ) -> None:
+    def test_get_last_swarm_name_none_when_empty(self, state_manager: SwarmStateManager) -> None:
         """get_last_swarm_name returns None when there are no rows."""
         assert SwarmStateManager.get_last_swarm_name() is None
 
-    def test_get_last_swarm_name_after_save(
-        self, state_manager: SwarmStateManager
-    ) -> None:
+    def test_get_last_swarm_name_after_save(self, state_manager: SwarmStateManager) -> None:
         """get_last_swarm_name returns the last saved deployment_name."""
         state_manager.save(deployment_name="only-swarm")
         assert SwarmStateManager.get_last_swarm_name() == "only-swarm"
 
-    def test_list_by_base_name_filters_by_prefix(
-        self, state_manager: SwarmStateManager
-    ) -> None:
+    def test_list_by_base_name_filters_by_prefix(self, state_manager: SwarmStateManager) -> None:
         """list_by_base_name returns deployment_names matching '<base>-*'."""
         # Use the same swarm instance but save under different deployment names
         state_manager.save(deployment_name="foo-abc")

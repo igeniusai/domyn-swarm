@@ -115,9 +115,7 @@ class LeptonJobConfig(BaseModel):
 class LeptonConfig(BaseModel):
     type: Literal["lepton"]
     workspace_id: str = Field(
-        default_factory=default_for(
-            "lepton.workspace_id", get_settings().lepton_workspace_id
-        ),
+        default_factory=default_for("lepton.workspace_id", get_settings().lepton_workspace_id),
         description="Lepton workspace ID",
     )
     endpoint: LeptonEndpointConfig = LeptonEndpointConfig()
@@ -176,10 +174,7 @@ class LeptonConfig(BaseModel):
             container=serving_container,
             resource_requirement=requirement,
             mounts=self.endpoint.mounts,
-            envs=[
-                EnvVar(name=k, value=v)
-                for k, v in (self.env | self.endpoint.env or {}).items()
-            ],
+            envs=[EnvVar(name=k, value=v) for k, v in (self.env | self.endpoint.env or {}).items()],
             api_tokens=[TokenVar(value=api_token)],
             image_pull_secrets=self.endpoint.image_pull_secrets,
         ).model_dump(exclude_none=True, by_alias=True)
@@ -191,10 +186,7 @@ class LeptonConfig(BaseModel):
                 allowed_nodes_in_node_group=self.job.allowed_nodes or None,
             ),
             mounts=self.job.mounts,
-            envs=[
-                EnvVar(name=k, value=v)
-                for k, v in (self.env | self.job.env or {}).items()
-            ],
+            envs=[EnvVar(name=k, value=v) for k, v in (self.env | self.job.env or {}).items()],
             image_pull_secrets=self.job.image_pull_secrets,
         ).model_dump(by_alias=True)
 

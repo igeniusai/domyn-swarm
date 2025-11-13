@@ -48,9 +48,7 @@ def tmp_db_path(tmp_path, monkeypatch):
     def mock_get_db_path(cls):
         return db_path
 
-    monkeypatch.setattr(
-        SwarmStateManager, "_get_db_path", classmethod(mock_get_db_path)
-    )
+    monkeypatch.setattr(SwarmStateManager, "_get_db_path", classmethod(mock_get_db_path))
     return db_path
 
 
@@ -115,9 +113,7 @@ def test_ensure_db_up_to_date_respects_skip_env(
     head_mock.assert_not_called()
 
 
-def test_main_callback_triggers_autoupgrade_for_non_db_commands(
-    monkeypatch, mocker, tmp_db_path
-):
+def test_main_callback_triggers_autoupgrade_for_non_db_commands(monkeypatch, mocker, tmp_db_path):
     """
     main_callback should call ensure_db_up_to_date for normal commands,
     but not when the 'db' subcommand is invoked.
@@ -131,9 +127,7 @@ def test_main_callback_triggers_autoupgrade_for_non_db_commands(
     def mock_get_db_path(cls):
         return tmp_db_path
 
-    monkeypatch.setattr(
-        SwarmStateManager, "_get_db_path", classmethod(mock_get_db_path)
-    )
+    monkeypatch.setattr(SwarmStateManager, "_get_db_path", classmethod(mock_get_db_path))
 
     ensure_mock = mocker.patch.object(cli_main, "ensure_db_up_to_date")
 

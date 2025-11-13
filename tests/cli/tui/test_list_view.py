@@ -60,9 +60,7 @@ def test_render_swarm_list_builds_rows_and_prints(mocker):
     # Arrange
     fake_table = FakeTable()
     # Patch imported helpers inside the module under test
-    mock_list_table = mocker.patch.object(
-        list_view, "list_table", return_value=fake_table
-    )
+    mock_list_table = mocker.patch.object(list_view, "list_table", return_value=fake_table)
     mock_phase_badge = mocker.patch.object(
         list_view, "phase_badge", side_effect=lambda p: Text(f"PH-{p}")
     )

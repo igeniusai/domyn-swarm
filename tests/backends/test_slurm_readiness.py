@@ -41,9 +41,7 @@ class FakeDriver:
             seq = self.lb_states
             self.lb_calls += 0  # keep attribute around; not essential
 
-        idx = (
-            self.rep_calls - 1 if jobid == 111 else self.lb_calls - 1
-        )  # not used, but harmless
+        idx = self.rep_calls - 1 if jobid == 111 else self.lb_calls - 1  # not used, but harmless
 
         if jobid == 111:
             return seq[min(self.rep_calls - 1, len(seq) - 1)]
@@ -128,14 +126,12 @@ def test_wait_ready_happy_path(monkeypatch):
     assert out is handle
     assert handle.meta["lb_node"] == "n01"
     assert handle.url == "http://n01:9000"
-    assert called["url"] == "http://n01:9000/v1/models"
+    assert called["url"] == "http://n01:9000/health"
     assert called["timeout_s"] == 123
 
 
 def test_wait_ready_uses_existing_lb_node_no_driver_lookup(monkeypatch):
-    driver = FakeDriver(
-        rep_states=["RUNNING"], lb_states=["RUNNING"], node="should-not-be-used"
-    )
+    driver = FakeDriver(rep_states=["RUNNING"], lb_states=["RUNNING"], node="should-not-be-used")
     console = DummyConsole()
     readiness = SlurmReadiness(
         driver=driver, endpoint_port=8000, poll_interval_s=0.01, console=console
@@ -146,9 +142,7 @@ def test_wait_ready_uses_existing_lb_node_no_driver_lookup(monkeypatch):
     monkeypatch.setattr(mod, "wait_http_200", lambda *a, **k: None)
     patch_sleep_fast(monkeypatch)
 
-    handle = ServingHandle(
-        id="ep2", url="", meta={"jobid": 111, "lb_jobid": 222, "lb_node": "nZZ"}
-    )
+    handle = ServingHandle(id="ep2", url="", meta={"jobid": 111, "lb_jobid": 222, "lb_node": "nZZ"})
     out = readiness.wait_ready(handle, timeout_s=50)
 
     assert out.url == "http://nZZ:8000"

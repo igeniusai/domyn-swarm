@@ -44,7 +44,7 @@ def test_render_swarm_status_prints_panel(mocker):
     assert "my-swarm" in str(arg.title)
     assert "SLURM" in str(arg.title)  # backend uppercased
     # subtitle should be the URL
-    assert getattr(arg, "subtitle") == st.url
+    assert arg.subtitle == st.url
 
 
 def test_render_swarm_status_core_fields_in_text(mocker):

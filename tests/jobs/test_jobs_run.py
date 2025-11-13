@@ -20,8 +20,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-import domyn_swarm.jobs.run as run_mod
 from domyn_swarm.jobs import OutputJoinMode, SwarmJob
+import domyn_swarm.jobs.run as run_mod
 from domyn_swarm.jobs.run import (
     _amain,
     _load_cls,
@@ -134,9 +134,7 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     monkeypatch.setenv("ENDPOINT", "mock-endpoint")
     monkeypatch.setenv("INPUT_PARQUET", str(input_path))
     monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
-    monkeypatch.setenv(
-        "JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}'
-    )
+    monkeypatch.setenv("JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}')
 
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 

@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any
 
 from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.slurm import SlurmConfig
@@ -147,8 +148,7 @@ class SwarmStateManager:
 
     @classmethod
     def iter_all(cls) -> Iterable[dict[str, Any]]:
-        for rec in cls.list_all():
-            yield rec
+        yield from cls.list_all()
 
     @classmethod
     def _get_slurm_backend(cls, handle, slurm_cfg) -> "SlurmComputeBackend":

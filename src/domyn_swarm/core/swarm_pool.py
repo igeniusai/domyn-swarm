@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
-from typing import Any, Generator, cast
+from contextlib import contextmanager, suppress
+from typing import Any, cast
 
 from ..config.swarm import DomynLLMSwarmConfig
 from .swarm import DomynLLMSwarm
@@ -46,7 +47,7 @@ def create_swarm_pool(
 
     """
 
-    # 1) instantiate all the context‐manager objects
+    # 1) instantiate all the context-manager objects
     # Casting required by pyright to understand the type
     if configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarmConfig):
         configs = cast(list[DomynLLMSwarmConfig], configs_or_swarms)
@@ -66,11 +67,11 @@ def create_swarm_pool(
             futures = {exe.submit(cm.__enter__): cm for cm in cms}
             for future in as_completed(futures):
                 cm = futures[future]
-                res = future.result()  # will re‐raise if __enter__ failed
+                res = future.result()  # will re-raise if __enter__ failed
                 entered.append((cm, res))
 
         # 3) yield the tuple of entered results in the original order
-        #    (filter out any that didn’t make it into 'entered' if one failed)
+        #    (filter out any that didn't make it into 'entered' if one failed)
         #    Note: if one __enter__ raised, we jump straight to finally, cleaning up
         yield tuple(res for _, res in entered)
 
@@ -78,7 +79,5 @@ def create_swarm_pool(
         # 4) tear them all down, in reverse order of successful entry
         #    pass None for exc_type, exc_val, tb if no exception
         for cm, _ in reversed(entered):
-            try:
+            with suppress(Exception):
                 cm.__exit__(None, None, None)
-            except Exception:
-                pass

@@ -124,11 +124,57 @@ include = [
 
 [tool.ruff]
 target-version = "py310"
+line-length = 100
+src = ["src"]
 include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
+respect-gitignore = true
+extend-exclude = [
+  ".venv", "venv", "build", "dist", "**/__pycache__",
+  "migrations", "docs/_build", "examples"
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
 
 [tool.ruff.lint]
-extend-select = ["I"]
+# Pragmatic baseline:
+# - E,F,W: pycodestyle/pyflakes (core correctness)
+# - I: import sorting
+# - B: bugbear (real bugs & footguns)
+# - UP: safe pyupgrade for py310
+# - SIM: gentle simplifications
+# - PERF: low-risk performance lint
+# - C90: mccabe complexity (C901)
+# - RUF: a few Ruff-specific niceties (e.g., unused noqa)
+# - T20: warn on stray prints (we’ll allow them in tests/scripts below)
+# - LOG: better logging practices (format args, etc.)
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "PERF", "C90", "RUF", "T20", "LOG"]
 
+# Trim a few rules that are helpful but often noisy/heavy-handed.
+ignore = [
+  # zip(strict=…) is great, but this is often too pushy for general codebases.
+  "B905",
+  "B008",
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[tool.ruff.lint.mccabe]
+# Moderate threshold: flags only the truly gnarly functions.
+max-complexity = 14
+
+[tool.ruff.lint.per-file-ignores]
+# Allow prints in exploratory or CLI-like code and in tests.
+"tests/**/*.py" = ["T201"]
+"scripts/**/*.py" = ["T201"]
+"src/domyn_swarm/helpers/*.py" = ["T201"]
+"src/domyn_swarm/utils/version.py" = ["T201"]
+"src/domyn_swarm/cli/main.py" = ["T201"]
 
 [tool.pyright]
 include = ["src"]

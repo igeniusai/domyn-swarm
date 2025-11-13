@@ -58,9 +58,7 @@ def test_stamp_head_calls_alembic_stamp(mocker, tmp_path, migrate_mod):
 def test_get_current_rev_delegates_to_command_current(mocker, tmp_path, migrate_mod):
     db_path = tmp_path / "swarm.db"
 
-    current_mock = mocker.patch.object(
-        migrate_mod.command, "current", return_value="abc123"
-    )
+    current_mock = mocker.patch.object(migrate_mod.command, "current", return_value="abc123")
 
     rev = migrate_mod.get_current_rev(str(db_path))
 

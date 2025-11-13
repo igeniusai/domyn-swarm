@@ -93,9 +93,7 @@ def test_cli_up_requires_config(tmp_path, mocker, disable_autoupgrade):
 
     # Patch the loader to return a single known instance
     cfg_instance = DummyCfg()
-    load_mock = mocker.patch.object(
-        main, "_load_swarm_config", return_value=cfg_instance
-    )
+    load_mock = mocker.patch.object(main, "_load_swarm_config", return_value=cfg_instance)
 
     # Patch DomynLLMSwarm as a context manager
     fake_swarm = mocker.MagicMock()
@@ -127,9 +125,7 @@ def test_cli_up_requires_config(tmp_path, mocker, disable_autoupgrade):
 
 
 @pytest.mark.parametrize("replicas", [1, 3, 8])
-def test_cli_up_passes_replicas_override(
-    tmp_path, mocker, replicas, disable_autoupgrade
-):
+def test_cli_up_passes_replicas_override(tmp_path, mocker, replicas, disable_autoupgrade):
     config = tmp_path / "config.yaml"
     config.write_text("fake_yaml: true")
 
@@ -181,7 +177,7 @@ def _reload_cli_with_fake_state_manager(mocker):
 
 def test_down_happy_path_invokes_swarm_and_deletes(mocker, disable_autoupgrade):
     cli_module = _reload_cli_with_fake_state_manager(mocker)
-    app = getattr(cli_module, "app")
+    app = cli_module.app
 
     # fresh dummy swarm per test
     name = "my-swarm"
@@ -205,7 +201,7 @@ def test_down_happy_path_invokes_swarm_and_deletes(mocker, disable_autoupgrade):
 
 def test_down_bubbles_up_load_errors(mocker, disable_autoupgrade):
     cli_module = _reload_cli_with_fake_state_manager(mocker)
-    app = getattr(cli_module, "app")
+    app = cli_module.app
 
     # Make load raise to simulate missing/invalid state
     def boom(**kwargs):
@@ -221,7 +217,7 @@ def test_down_bubbles_up_load_errors(mocker, disable_autoupgrade):
 
 def test_down_order_calls_down_before_delete_record(mocker, disable_autoupgrade):
     cli_module = _reload_cli_with_fake_state_manager(mocker)
-    app = getattr(cli_module, "app")
+    app = cli_module.app
 
     # instrument the dummy to record strict order
     class OrderedSwarm(_DummySwarm):
@@ -316,9 +312,7 @@ def test_down_with_config_single_match_yes_skips_prompt_and_calls_down(
     assert called == {"name": "base-abc", "yes": True}
 
 
-def test_down_with_config_single_match_user_declines_aborts(
-    tmp_path, mocker, disable_autoupgrade
-):
+def test_down_with_config_single_match_user_declines_aborts(tmp_path, mocker, disable_autoupgrade):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -338,9 +332,7 @@ def test_down_with_config_single_match_user_declines_aborts(
     main.down_by_name.assert_not_called()
 
 
-def test_down_with_config_all_prompts_then_calls_all(
-    tmp_path, mocker, disable_autoupgrade
-):
+def test_down_with_config_all_prompts_then_calls_all(tmp_path, mocker, disable_autoupgrade):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -351,9 +343,7 @@ def test_down_with_config_all_prompts_then_calls_all(
     mocker.patch.object(main, "down_by_name")
 
     runner = CliRunner()
-    result = runner.invoke(
-        main.app, ["down", "-c", str(cfg_path), "--all"], input="y\n"
-    )
+    result = runner.invoke(main.app, ["down", "-c", str(cfg_path), "--all"], input="y\n")
 
     assert result.exit_code == 0, result.output
     # Called for both with yes=True
@@ -373,17 +363,13 @@ def test_down_with_config_all_decline_aborts(tmp_path, mocker, disable_autoupgra
     mocker.patch.object(main, "down_by_name")
 
     runner = CliRunner()
-    result = runner.invoke(
-        main.app, ["down", "-c", str(cfg_path), "--all"], input="n\n"
-    )
+    result = runner.invoke(main.app, ["down", "-c", str(cfg_path), "--all"], input="n\n")
 
     assert result.exit_code != 0
     main.down_by_name.assert_not_called()
 
 
-def test_down_with_config_select_picks_one_and_confirms(
-    tmp_path, mocker, disable_autoupgrade
-):
+def test_down_with_config_select_picks_one_and_confirms(tmp_path, mocker, disable_autoupgrade):
     cfg_path = tmp_path / "cfg.yaml"
     cfg_path.write_text("name: base")
 
@@ -394,9 +380,7 @@ def test_down_with_config_select_picks_one_and_confirms(
     mocker.patch.object(main, "down_by_name")
 
     runner = CliRunner()
-    result = runner.invoke(
-        main.app, ["down", "-c", str(cfg_path), "--select"], input="y\n"
-    )
+    result = runner.invoke(main.app, ["down", "-c", str(cfg_path), "--select"], input="y\n")
 
     assert result.exit_code == 0, result.output
     main.down_by_name.assert_called_once_with(name="a2", yes=True)

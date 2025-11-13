@@ -46,9 +46,7 @@ def cfg_stub():
 def test_run_forwards_all_arguments_to_compute_with_extras(mocker):
     serving = mocker.Mock()
     compute = mocker.Mock()
-    compute.submit.return_value = SimpleNamespace(
-        id="job-1", status="PENDING", meta={"k": "v"}
-    )
+    compute.submit.return_value = SimpleNamespace(id="job-1", status="PENDING", meta={"k": "v"})
     extras = {"note": "hi"}
 
     dep = Deployment(serving=serving, compute=compute, extras=extras)

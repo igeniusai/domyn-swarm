@@ -15,9 +15,8 @@
 import hashlib
 import math
 import mmap
-import sys
 from pathlib import Path
-from typing import List, Tuple
+import sys
 
 from openai.types.chat.chat_completion import Choice
 
@@ -64,9 +63,7 @@ def parquet_hash(
             offset = 0
             while offset < file_size:
                 length = min(block_size, file_size - offset)
-                with mmap.mmap(
-                    f.fileno(), length, offset=offset, access=mmap.ACCESS_READ
-                ) as mm:
+                with mmap.mmap(f.fileno(), length, offset=offset, access=mmap.ACCESS_READ) as mm:
                     h.update(mm)
                 offset += length
 
@@ -84,7 +81,7 @@ def compute_perplexity(logprobs: list[float]) -> float:
     return math.exp(avg_neg_logprob)
 
 
-def extract_token_logprobs(choice: Choice) -> List[float]:
+def extract_token_logprobs(choice: Choice) -> list[float]:
     """
     Given a Choice with logprobs.content, pull out all the non-None logprobs.
     """
@@ -94,8 +91,8 @@ def extract_token_logprobs(choice: Choice) -> List[float]:
 
 
 def compute_perplexity_metrics(
-    token_logprobs: List[float], bottom_k: int = 50
-) -> Tuple[float, float]:
+    token_logprobs: list[float], bottom_k: int = 50
+) -> tuple[float, float]:
     """
     Returns (perplexity, bottom_k_perplexity).
     """

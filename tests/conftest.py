@@ -27,9 +27,7 @@ def set_env(monkeypatch):
 
 @pytest.fixture
 def mock_launch_reverse_proxy(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "domyn_swarm.helpers.reverse_proxy.get_unused_port", lambda: 54321
-    )
+    monkeypatch.setattr("domyn_swarm.helpers.reverse_proxy.get_unused_port", lambda: 54321)
 
     monkeypatch.setattr(
         "domyn_swarm.helpers.reverse_proxy.generate_nginx_config",
@@ -48,12 +46,8 @@ def mock_launch_reverse_proxy(monkeypatch, tmp_path):
         "domyn_swarm.helpers.reverse_proxy.launch_nginx_singularity",
         fake_launch_nginx_singularity,
     )
-    monkeypatch.setattr(
-        "domyn_swarm.helpers.reverse_proxy.run_command", lambda cmd: "fakeuser"
-    )
-    monkeypatch.setattr(
-        "domyn_swarm.helpers.reverse_proxy.get_login_node_suffix", lambda: "42"
-    )
+    monkeypatch.setattr("domyn_swarm.helpers.reverse_proxy.run_command", lambda cmd: "fakeuser")
+    monkeypatch.setattr("domyn_swarm.helpers.reverse_proxy.get_login_node_suffix", lambda: "42")
 
     return {
         "called_launch": called_launch,

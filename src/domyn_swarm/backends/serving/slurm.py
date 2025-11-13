@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import subprocess
 from dataclasses import dataclass
-from typing import Optional
+import subprocess
 
 import requests
 from requests import RequestException
@@ -54,7 +53,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
 
     driver: SlurmDriver
     cfg: SlurmConfig
-    readiness: Optional[SlurmReadiness] = None
+    readiness: SlurmReadiness | None = None
 
     def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle:
         replicas = spec.get("replicas", 1)
@@ -86,9 +85,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             },
         )
 
-    def wait_ready(
-        self, handle: ServingHandle, timeout_s: int, extras: dict
-    ) -> ServingHandle:
+    def wait_ready(self, handle: ServingHandle, timeout_s: int, extras: dict) -> ServingHandle:
         # Delegate to your health checker which sets endpoint when LB is alive
         probe = self.readiness or SlurmReadiness(
             driver=self.driver,
@@ -115,7 +112,8 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         endpoint = handle.url
         if not all([jobid, lb_jobid, lb_node, endpoint]):
             raise RuntimeError(
-                f"Swarm not ready (jobid/lb_jobid/lb_node/endpoint): {jobid}/{lb_jobid}/{lb_node}/{endpoint}"
+                "Swarm not ready (jobid/lb_jobid/lb_node/endpoint): "
+                f"{jobid}/{lb_jobid}/{lb_node}/{endpoint}"
             )
 
     def status(self, handle: ServingHandle) -> ServingStatus:
@@ -124,34 +122,35 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
 
         # 1) Scheduler view
         if rep in SLURM_BAD_STATES or lb in SLURM_BAD_STATES:
-            return ServingStatus(
-                ServingPhase.FAILED, handle.url, {"rep": rep, "lb": lb}
-            )
+            return ServingStatus(ServingPhase.FAILED, handle.url, {"rep": rep, "lb": lb})
         if (
             rep in SLURM_WAIT_STATES
             or lb in SLURM_WAIT_STATES
             or rep == "UNKNOWN"
             or lb == "UNKNOWN"
         ):
-            return ServingStatus(
-                ServingPhase.PENDING, handle.url, {"rep": rep, "lb": lb}
-            )
+            return ServingStatus(ServingPhase.PENDING, handle.url, {"rep": rep, "lb": lb})
 
         # 2) Endpoint probe (non-blocking, small timeout)
         lb_node = handle.meta.get("lb_node") or self.driver.get_node_from_jobid(
             handle.meta["lb_jobid"]
         )
         base = f"http://{lb_node}:{self.cfg.endpoint.port}"
+        api_token = (
+            settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
+        )
         try:
-            r = requests.get(f"{base}/v1/models", timeout=1.5)
+            if api_token:
+                headers = {"Authorization": f"Bearer {api_token.get_secret_value()}"}
+                r = requests.get(f"{base}/health", headers=headers, timeout=1.5)
+            else:
+                r = requests.get(f"{base}/health", timeout=1.5)
             http_ok = r.status_code == 200
             # Optional: verify expected model is listed
             model_ok = False
             try:
                 data = r.json()
-                names = {
-                    m.get("id") for m in data.get("data", []) if isinstance(m, dict)
-                }
+                names = {m.get("id") for m in data.get("data", []) if isinstance(m, dict)}
                 expected = handle.meta.get("model")  # if you stored it
                 model_ok = (expected in names) if expected else http_ok
             except Exception:
@@ -160,7 +159,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             http_ok = model_ok = False
 
         if http_ok and model_ok:
-            # cache url if we didn’t earlier
+            # cache url if we didn't earlier
             if not handle.url:
                 handle.url = base
             return ServingStatus(

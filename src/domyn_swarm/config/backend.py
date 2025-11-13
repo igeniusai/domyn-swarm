@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Union
+
+from typing import Annotated
 
 from pydantic import BaseModel, Field
-from typing_extensions import Annotated
 
 from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.slurm import SlurmConfig
 
 BackendConfig = Annotated[
-    Union[LeptonConfig, SlurmConfig],
+    LeptonConfig | SlurmConfig,
     Field(discriminator="type"),
 ]
 

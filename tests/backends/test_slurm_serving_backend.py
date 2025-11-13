@@ -269,9 +269,7 @@ def test_status_failed_on_bad_state(mocker):
 def test_status_pending_when_waiting_or_unknown(mocker):
     driver = mocker.Mock()
     # replica PENDING, lb RUNNING → PENDING
-    driver.get_job_state.side_effect = (
-        lambda jid: "PENDING" if jid == 101 else "RUNNING"
-    )
+    driver.get_job_state.side_effect = lambda jid: "PENDING" if jid == 101 else "RUNNING"
     driver.get_node_from_jobid.return_value = "n1"
     mocker.patch.object(mod, "requests", SimpleNamespace(get=mocker.Mock()))
 
@@ -305,13 +303,13 @@ def test_status_initializing_when_http_not_ready(mocker):
     # Node was looked up once
     driver.get_node_from_jobid.assert_called_once_with(202)
 
-    # We attempted exactly one HTTP probe to /v1/models with a small timeout
+    # We attempted exactly one HTTP probe to /health with a small timeout
     get_mock.assert_called_once()
     url_arg = get_mock.call_args.args[0]
-    assert url_arg == "http://nX:8123/v1/models"
+    assert url_arg == "http://nX:8123/health"
     assert get_mock.call_args.kwargs.get("timeout") in (1.0, 1.5, 2.0)
 
-    # Since HTTP isn’t ready yet, phase is INITIALIZING and URL is unchanged
+    # Since HTTP isn't ready yet, phase is INITIALIZING and URL is unchanged
     assert st.phase == ServingPhase.INITIALIZING
     assert h.url in ("", None)
 

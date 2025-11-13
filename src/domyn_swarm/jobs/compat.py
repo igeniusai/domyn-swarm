@@ -13,8 +13,9 @@
 # limitations under the License.
 
 import asyncio
+from collections.abc import Callable
+from typing import Any
 import warnings
-from typing import Any, Callable, List, Optional, Type
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ def _has_old_api(job: SwarmJob) -> bool:
     return resolve_job_api(job) == "old"
 
 
-def _is_overridden(obj: object, method: str, base: Type) -> bool:
+def _is_overridden(obj: object, method: str, base: type) -> bool:
     """
     True iff `method` is implemented by `type(obj)` (or an intermediate base),
     not by `base` itself.
@@ -52,9 +53,7 @@ def resolve_job_api(job: SwarmJob) -> str:
         job, "transform_streaming", SwarmJob
     ):
         return "new"
-    if _is_overridden(job, "transform", SwarmJob) or _is_overridden(
-        job, "run", SwarmJob
-    ):
+    if _is_overridden(job, "transform", SwarmJob) or _is_overridden(job, "run", SwarmJob):
         return "old"
     return "old"
 
@@ -64,12 +63,12 @@ async def run_job_unified(
     df: pd.DataFrame,
     *,
     input_col: str,
-    output_cols: Optional[List[str]],
+    output_cols: list[str] | None,
     nshards: int = 1,
-    store_uri: Optional[str] = None,
+    store_uri: str | None = None,
     checkpoint_every: int = 16,
-    tag: Optional[str] = None,
-    checkpoint_dir: Optional[str] = None,
+    tag: str | None = None,
+    checkpoint_dir: str | None = None,
 ) -> pd.DataFrame:
     job_probe = job_factory()
 
@@ -111,8 +110,10 @@ async def run_job_unified(
         )
 
     warnings.warn(
-        "Using legacy job API (run/transform). Consider upgrading to the new streaming API (transform_items/transform_streaming).",
+        "Using legacy job API (run/transform). Consider upgrading to "
+        "the new streaming API (transform_items/transform_streaming).",
         DeprecationWarning,
+        stacklevel=2,
     )
 
     if nshards <= 1:

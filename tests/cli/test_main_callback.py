@@ -37,9 +37,7 @@ def test_main_callback_skips_db_subcommand(mocker, cli_main_mod):
     When the user invokes `domyn-swarm db ...`, we should NOT run
     the auto-upgrade helper (let the db subcommands manage migrations).
     """
-    ensure_mock = mocker.patch.object(
-        cli_main_mod, "ensure_db_up_to_date", autospec=True
-    )
+    ensure_mock = mocker.patch.object(cli_main_mod, "ensure_db_up_to_date", autospec=True)
 
     ctx = DummyCtx(invoked_subcommand="db")
 
@@ -52,9 +50,7 @@ def test_main_callback_runs_autoupgrade_for_other_subcommands(mocker, cli_main_m
     """
     For non-`db` subcommands, `main_callback` should call ensure_db_up_to_date(noisy=True).
     """
-    ensure_mock = mocker.patch.object(
-        cli_main_mod, "ensure_db_up_to_date", autospec=True
-    )
+    ensure_mock = mocker.patch.object(cli_main_mod, "ensure_db_up_to_date", autospec=True)
 
     ctx = DummyCtx(invoked_subcommand="swarm")  # e.g. `domyn-swarm swarm list`
 
@@ -67,9 +63,7 @@ def test_main_callback_runs_autoupgrade_when_subcommand_unknown(mocker, cli_main
     """
     If invoked_subcommand is None (e.g. bare `domyn-swarm`), we still want auto-upgrade.
     """
-    ensure_mock = mocker.patch.object(
-        cli_main_mod, "ensure_db_up_to_date", autospec=True
-    )
+    ensure_mock = mocker.patch.object(cli_main_mod, "ensure_db_up_to_date", autospec=True)
 
     ctx = DummyCtx(invoked_subcommand=None)
 

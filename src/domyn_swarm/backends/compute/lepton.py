@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping, Sequence
+import contextlib
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional, Sequence
 
 from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.settings import get_settings
@@ -44,15 +45,13 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     """
 
     _client_cached = None
-    workspace: Optional[str] = None  # if multiple workspaces, else default
+    workspace: str | None = None  # if multiple workspaces, else default
 
     def _client(self):
         if self._client_cached is None:
             _require_lepton()  # quick availability check
             token = (
-                settings.lepton_api_token.get_secret_value()
-                if settings.lepton_api_token
-                else None
+                settings.lepton_api_token.get_secret_value() if settings.lepton_api_token else None
             )
             self._client_cached = make_lepton_client(
                 token=token,
@@ -64,13 +63,13 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         self,
         *,
         name: str,
-        image: Optional[str],
+        image: str | None,
         command: Sequence[str],
-        env: Optional[Mapping[str, str]] = None,
-        resources: Optional[dict] = None,
+        env: Mapping[str, str] | None = None,
+        resources: dict | None = None,
         detach: bool = False,
-        nshards: Optional[int] = None,
-        shard_id: Optional[int] = None,
+        nshards: int | None = None,
+        shard_id: int | None = None,
         extras: dict | None = None,
     ) -> JobHandle:
         _require_lepton()
@@ -125,7 +124,7 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         client = self._client()
 
         job = client.job.get(handle.id)
-        state: Optional[LeptonJobState] = job.status.state if job.status else None
+        state: LeptonJobState | None = job.status.state if job.status else None
         if state in {LeptonDeploymentState.Stopped, LeptonDeploymentState.Stopping}:
             return JobStatus.FAILED
         if state == LeptonDeploymentState.Ready:
@@ -134,19 +133,17 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
     def cancel(self, handle: JobHandle) -> None:
         client = self._client()
-        try:
+        with contextlib.suppress(Exception):
             client.job.delete(handle.id)
-        except Exception:
-            pass
 
     def default_python(self, cfg) -> str:
         return "python"
 
-    def default_image(self, cfg: LeptonConfig) -> Optional[str]:
+    def default_image(self, cfg: LeptonConfig) -> str | None:
         # if you populated cfg.lepton.job.image, reuse it
         return cfg.job.image
 
-    def default_resources(self, cfg: LeptonConfig) -> Optional[dict]:
+    def default_resources(self, cfg: LeptonConfig) -> dict | None:
         _require_lepton()
         from leptonai.api.v1.types.affinity import (
             LeptonResourceAffinity,
@@ -167,6 +164,6 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         )
         return spec.model_dump(by_alias=True)
 
-    def default_env(self, cfg) -> Dict[str, str]:
+    def default_env(self, cfg) -> dict[str, str]:
         # forward secret name for the endpoint token if you stored it in the handle
         return {}
