@@ -55,7 +55,7 @@ logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
 @app.command("version", short_help="Show the version of the domyn-swarm CLI")
 def version(short: bool = False):
     v = get_version()
-    print(v if short else f"domyn-swarm CLI Version: {v}")
+    typer.echo(v if short else f"domyn-swarm CLI Version: {v}")
     raise typer.Exit()
 
 

@@ -71,11 +71,12 @@ pip install 'domyn-swarm[lepton]'
 **From source (GitHub):**
 
 ```bash
-pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git
+RELEASE=v0.22.1
+pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE
 # or with uv
-uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git # git+ssh://git@github.com/igeniusai/domyn-swarm.git[lepton]
-uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git # Add --extra lepton
-uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git --python 3.12 domyn-swarm
+uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE # git+ssh://git@github.com/igeniusai/domyn-swarm.git[lepton]
+uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE # Add --extra lepton
+uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE --python 3.12 domyn-swarm
 ```
 
 > Lepton users: install the extra and run `lep login` to initialize credentials.
