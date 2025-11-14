@@ -1,3 +1,19 @@
+## v0.22.1 (2025-11-14)
+
+### Fix
+
+- fix MultiTurnChatCompletionJob returning the incorrect list of results
+- fix remaining ruff issues after rules update
+- use vllm_api_key environment variable for health checks when present
+- **cli**: improve logging and UX flow for down command when --select or --all are not used
+
+### Refactor
+
+- format test files
+- :art: reduce complexity of down command
+- add new ruff rules
+- use new ruff rules and update codebase accordingly
+
 ## v0.22.0 (2025-11-07)
 
 ### Feat
