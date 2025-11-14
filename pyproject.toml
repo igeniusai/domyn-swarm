@@ -82,6 +82,12 @@ bench = [
     "datasets>=3.6.0",
     "vllm>=0.9.1",
 ]
+docs = [
+    "myst-parser>=4.0.1",
+    "sphinx>=8.1.3",
+    "sphinx-rtd-theme>=3.0.2",
+    "sphinxcontrib-typer>=0.6.2",
+]
 
 [project.urls]
 Homepage = "https://www.domyn.com/"
