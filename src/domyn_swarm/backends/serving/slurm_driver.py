@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 import subprocess
 import tempfile
 from typing import Any
@@ -21,6 +22,7 @@ import jinja2
 from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
+import domyn_swarm.helpers.watchdog as watchdog_mod
 
 logger = setup_logger(__name__)
 
@@ -54,6 +56,7 @@ class SlurmDriver:
             is_folder=is_folder,
             cuda_visible_devices=get_device_slices(gpus_per_node, gpus_per_replica),
             swarm_directory=swarm_directory,
+            watchdog_script_path=Path(watchdog_mod.__file__).resolve().as_posix(),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:

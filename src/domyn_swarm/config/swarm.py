@@ -32,6 +32,7 @@ from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
+from domyn_swarm.config.watchdog import WatchdogConfig
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 
@@ -87,6 +88,7 @@ class DomynLLMSwarmConfig(BaseModel):
     _plan: DeploymentPlan | None = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
+    watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
 
     @model_validator(mode="after")
     def _resolve_platform_from_backends(self):

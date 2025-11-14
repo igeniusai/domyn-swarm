@@ -86,7 +86,7 @@ REST_PORT="{{ cfg.port }}"
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
 
 # Mount configuration
-export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR"
+export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
 {% if is_folder(cfg.model) and path_exists(cfg.model) %}
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
@@ -120,6 +120,20 @@ function start_vllm_replica() {
   srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
+     python /opt/watchdog.py \
+      --swarm-id {{ job_name }} \
+      --replica-id $global_id \
+      --node $node \
+      --port $port \
+      --db "$SWARM_DIR/watchdog.db" \
+      --probe-interval {{ cfg.watchdog.probe_interval }} \
+      --http-path "{{ cfg.watchdog.http_path }}" \
+      --http-timeout {{ cfg.watchdog.http_timeout }} \
+      --restart-policy {{ cfg.watchdog.restart_policy }} \
+      --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
+      --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
+      --restart-max {{ cfg.watchdog.restart_max }} \
+      -- \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.args %}
      --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min  }} \
@@ -280,6 +294,23 @@ function start_vllm_server() {
   echo "[head] starting vLLM REST server ..."
   singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
+           python /opt/watchdog.py \
+            --swarm-id {{job_name}} \
+            --replica-id=0 \
+            --node $HEAD_NODE \
+            --port $HEAD_PORT \
+            --db "$SWARM_DIR/watchdog.db" \
+            --probe-interval {{ cfg.watchdog.probe_interval }} \
+            --http-path "{{ cfg.watchdog.http_path }}" \
+            --http-timeout {{ cfg.watchdog.http_timeout }} \
+            --restart-policy {{ cfg.watchdog.restart_policy }} \
+            --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
+            --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
+            --max-restarts {{ cfg.watchdog.restart_max }} \
+            --ray-enabled=1 \
+            --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
+            --ray-exec-prefix singularity exec instance://"$INSTANCE_TAG" \
+            -- \
            vllm serve {{ cfg.model }} \
            {% if 'tensor-parallel-size' not in cfg.args %}
            --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
