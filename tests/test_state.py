@@ -14,50 +14,57 @@
 
 """Test the state persistence."""
 
-from datetime import datetime
 from pathlib import Path
-import sqlite3
 
 import pytest
 
 from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
-from domyn_swarm.core.state import SwarmStateManager, _read_query
+from domyn_swarm.core.state.db import make_session_factory
+from domyn_swarm.core.state.models import SwarmRecord
+from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.exceptions import JobNotFoundError
 from domyn_swarm.platform.protocols import ServingHandle
 
 
-def test_read_query() -> None:
-    """Check queries are properly read."""
-    query = _read_query("create_table.sql")
-    assert isinstance(query, str)
-    assert "CREATE TABLE" in query
+def _init_schema(db_path: Path) -> None:
+    """Create the swarm table in the given SQLite file (for tests)."""
+    session_factory = make_session_factory(db_path)
+    with session_factory() as s:
+        engine = s.get_bind()
+        # SwarmRecord is a declarative model → its __table__ knows how to create itself
+        SwarmRecord.__table__.create(bind=engine, checkfirst=True)
 
 
 class TestSwarmStateManager:
-    """Test the tate persistence."""
+    """Tests for swarm state persistence via SwarmStateManager."""
 
     @pytest.fixture
-    def swarm(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DomynLLMSwarm:
-        """Swarm.
-
-        Returns:
-            DomynLLMSwarm: Swarm.
+    def db_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         """
+        Point SwarmStateManager at a temporary SQLite DB and create the schema.
+        """
+        path = tmp_path / SwarmStateManager.DB_NAME
 
-        def mock_db_path(_x=None) -> Path:
-            """Mock DB path.
+        def mock_db_path(cls) -> Path:
+            # cls is SwarmStateManager; we ignore it and always return the temp path
+            return path
 
-            Args:
-                _x (Any, optional): mocked argument. Defaults to None.
+        # Patch the classmethod target with a plain function; Python will bind cls.
+        monkeypatch.setattr(SwarmStateManager, "_get_db_path", classmethod(mock_db_path))
 
-            Returns:
-                Path: Temporary DB path.
-            """
-            return tmp_path / SwarmStateManager.DB_NAME
+        # Create the schema (swarm table) in that DB
+        _init_schema(path)
 
-        monkeypatch.setattr(SwarmStateManager, "_get_db_path", mock_db_path)
+        return path
+
+    @pytest.fixture
+    def swarm(
+        self,
+        db_path: Path,
+    ) -> DomynLLMSwarm:
+        """Construct a DomynLLMSwarm wired to the temporary DB via SwarmStateManager."""
         return DomynLLMSwarm(
             name="swarm",
             cfg=DomynLLMSwarmConfig(
@@ -109,170 +116,109 @@ class TestSwarmStateManager:
 
     @pytest.fixture
     def state_manager(self, swarm: DomynLLMSwarm) -> SwarmStateManager:
-        """Swarm state manager.
+        """Return the SwarmStateManager attached to the swarm."""
+        # DomynLLMSwarm should attach its own SwarmStateManager as _state_mgr
+        return swarm._state_mgr  # type: ignore[attr-defined]
 
-        Args:
-            swarm (DomynLLMSwarm): Swarm.
-
-        Returns:
-            SwarmStateManager: State manager.
-        """
-        return swarm._state_mgr
+    # --------------------------------------------------------------------- #
+    # Basic path / save / load behaviour
+    # --------------------------------------------------------------------- #
 
     def test_get_db_path(self) -> None:
         """The DB name must be correct."""
         db_path = SwarmStateManager._get_db_path()
         assert db_path.name == SwarmStateManager.DB_NAME
 
-    def test_create_missing_table(self, state_manager: SwarmStateManager) -> None:
-        """Test the DB creation.
-
-        A DB with the swarm table must be created when missing.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        db_path = state_manager._get_db_path()
-        db_path.unlink(missing_ok=True)
-        state_manager._create_db_if_missing()
-        with sqlite3.connect(db_path) as cnx:
-            cursor = cnx.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swarm';")
-            # one-element tuple
-            name = cursor.fetchone()
-
-        assert name[0] == "swarm"
-
-    def test_create_already_present_table(self, state_manager: SwarmStateManager) -> None:
-        """The table must be left untouched if it exists.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager._create_db_if_missing()
-        state_manager._create_db_if_missing()
-        db_path = state_manager._get_db_path()
-        with sqlite3.connect(db_path) as cnx:
-            cursor = cnx.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swarm';")
-            # one-element tuple
-            name = cursor.fetchone()
-
-        assert name[0] == "swarm"
-
-    def test_get_record(self, state_manager: SwarmStateManager) -> None:
-        """Check the table record.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        data = state_manager._get_record("fake")
-        assert data["deployment_name"] == "fake"
-        assert isinstance(data["swarm"], str)
-        assert isinstance(data["cfg"], str)
-        assert isinstance(data["serving_handle"], str)
-        assert isinstance(data["creation_dt"], datetime)
-
-    def test_get_record_null_handle(self, state_manager: SwarmStateManager) -> None:
-        """The handle must be valid.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager.swarm.serving_handle = None
-        with pytest.raises(ValueError):
-            state_manager._get_record("fake")
-
-    def test_save(self, state_manager: SwarmStateManager) -> None:
-        """Check the record is saved in the DB.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager._create_db_if_missing()
+    def test_save_persists_record(self, state_manager: SwarmStateManager) -> None:
+        """Saving a swarm creates/updates a SwarmRecord row."""
         state_manager.save(deployment_name="name")
-        db_path = state_manager._get_db_path()
-        with sqlite3.connect(db_path) as cnx:
-            cursor = cnx.cursor()
-            cursor.execute("SELECT * FROM swarm WHERE deployment_name='name';")
-            row = cursor.fetchall()
 
-        assert len(row) == 1
+        rows = SwarmStateManager.list_all()
+        assert any(r["deployment_name"] == "name" for r in rows)
 
     def test_load_slurm(self, state_manager: SwarmStateManager) -> None:
-        """Test the swarm initialization from a record.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager._create_db_if_missing()
+        """Loading a previously saved swarm reconstructs DomynLLMSwarm."""
         state_manager.save(deployment_name="fake")
 
         swarm = SwarmStateManager.load(deployment_name="fake")
         assert isinstance(swarm, DomynLLMSwarm)
+        # Serving handle should be wired back
+        assert swarm.serving_handle is not None
+        # Compute backend should be attached
+        assert swarm._deployment.compute is not None  # type: ignore[attr-defined]
+
+    # --------------------------------------------------------------------- #
+    # Error cases around missing job metadata
+    # --------------------------------------------------------------------- #
 
     def test_load_null_jobid(self, state_manager: SwarmStateManager) -> None:
-        """Null Job ID.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager.swarm.serving_handle.meta["jobid"] = None
-        state_manager._create_db_if_missing()
+        """Null Job ID in serving_handle.meta should raise."""
+        state_manager.swarm.serving_handle.meta["jobid"] = None  # type: ignore[union-attr]
         state_manager.save(deployment_name="fake")
 
         with pytest.raises(ValueError, match="job IDs"):
             SwarmStateManager.load(deployment_name="fake")
 
     def test_load_null_lb_jobid(self, state_manager: SwarmStateManager) -> None:
-        """Null LB Job ID.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager.swarm.serving_handle.meta["lb_jobid"] = None
-        state_manager._create_db_if_missing()
+        """Null LB Job ID in serving_handle.meta should raise."""
+        state_manager.swarm.serving_handle.meta["lb_jobid"] = None  # type: ignore[union-attr]
         state_manager.save(deployment_name="fake")
 
         with pytest.raises(ValueError, match="LB job info"):
             SwarmStateManager.load(deployment_name="fake")
 
     def test_load_null_lb_node(self, state_manager: SwarmStateManager) -> None:
-        """Null LB Node.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager.swarm.serving_handle.meta["lb_node"] = None
-        state_manager._create_db_if_missing()
+        """Null LB node in serving_handle.meta should raise."""
+        state_manager.swarm.serving_handle.meta["lb_node"] = None  # type: ignore[union-attr]
         state_manager.save(deployment_name="fake")
 
         with pytest.raises(ValueError, match="LB job info"):
             SwarmStateManager.load(deployment_name="fake")
 
-    def test_load_unknown_job(self, state_manager: SwarmStateManager) -> None:
-        """Exception is raised if the swarm is not found in the DB.
-
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
+    def test_load_unknown_job_raises(self, state_manager: SwarmStateManager) -> None:
+        """Loading a non-existing deployment_name raises JobNotFoundError."""
         with pytest.raises(JobNotFoundError, match="fake"):
             SwarmStateManager.load(deployment_name="fake")
 
-    def test_delete_record(self, state_manager: SwarmStateManager) -> None:
-        """Test the record deletion from the DB.
+    # --------------------------------------------------------------------- #
+    # Delete behaviour
+    # --------------------------------------------------------------------- #
 
-        Args:
-            state_manager (SwarmStateManager): State manager.
-        """
-        state_manager._create_db_if_missing()
+    def test_delete_record_removes_row(self, state_manager: SwarmStateManager) -> None:
+        """delete_record should remove the row for the given deployment."""
         state_manager.save(deployment_name="swarm")
-        state_manager.swarm._delete_record()
-        db_path = state_manager._get_db_path()
 
-        with sqlite3.connect(db_path) as cnx:
-            cursor = cnx.cursor()
-            cursor.execute("SELECT * FROM swarm WHERE deployment_name='swarm';")
-            rows = cursor.fetchall()
+        # sanity check: it exists
+        rows = SwarmStateManager.list_all()
+        assert any(r["deployment_name"] == "swarm" for r in rows)
 
-        assert not rows
+        state_manager.delete_record("swarm")
+
+        rows_after = SwarmStateManager.list_all()
+        assert all(r["deployment_name"] != "swarm" for r in rows_after)
+
+    # --------------------------------------------------------------------- #
+    # Convenience helpers: get_last_swarm_name / list_by_base_name
+    # --------------------------------------------------------------------- #
+
+    def test_get_last_swarm_name_none_when_empty(self, state_manager: SwarmStateManager) -> None:
+        """get_last_swarm_name returns None when there are no rows."""
+        assert SwarmStateManager.get_last_swarm_name() is None
+
+    def test_get_last_swarm_name_after_save(self, state_manager: SwarmStateManager) -> None:
+        """get_last_swarm_name returns the last saved deployment_name."""
+        state_manager.save(deployment_name="only-swarm")
+        assert SwarmStateManager.get_last_swarm_name() == "only-swarm"
+
+    def test_list_by_base_name_filters_by_prefix(self, state_manager: SwarmStateManager) -> None:
+        """list_by_base_name returns deployment_names matching '<base>-*'."""
+        # Use the same swarm instance but save under different deployment names
+        state_manager.save(deployment_name="foo-abc")
+        state_manager.save(deployment_name="foo-def")
+        state_manager.save(deployment_name="bar-123")
+
+        matches = SwarmStateManager.list_by_base_name("foo")
+        assert set(matches) == {"foo-abc", "foo-def"}
+
+        matches_bar = SwarmStateManager.list_by_base_name("bar")
+        assert matches_bar == ["bar-123"]

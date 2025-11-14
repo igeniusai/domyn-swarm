@@ -22,7 +22,7 @@ from typing import Any, Literal
 from rich.console import Console
 import typer
 
-from domyn_swarm.core.state import SwarmStateManager
+from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.helpers.logger import setup_logger
 
 
@@ -47,7 +47,7 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
     Tries to be compatible with your current state manager.
     """
     # Lazy imports to avoid CLI import cost for non-list commands
-    from domyn_swarm.core.state import SwarmStateManager
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
     from domyn_swarm.core.swarm import DomynLLMSwarm
     from domyn_swarm.platform.protocols import ServingPhase
 

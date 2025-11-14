@@ -68,3 +68,19 @@ def mock_client(monkeypatch):
     mock = AsyncMock()
     monkeypatch.setattr("openai.OpenAI", lambda *args, **kwargs: mock)
     return mock
+
+
+@pytest.fixture
+def disable_autoupgrade(monkeypatch):
+    monkeypatch.setenv("DOMYN_SWARM_SKIP_DB_UPGRADE", "1")
+
+
+@pytest.fixture(autouse=True)
+def clear_settings_cache_between_tests():
+    from domyn_swarm.config.settings import reload_settings_cache
+
+    # before each test
+    reload_settings_cache()
+    yield
+    # after each test (optional)
+    reload_settings_cache()
