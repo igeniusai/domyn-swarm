@@ -137,7 +137,7 @@ def test_wait_ready_uses_injected_readiness(monkeypatch):
     be = SlurmServingBackend(driver=driver, cfg=cfg, readiness=probe)
 
     handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202})
-    out = be.wait_ready(handle, 30, None)
+    out = be.wait_ready(handle, 30, {})
 
     assert out.url == "http://node:9000"
     assert probe.calls == [(handle, 30)]  # used injected probe
@@ -147,10 +147,12 @@ def test_wait_ready_constructs_probe_with_cfg_values(monkeypatch):
     constructed = {}
 
     class FakeProbeCtor:
-        def __init__(self, driver, endpoint_port, poll_interval_s):
+        def __init__(self, driver, endpoint_port, poll_interval_s, watchdog_db, swarm_name):
             constructed["driver"] = driver
             constructed["endpoint_port"] = endpoint_port
             constructed["poll_interval_s"] = poll_interval_s
+            constructed["watchdog_db"] = watchdog_db
+            constructed["swarm_name"] = swarm_name
 
         def wait_ready(self, handle, timeout_s):
             handle.url = f"http://lb:{constructed['endpoint_port']}"
@@ -165,11 +167,13 @@ def test_wait_ready_constructs_probe_with_cfg_values(monkeypatch):
     be = SlurmServingBackend(driver=driver, cfg=cfg)  # no readiness injected
 
     handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202})
-    out = be.wait_ready(handle, 5, None)
+    out = be.wait_ready(handle, 5, {})
 
     assert constructed["driver"] is driver
     assert constructed["endpoint_port"] == 8123
     assert constructed["poll_interval_s"] == 1.5
+    assert constructed["swarm_name"] is not None
+    # watchdog_db should be derived from default swarm_directory in cfg
     assert out.url == "http://lb:8123"
     assert out.meta["lb_node"] == "lb"
 

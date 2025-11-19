@@ -15,14 +15,11 @@
 from pathlib import Path
 import subprocess
 import tempfile
-from typing import TYPE_CHECKING
 
 import jinja2
 
-if TYPE_CHECKING:
-    from domyn_swarm.config.swarm import DomynLLMSwarmConfig
-
 from domyn_swarm.config.slurm import SlurmConfig
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
