@@ -15,21 +15,25 @@
 from pathlib import Path
 import subprocess
 import tempfile
-from typing import Any
+from typing import TYPE_CHECKING
 
 import jinja2
 
+if TYPE_CHECKING:
+    from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+
+from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
-import domyn_swarm.helpers.watchdog as watchdog_mod
+import domyn_swarm.runtime.watchdog as watchdog_mod
 
 logger = setup_logger(__name__)
 
 
 class SlurmDriver:
-    def __init__(self, cfg: Any):
-        self.cfg = cfg
+    def __init__(self, cfg: DomynLLMSwarmConfig):
+        self.cfg: DomynLLMSwarmConfig = cfg
 
     def submit_replicas(
         self,
@@ -43,6 +47,8 @@ class SlurmDriver:
     ) -> int:
         """Submit the replica array job to Slurm.
         Returns the job ID of the submitted job."""
+
+        assert isinstance(self.cfg.backend, SlurmConfig)
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
@@ -95,6 +101,8 @@ class SlurmDriver:
         self, job_name: str, dep_jobid: int, replicas: int, swarm_directory: str
     ) -> int:
         """Submit the load balancer job to Slurm with a dependency on the replica array job."""
+        assert isinstance(self.cfg.backend, SlurmConfig)
+
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,

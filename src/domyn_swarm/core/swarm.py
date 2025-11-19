@@ -264,11 +264,10 @@ class DomynLLMSwarm(BaseModel):
 
         plan = self.cfg.get_deployment_plan()
         if plan is not None:
+            extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
             self._plan = plan
             self._platform = plan.platform
-            self._deployment = Deployment(
-                serving=plan.serving, compute=plan.compute, extras=plan.extras
-            )
+            self._deployment = Deployment(serving=plan.serving, compute=plan.compute, extras=extras)
             return
 
     def __enter__(self):

@@ -85,7 +85,7 @@ class SlurmConfig(BaseModel):
         from domyn_swarm.backends.serving.slurm import SlurmServingBackend
 
         driver = SlurmDriver(cfg=cfg_ctx)
-        serving = SlurmServingBackend(driver=driver, cfg=self)
+        serving = SlurmServingBackend(cfg=self, driver=driver)
         compute = SlurmComputeBackend(cfg=self, lb_jobid=0, lb_node="")
 
         serving_spec = self.model_dump(exclude_none=True) | cfg_ctx.model_dump(

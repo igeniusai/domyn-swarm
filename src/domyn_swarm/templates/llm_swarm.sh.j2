@@ -133,6 +133,7 @@ function start_vllm_replica() {
       --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
       --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
       --restart-max {{ cfg.watchdog.restart_max }} \
+      --log-dir "$log_dir" \
       -- \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.args %}

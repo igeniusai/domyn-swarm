@@ -56,6 +56,10 @@ from urllib import error as urlerror, request
 # Replica state model
 # ---------------------------------------------------------------------------
 
+MAX_REASON_LEN = 2048
+
+REPLICA_STATUS_TABLE = "replica_status"
+
 
 class ReplicaState(str, enum.Enum):
     STARTING = "starting"
@@ -116,8 +120,8 @@ def open_db(path: Path) -> sqlite3.Connection:
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS replica_status (
+        f"""
+        CREATE TABLE IF NOT EXISTS {REPLICA_STATUS_TABLE} (
           swarm_id      TEXT NOT NULL,
           replica_id    INTEGER NOT NULL,
           node          TEXT,
@@ -127,6 +131,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
           http_ready    INTEGER,
           exit_code     INTEGER,
           exit_signal   INTEGER,
+          fail_reason   TEXT,
           agent_version TEXT,
           last_seen     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (swarm_id, replica_id)
@@ -148,11 +153,12 @@ def upsert_status(
     http_ready: bool,
     exit_code: int | None,
     exit_signal: int | None,
+    fail_reason: str | None,
     agent_version: str,
 ) -> None:
     conn.execute(
-        """
-        INSERT INTO replica_status
+        f"""
+        INSERT INTO {REPLICA_STATUS_TABLE}
           (swarm_id, replica_id, node, port, pid, state, http_ready,
            exit_code, exit_signal, agent_version, last_seen)
         VALUES
@@ -165,6 +171,7 @@ def upsert_status(
           http_ready    = excluded.http_ready,
           exit_code     = excluded.exit_code,
           exit_signal   = excluded.exit_signal,
+          fail_reason   = excluded.fail_reason,
           agent_version = excluded.agent_version,
           last_seen     = CURRENT_TIMESTAMP;
         """,
@@ -178,10 +185,60 @@ def upsert_status(
             1 if http_ready else 0,
             exit_code,
             exit_signal,
+            fail_reason,
             agent_version,
         ),
     )
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Failure reason builder
+# ---------------------------------------------------------------------------
+
+
+def build_fail_reason(
+    *,
+    exit_code: int | None,
+    exit_signal: int | None,
+    log_path: str | None = None,
+    restart_attempt: int | None = None,
+    max_restarts: int | None = None,
+) -> str:
+    parts: list[str] = []
+
+    # 1) Exit code / signal
+    if exit_code is not None:
+        parts.append(f"exit_code={exit_code}")
+        if exit_code == 137:
+            parts.append("(likely OOM / SIGKILL)")
+    if exit_signal is not None:
+        try:
+            sig_name = signal.Signals(exit_signal).name
+            parts.append(f"signal={sig_name}")
+        except ValueError:
+            parts.append(f"signal={exit_signal}")
+
+    # 2) Restart context (optional)
+    if restart_attempt is not None and max_restarts is not None:
+        parts.append(f"restart_attempt={restart_attempt}/{max_restarts}")
+
+    # 3) Log tail (optional & truncated)
+    if log_path and os.path.exists(log_path):
+        try:
+            with open(log_path, "rb") as f:
+                tail_bytes = f.read()[-4096:]
+            tail = tail_bytes.decode(errors="replace")
+            lines = tail.splitlines()[-10:]  # last 10 lines
+            parts.append("log_tail:\n" + "\n".join(lines))
+        except Exception:
+            # If we fail to read logs, don't block the reason
+            parts.append(f"log_tail: <unavailable: error reading {log_path}>")
+
+    reason = " | ".join(parts).strip()
+    if len(reason) > MAX_REASON_LEN:
+        reason = reason[: MAX_REASON_LEN - 3] + "..."
+    return reason or "unknown failure"
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +334,7 @@ def _mark_state(
     pid: int | None,
     exit_code: int | None,
     exit_signal: int | None,
+    fail_reason: str | None,
 ) -> None:
     upsert_status(
         conn,
@@ -289,6 +347,7 @@ def _mark_state(
         http_ready=http_ready,
         exit_code=exit_code,
         exit_signal=exit_signal,
+        fail_reason=fail_reason,
         agent_version=cfg.agent_version,
     )
 
@@ -309,6 +368,7 @@ def _spawn_child_and_mark_running(
         pid=None,
         exit_code=None,
         exit_signal=None,
+        fail_reason=None,
     )
 
     # Spawn child
@@ -331,6 +391,7 @@ def _spawn_child_and_mark_running(
         pid=pid,
         exit_code=None,
         exit_signal=None,
+        fail_reason=None,
     )
     return child, pid
 
@@ -394,6 +455,7 @@ def _probe_and_update(
         pid=pid,
         exit_code=None,
         exit_signal=None,
+        fail_reason=None,
     )
 
     return http_failures, http_ok_since, ray_ok_since, last_ray_probe
@@ -408,7 +470,8 @@ def _monitor_child_loop(
     stop_flag: dict,
     ray_prefix: Sequence[str],
     restart_count: int,
-) -> tuple[int, bool]:
+    log_dir: Path,
+) -> tuple[int, bool, str | None]:
     """Monitor a single child process until it exits or we get a stop signal.
 
     Returns (exit_code, should_restart).
@@ -417,6 +480,7 @@ def _monitor_child_loop(
     http_ok_since: float | None = None
     ray_ok_since: float | None = None
     last_ray_probe = 0.0
+    fail_reason: str | None = None
 
     while True:
         if stop_flag.get("stop"):
@@ -434,13 +498,25 @@ def _monitor_child_loop(
                 pid=pid,
                 exit_code=child.returncode,
                 exit_signal=None,
+                fail_reason=None,
             )
-            return 0, False
+            return 0, False, None
 
         ret = child.poll()
         if ret is not None:
             # Child exited
             state = ReplicaState.EXITED if ret == 0 else ReplicaState.FAILED
+
+            if state == ReplicaState.FAILED:
+                log_path = log_dir / "vllm.log"
+                fail_reason = build_fail_reason(
+                    exit_code=ret,
+                    log_path=log_path.as_posix() if log_path.exists() else None,
+                    exit_signal=None,
+                    restart_attempt=restart_count + 1,
+                    max_restarts=cfg.max_restarts,
+                )
+
             _mark_state(
                 conn,
                 meta,
@@ -450,9 +526,10 @@ def _monitor_child_loop(
                 pid=pid,
                 exit_code=ret,
                 exit_signal=None,
+                fail_reason=fail_reason,
             )
             should_restart = _should_restart(ret, cfg, restart_count)
-            return ret, should_restart
+            return ret, should_restart, fail_reason
 
         # Still running → probe and update status
         http_failures, http_ok_since, ray_ok_since, last_ray_probe = _probe_and_update(
@@ -478,6 +555,7 @@ def run_watchdog(
     port: int,
     cfg: WatchdogConfig,
     child_argv: Sequence[str],
+    log_dir: Path,
     ray_exec_prefix: Sequence[str] | None = None,
 ) -> int:
     """
@@ -492,6 +570,7 @@ def run_watchdog(
         return 1
 
     cfg.port = port
+
     db_conn = open_db(db_path)
     ray_prefix: Sequence[str] = ray_exec_prefix or []
 
@@ -517,7 +596,7 @@ def run_watchdog(
         child, pid = _spawn_child_and_mark_running(db_conn, meta, cfg, child_argv)
 
         # 2) Monitor until it exits or we get a stop signal
-        exit_code, should_restart = _monitor_child_loop(
+        exit_code, should_restart, fail_reason = _monitor_child_loop(
             db_conn,
             meta,
             cfg,
@@ -526,6 +605,7 @@ def run_watchdog(
             stop_flag,
             ray_prefix,
             restart_count,
+            log_dir,
         )
 
         if not should_restart:
@@ -543,6 +623,7 @@ def run_watchdog(
             pid=None,
             exit_code=exit_code,
             exit_signal=None,
+            fail_reason=fail_reason,
         )
         time.sleep(cfg.restart_backoff_s)
 
@@ -651,6 +732,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "If omitted, Ray CLI is run directly (inside container)."
         ),
     )
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        required=True,
+        help="Directory where vLLM logs are stored.",
+    )
 
     parser.add_argument(
         "child",
@@ -705,6 +792,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         cfg=cfg,
         child_argv=child_argv,
         ray_exec_prefix=ray_prefix,
+        log_dir=args.log_dir,
     )
 
 
