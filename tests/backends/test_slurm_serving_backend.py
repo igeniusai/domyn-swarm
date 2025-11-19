@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -166,13 +167,14 @@ def test_wait_ready_constructs_probe_with_cfg_values(monkeypatch):
     cfg = mk_cfg(port=8123, poll=1.5)
     be = SlurmServingBackend(driver=driver, cfg=cfg)  # no readiness injected
 
-    handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202})
-    out = be.wait_ready(handle, 5, {})
+    handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202, "name": "my-swarm"})
+    out = be.wait_ready(handle, 5, {"swarm_directory": "swarm-directory"})
 
     assert constructed["driver"] is driver
     assert constructed["endpoint_port"] == 8123
     assert constructed["poll_interval_s"] == 1.5
-    assert constructed["swarm_name"] is not None
+    assert constructed["watchdog_db"] == Path("swarm-directory/watchdog.db")
+    assert constructed["swarm_name"] == "my-swarm"
     # watchdog_db should be derived from default swarm_directory in cfg
     assert out.url == "http://lb:8123"
     assert out.meta["lb_node"] == "lb"
