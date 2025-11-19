@@ -167,7 +167,9 @@ def test_wait_ready_constructs_probe_with_cfg_values(monkeypatch):
     cfg = mk_cfg(port=8123, poll=1.5)
     be = SlurmServingBackend(driver=driver, cfg=cfg)  # no readiness injected
 
-    handle = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202, "name": "my-swarm"})
+    handle = ServingHandle(
+        id="202", url="", meta={"jobid": 101, "lb_jobid": 202, "name": "my-swarm"}
+    )
     out = be.wait_ready(handle, 5, {"swarm_directory": "swarm-directory"})
 
     assert constructed["driver"] is driver
