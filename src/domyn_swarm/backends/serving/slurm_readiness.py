@@ -153,7 +153,7 @@ class SlurmReadiness(ServingReadiness):
         msg = (
             f"[yellow]Waiting for replicas for swarm '{self.swarm_name}': "
             f"total={summary.total}, running={summary.running}, "
-            f"http_ready={summary.http_ready}, failed={summary.failed}…[/]"
+            f"http_ready={summary.http_ready}, failed_or_exited={summary.failed}…[/]"
         )
         status.update(msg)
 
@@ -168,9 +168,9 @@ class SlurmReadiness(ServingReadiness):
             )
             status.update(
                 f"[red]All replicas failed for swarm '{self.swarm_name}' "
-                f"(failed={summary.failed}/{summary.total}).{reason_frag}[/]"
+                f"(failed_or_exited={summary.failed}/{summary.total}).{reason_frag}[/]"
             )
             raise SwarmReplicaFailure(
                 f"All replicas for swarm '{self.swarm_name}' are in terminal "
-                f"states (failed={summary.failed}, total={summary.total})."
+                f"states (failed_or_exited={summary.failed}, total={summary.total})."
             )

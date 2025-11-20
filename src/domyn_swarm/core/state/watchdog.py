@@ -1,3 +1,6 @@
+# Copyright 2025 iGenius S.p.A
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
@@ -17,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from domyn_swarm.core.state.db import make_session_factory
 from domyn_swarm.core.state.models import ReplicaStatus
+from domyn_swarm.runtime.watchdog import ReplicaState
 
 
 @dataclass
@@ -69,11 +73,11 @@ def read_swarm_summary(db_path: Path, swarm_id: str) -> SwarmReplicaSummary | No
     reason_counter: Counter[str] = Counter()
 
     for state, ready, fail_reason in rows:
-        if state == "Running":
+        if state == ReplicaState.RUNNING:
             running += 1
         if bool(ready):
             http_ready += 1
-        if state in ("Failed", "Exited"):
+        if state in (ReplicaState.FAILED, ReplicaState.EXITED):
             failed += 1
             # Normalize the reason a bit, but keep it simple
             if fail_reason:

@@ -435,7 +435,7 @@ def _probe_and_update(
             last_ray_probe = now
             ray_ok_since = now if ray_single_ok else None
 
-        ray_ready = False if ray_ok_since is None else now - ray_ok_since >= cfg.ray.status_grace_s
+        ray_ready = ray_ok_since is not None and now - ray_ok_since >= cfg.ray.status_grace_s
 
     http_ready_flag = bool(http_ok_since) and (not cfg.ray.enabled or ray_ready)
 
@@ -792,7 +792,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         cfg=cfg,
         child_argv=child_argv,
         ray_exec_prefix=ray_prefix,
-        log_dir=args.log_dir,
+        log_dir=Path(args.log_dir),
     )
 
 
