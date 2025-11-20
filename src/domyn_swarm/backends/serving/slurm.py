@@ -52,8 +52,8 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         }
     """
 
-    driver: SlurmDriver
     cfg: SlurmConfig
+    driver: SlurmDriver
     readiness: SlurmReadiness | None = None
 
     def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle:

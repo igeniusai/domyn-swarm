@@ -89,6 +89,8 @@ class WatchdogConfig:
     probe_interval_s: float = 5.0
     unhealthy_http_failures: int = 3
 
+    kill_grace_seconds: float = 10.0
+
     # Restart
     restart_policy: str = "on-failure"  # "always" | "on-failure" | "never"
     restart_backoff_s: float = 10.0
@@ -488,7 +490,7 @@ def _monitor_child_loop(
             if child.poll() is None:
                 with contextlib.suppress(Exception):
                     child.terminate()
-            child.wait(timeout=10)
+            child.wait(timeout=cfg.kill_grace_seconds)
             _mark_state(
                 conn,
                 meta,

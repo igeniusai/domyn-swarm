@@ -130,5 +130,5 @@ def list_replica_failures(db_path: Path, swarm_name: str) -> list[dict]:
             "last_seen": r.last_seen.isoformat() if r.last_seen else None,
         }
         for r in rows
-        if r.state in ("Failed", "Exited") or r.fail_reason
+        if r.state in (ReplicaState.FAILED, ReplicaState.EXITED) or r.fail_reason
     ]
