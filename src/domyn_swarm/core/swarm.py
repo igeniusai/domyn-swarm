@@ -226,6 +226,10 @@ class DomynLLMSwarm(BaseModel):
         description="Directory where swarm-related files are stored",
         default_factory=lambda data: data["cfg"].home_directory / "swarms" / data["name"],
     )
+    watchdog_db_path: utils.EnvPath = Field(
+        description="Path to the watchdog SQLite database file",
+        default_factory=lambda data: data["swarm_dir"] / "watchdog.db",
+    )
 
     @computed_field
     @property

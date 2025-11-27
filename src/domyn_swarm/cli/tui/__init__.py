@@ -2,6 +2,8 @@ from collections.abc import Iterable
 
 from rich.console import Console
 
+from domyn_swarm.core.state.watchdog import SwarmReplicaSummary
+
 from ...platform.protocols import ServingStatus
 from ..tui.status import render_swarm_status
 from ..tui.status_list import render_multi_status
@@ -10,6 +12,7 @@ from ..tui.status_list import render_multi_status
 def render_status(
     items: Iterable[tuple[str, str, ServingStatus]] | tuple[str, str, ServingStatus],
     *,
+    replica_summary: SwarmReplicaSummary | None = None,
     console: Console | None = None,
 ) -> None:
     """
@@ -19,13 +22,13 @@ def render_status(
     """
     if isinstance(items, tuple) and len(items) == 3:
         name, backend, st = items
-        render_swarm_status(name, backend, st, console=console)  # type: ignore[arg-type]
+        render_swarm_status(name, backend, st, replica_summary=replica_summary, console=console)  # type: ignore[arg-type]
         return
 
     items_list = list(items)  # type: ignore[arg-type]
     if len(items_list) == 1:
         name, backend, st = items_list[0]
-        render_swarm_status(name, backend, st, console=console)
+        render_swarm_status(name, backend, st, replica_summary=replica_summary, console=console)
     else:
         render_multi_status(items_list, console=console)
 
