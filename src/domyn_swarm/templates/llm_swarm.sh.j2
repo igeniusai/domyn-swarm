@@ -132,7 +132,7 @@ function start_vllm_replica() {
       --restart-policy {{ cfg.watchdog.restart_policy }} \
       --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
       --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
-      --restart-max {{ cfg.watchdog.restart_max }} \
+      --max-restarts {{ cfg.watchdog.max_restarts }} \
       --log-dir "$log_dir" \
       -- \
      vllm serve {{ cfg.model }} \
@@ -307,10 +307,11 @@ function start_vllm_server() {
             --restart-policy {{ cfg.watchdog.restart_policy }} \
             --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
             --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
-            --max-restarts {{ cfg.watchdog.restart_max }} \
+            --max-restarts {{ cfg.watchdog.max_restarts }} \
             --ray-enabled=1 \
             --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
             --ray-exec-prefix singularity exec instance://"$INSTANCE_TAG" \
+            --log-dir "$RAY_LOG_DIR" \
             -- \
            vllm serve {{ cfg.model }} \
            {% if 'tensor-parallel-size' not in cfg.args %}

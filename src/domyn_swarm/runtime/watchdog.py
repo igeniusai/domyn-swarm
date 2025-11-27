@@ -112,10 +112,29 @@ class WatchdogConfig:
 
 
 def open_db(path: Path) -> sqlite3.Connection:
+    """
+    Open (or create) the watchdog SQLite DB at `path`, ensuring the schema exists.
+
+    Returns the sqlite3.Connection.
+    """
+    path = Path(path)
+
+    is_new = not path.exists()
+
     conn = sqlite3.connect(path.as_posix(), timeout=5.0)
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=5000")
+
+    if is_new:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError as e:
+            print(
+                f"watchdog: could not enable WAL for {path} "
+                f"(shared FS / race?) - proceeding without WAL: {e!r}",
+                file=sys.stderr,
+            )
+
     ensure_schema(conn)
     return conn
 
@@ -162,9 +181,9 @@ def upsert_status(
         f"""
         INSERT INTO {REPLICA_STATUS_TABLE}
           (swarm_id, replica_id, node, port, pid, state, http_ready,
-           exit_code, exit_signal, agent_version, last_seen)
+           exit_code, exit_signal, fail_reason, agent_version, last_seen)
         VALUES
-          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT (swarm_id, replica_id) DO UPDATE SET
           node          = excluded.node,
           port          = excluded.port,
@@ -377,8 +396,6 @@ def _spawn_child_and_mark_running(
     child = subprocess.Popen(
         list(child_argv),
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
         text=True,
     )
     pid = child.pid or 0
@@ -645,6 +662,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--node", required=True, help="Node hostname for diagnostics.")
     parser.add_argument("--port", type=int, required=True, help="HTTP port for vLLM.")
     parser.add_argument(
+        "--log-dir",
+        type=str,
+        required=True,
+        help="Directory where vLLM logs are stored.",
+    )
+    parser.add_argument(
         "--agent-version",
         default=os.environ.get("DSWARM_AGENT_VERSION", "unknown"),
         help="Watchdog/agent version string.",
@@ -670,6 +693,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="HTTP timeout in seconds (default: 2).",
     )
     parser.add_argument(
+        "--readiness-timeout",
+        type=float,
+        default=60.0,
+        help="Seconds to wait for initial readiness (default: 60).",
+    )
+    parser.add_argument(
         "--restart-policy",
         choices=["always", "on-failure", "never"],
         default="on-failure",
@@ -692,6 +721,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=3,
         help="Consecutive HTTP failures before marking replica UNHEALTHY.",
+    )
+    parser.add_argument(
+        "--unhealthy-restart-after",
+        type=float,
+        default=300.0,
+        help="Seconds in UNHEALTHY state before considering restart.",
     )
 
     # Ray-aware flags
@@ -735,13 +770,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--log-dir",
-        type=str,
-        required=True,
-        help="Directory where vLLM logs are stored.",
-    )
-
-    parser.add_argument(
         "child",
         nargs=argparse.REMAINDER,
         help="Child command to run (must appear after '--').",
@@ -750,13 +778,38 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parse_args(argv)
+def split_watchdog_and_child(argv: list[str]) -> tuple[list[str], list[str]]:
+    """
+    Split full argv into:
+      - watchdog_argv: flags for this script
+      - child_argv: everything after the standalone `--`
+    Example:
+      watchdog.py --foo 1 --bar x -- child cmd
+      -> watchdog_argv = ['--foo', '1', '--bar', 'x']
+         child_argv    = ['child', 'cmd']
+    """
+    # argv is expected to be sys.argv (including script name)
+    if "--" in argv:
+        sep = argv.index("--")
+        # everything between script name and `--`
+        watchdog_argv = argv[:sep]
+        child_argv = argv[sep + 1 :]
+    else:
+        watchdog_argv = argv
+        child_argv = []
+    return watchdog_argv, child_argv
 
-    # Child argv: strip leading '--' if present because of argparse semantics
-    child_argv = list(args.child)
-    if child_argv and child_argv[0] == "--":
-        child_argv = child_argv[1:]
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    watchdog_argv, child_argv = split_watchdog_and_child(argv)
+
+    print(f"Watchdog args: {' '.join(watchdog_argv)}", file=sys.stderr)
+    print(f"vLLM args: {' '.join(child_argv)}", file=sys.stderr)
+
+    args = _parse_args(watchdog_argv)
 
     if not child_argv:
         print("watchdog: no child command provided after '--'", file=sys.stderr)

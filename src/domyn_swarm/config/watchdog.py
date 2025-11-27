@@ -20,7 +20,7 @@ class WatchdogConfig(BaseModel):
 
     restart_policy: Literal["always", "on-failure", "never"] = "on-failure"
     unhealthy_restart_after: int = 120
-    restart_max: int = 3
+    max_restarts: int = 3
     restart_backoff_initial: int = 5
     restart_backoff_max: int = 60
 
