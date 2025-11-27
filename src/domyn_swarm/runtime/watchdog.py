@@ -121,11 +121,6 @@ def open_db(path: Path) -> sqlite3.Connection:
 
     is_new = not path.exists()
 
-    conn = sqlite3.connect(path.as_posix(), timeout=5.0)
-
-    is_new = not path.exists()
-
-    # Use a slightly larger timeout to reduce "database is locked" issues
     conn = sqlite3.connect(path.as_posix(), timeout=30.0)
 
     # PRAGMA tweaks: all best-effort, never fatal
