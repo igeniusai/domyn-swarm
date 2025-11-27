@@ -80,14 +80,35 @@ class ParquetShardStore(CheckpointStore):
     def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame:
         df = df.copy()
         self.id_col = id_col
+        done_ids: set[Any] = set()
+
         if self.fs.exists(self.base_uri):
             done = pd.read_parquet(self.base_uri, storage_options=self.fs.storage_options)
-            self.done_ids = set(
+            ids = (
                 done.index.tolist()
-                if self.id_col in done.index.names
+                if self.id_col in (done.index.names or [])
                 else done[self.id_col].tolist()
             )
-        mask = ~df[id_col].isin(list(self.done_ids))
+            done_ids.update(ids)
+
+        if self.fs.exists(self.dir_uri):
+            pattern = self.dir_uri.rstrip("/") + "/part-*.parquet"
+            for path in self.fs.glob(pattern):
+                part = pd.read_parquet(path, storage_options=self.fs.storage_options)
+                ids = (
+                    part.index.tolist()
+                    if self.id_col in (part.index.names or [])
+                    else part[self.id_col].tolist()
+                )
+                done_ids.update(ids)
+
+        self.done_ids = done_ids
+
+        if not done_ids:
+            # nothing to skip
+            return df
+
+        mask = ~df[id_col].isin(list(done_ids))
         return df.loc[mask]
 
     async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:

@@ -175,7 +175,9 @@ class JobRunner:
         if self.cfg.id_col not in df.columns:
             df[self.cfg.id_col] = df.index
 
+        logger.debug("Length of input DataFrame: %d", len(df))
         todo = self.store.prepare(df, self.cfg.id_col)
+        logger.debug("Number of items to process after checkpointing: %d", len(todo))
         ids: list[Any] = todo[self.cfg.id_col].tolist()
         items: list[Any] = todo[input_col].tolist()
 
