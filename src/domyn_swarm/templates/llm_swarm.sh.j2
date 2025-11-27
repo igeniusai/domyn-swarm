@@ -120,7 +120,7 @@ function start_vllm_replica() {
   srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
-     python /opt/watchdog.py \
+     python3 /opt/watchdog.py \
       --swarm-id {{ job_name }} \
       --replica-id $global_id \
       --node $node \
@@ -295,7 +295,7 @@ function start_vllm_server() {
   echo "[head] starting vLLM REST server ..."
   singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
-           python /opt/watchdog.py \
+           python3 /opt/watchdog.py \
             --swarm-id {{job_name}} \
             --replica-id=0 \
             --node $HEAD_NODE \
