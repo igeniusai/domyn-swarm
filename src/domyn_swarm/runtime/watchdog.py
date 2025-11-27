@@ -122,16 +122,40 @@ def open_db(path: Path) -> sqlite3.Connection:
     is_new = not path.exists()
 
     conn = sqlite3.connect(path.as_posix(), timeout=5.0)
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
 
+    is_new = not path.exists()
+
+    # Use a slightly larger timeout to reduce "database is locked" issues
+    conn = sqlite3.connect(path.as_posix(), timeout=30.0)
+
+    # PRAGMA tweaks: all best-effort, never fatal
+    try:
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.OperationalError as e:
+        print(
+            f"watchdog: could not set synchronous=NORMAL for {path} "
+            f"(likely FS/SQLite limitation: {e!r}) - keeping default.",
+            file=sys.stderr,
+        )
+
+    try:
+        conn.execute("PRAGMA busy_timeout=5000")
+    except sqlite3.OperationalError as e:
+        print(
+            f"watchdog: could not set busy_timeout for {path} (keeping default): {e!r}",
+            file=sys.stderr,
+        )
+
+    # WAL is nice to have, but especially fragile on shared FS.
+    # Only try it on first creation, and swallow errors.
     if is_new:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError as e:
             print(
                 f"watchdog: could not enable WAL for {path} "
-                f"(shared FS / race?) - proceeding without WAL: {e!r}",
+                f"(shared FS / locking protocol / older SQLite?) - proceeding "
+                f"without WAL: {e!r}",
                 file=sys.stderr,
             )
 
