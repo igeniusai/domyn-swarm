@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class WatchdogRayConfig(BaseModel):
@@ -27,7 +27,7 @@ class WatchdogConfig(BaseModel):
     kill_grace_seconds: int = 10
     log_level: Literal["debug", "info", "warning", "error"] = "info"
 
-    ray: WatchdogRayConfig = WatchdogRayConfig()
+    ray: WatchdogRayConfig = Field(default_factory=WatchdogRayConfig)
 
     @field_validator("http_path")
     @classmethod

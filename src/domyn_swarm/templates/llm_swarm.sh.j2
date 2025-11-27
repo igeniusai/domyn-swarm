@@ -308,7 +308,7 @@ function start_vllm_server() {
             --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
             --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
             --max-restarts {{ cfg.watchdog.max_restarts }} \
-            --ray-enabled=1 \
+            --ray-enabled 1 \
             --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
             --ray-exec-prefix singularity exec instance://"$INSTANCE_TAG" \
             --log-dir "$RAY_LOG_DIR" \

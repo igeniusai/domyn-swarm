@@ -159,6 +159,7 @@ class DomynLLMSwarmConfig(BaseModel):
 
         # Requires Ray?
         requires_ray = gpus_per_replica > gpus_per_node and nodes > 1
+        data["watchdog"]["ray"]["enabled"] = requires_ray
 
         if requires_ray and gpus_per_replica % gpus_per_node != 0:
             raise ValueError(
