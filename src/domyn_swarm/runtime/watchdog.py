@@ -121,7 +121,7 @@ def open_db(path: Path) -> sqlite3.Connection:
 
     is_new = not path.exists()
 
-    conn = sqlite3.connect(path.as_posix(), timeout=30.0)
+    conn = sqlite3.connect(path.as_posix(), timeout=60.0)
 
     # PRAGMA tweaks: all best-effort, never fatal
     try:
@@ -159,26 +159,34 @@ def open_db(path: Path) -> sqlite3.Connection:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {REPLICA_STATUS_TABLE} (
-          swarm_id      TEXT NOT NULL,
-          replica_id    INTEGER NOT NULL,
-          node          TEXT,
-          port          INTEGER,
-          pid           INTEGER,
-          state         TEXT,
-          http_ready    INTEGER,
-          exit_code     INTEGER,
-          exit_signal   INTEGER,
-          fail_reason   TEXT,
-          agent_version TEXT,
-          last_seen     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (swarm_id, replica_id)
-        );
-        """
-    )
-    conn.commit()
+    try:
+        conn.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {REPLICA_STATUS_TABLE} (
+            swarm_id      TEXT NOT NULL,
+            replica_id    INTEGER NOT NULL,
+            node          TEXT,
+            port          INTEGER,
+            pid           INTEGER,
+            state         TEXT,
+            http_ready    INTEGER,
+            exit_code     INTEGER,
+            exit_signal   INTEGER,
+            fail_reason   TEXT,
+            agent_version TEXT,
+            last_seen     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (swarm_id, replica_id)
+            );
+            """
+        )
+        conn.commit()
+    except sqlite3.OperationalError as e:
+        print(
+            f"watchdog: could not create schema in DB (corrupted / incompatible?): {e!r}",
+            file=sys.stderr,
+        )
+        with contextlib.suppress(Exception):
+            conn.rollback()
 
 
 def upsert_status(
