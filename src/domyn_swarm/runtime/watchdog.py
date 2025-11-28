@@ -204,40 +204,49 @@ def upsert_status(
     fail_reason: str | None,
     agent_version: str,
 ) -> None:
-    conn.execute(
-        f"""
-        INSERT INTO {REPLICA_STATUS_TABLE}
-          (swarm_id, replica_id, node, port, pid, state, http_ready,
-           exit_code, exit_signal, fail_reason, agent_version, last_seen)
-        VALUES
-          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT (swarm_id, replica_id) DO UPDATE SET
-          node          = excluded.node,
-          port          = excluded.port,
-          pid           = excluded.pid,
-          state         = excluded.state,
-          http_ready    = excluded.http_ready,
-          exit_code     = excluded.exit_code,
-          exit_signal   = excluded.exit_signal,
-          fail_reason   = excluded.fail_reason,
-          agent_version = excluded.agent_version,
-          last_seen     = CURRENT_TIMESTAMP;
-        """,
-        (
-            swarm_id,
-            replica_id,
-            node,
-            port,
-            pid,
-            state.value,
-            1 if http_ready else 0,
-            exit_code,
-            exit_signal,
-            fail_reason,
-            agent_version,
-        ),
-    )
-    conn.commit()
+    try:
+        with conn:
+            conn.execute(
+                f"""
+                INSERT INTO {REPLICA_STATUS_TABLE}
+                (swarm_id, replica_id, node, port, pid, state, http_ready,
+                exit_code, exit_signal, fail_reason, agent_version, last_seen)
+                VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (swarm_id, replica_id) DO UPDATE SET
+                node          = excluded.node,
+                port          = excluded.port,
+                pid           = excluded.pid,
+                state         = excluded.state,
+                http_ready    = excluded.http_ready,
+                exit_code     = excluded.exit_code,
+                exit_signal   = excluded.exit_signal,
+                fail_reason   = excluded.fail_reason,
+                agent_version = excluded.agent_version,
+                last_seen     = CURRENT_TIMESTAMP;
+                """,
+                (
+                    swarm_id,
+                    replica_id,
+                    node,
+                    port,
+                    pid,
+                    state.value,
+                    1 if http_ready else 0,
+                    exit_code,
+                    exit_signal,
+                    fail_reason,
+                    agent_version,
+                ),
+            )
+            conn.commit()
+    except sqlite3.OperationalError as e:
+        print(
+            f"watchdog: failed to update replica_status for {swarm_id}[{replica_id}] "
+            f"(state={state}) due to SQLite error: {e!r}. "
+            "Continuing without DB persistence.",
+            file=sys.stderr,
+        )
 
 
 # ---------------------------------------------------------------------------
