@@ -14,7 +14,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -31,6 +31,33 @@ class SwarmRecord(Base):
     cfg: Mapped[dict] = mapped_column(JSON, nullable=False)
     serving_handle: Mapped[dict] = mapped_column(JSON, nullable=False)
     creation_dt: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+
+
+class ReplicaStatus(Base):
+    __tablename__ = "replica_status"
+
+    swarm_id: Mapped[str] = mapped_column(String, primary_key=True)
+    replica_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    node: Mapped[str | None] = mapped_column(String, nullable=True)
+    port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    state: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # e.g. "Starting", "Running", "Failed", "Exited"
+    http_ready: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exit_signal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fail_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    agent_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         server_default=func.current_timestamp(),
         nullable=False,

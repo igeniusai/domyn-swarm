@@ -226,6 +226,10 @@ class DomynLLMSwarm(BaseModel):
         description="Directory where swarm-related files are stored",
         default_factory=lambda data: data["cfg"].home_directory / "swarms" / data["name"],
     )
+    watchdog_db_path: utils.EnvPath = Field(
+        description="Path to the watchdog SQLite database file",
+        default_factory=lambda data: data["swarm_dir"] / "watchdog.db",
+    )
 
     @computed_field
     @property
@@ -264,11 +268,10 @@ class DomynLLMSwarm(BaseModel):
 
         plan = self.cfg.get_deployment_plan()
         if plan is not None:
+            extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
             self._plan = plan
             self._platform = plan.platform
-            self._deployment = Deployment(
-                serving=plan.serving, compute=plan.compute, extras=plan.extras
-            )
+            self._deployment = Deployment(serving=plan.serving, compute=plan.compute, extras=extras)
             return
 
     def __enter__(self):

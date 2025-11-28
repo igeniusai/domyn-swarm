@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.table import Table
 import typer
 
+from domyn_swarm.core.state.watchdog import SwarmReplicaSummary, read_swarm_summary
 from domyn_swarm.utils.cli import _pick_one
 
 from ..cli.init import init_app
@@ -158,7 +159,16 @@ def check_status(
         raise ValueError("Swarm does not have a serving handle.")
 
     serving_status = swarm.status()
-    render_status((name, swarm._platform, serving_status), console=console)
+    replica_summary: SwarmReplicaSummary | None = None
+
+    try:
+        replica_summary = read_swarm_summary(swarm.watchdog_db_path, swarm_id=name)
+    except Exception as e:
+        logger.debug(f"Could not read swarm replica summary: {e}")
+
+    render_status(
+        (name, swarm._platform, serving_status), replica_summary=replica_summary, console=console
+    )
 
 
 def down_by_name(name: str, yes: bool) -> None:

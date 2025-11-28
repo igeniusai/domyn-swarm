@@ -110,10 +110,11 @@ def test_wait_ready_happy_path(monkeypatch):
     called = {}
     import domyn_swarm.backends.serving.slurm_readiness as mod
 
-    def fake_probe(url, timeout_s, poll_interval_s):
+    def fake_probe(url, timeout_s, poll_interval_s, on_tick):
         called["url"] = url
         called["timeout_s"] = timeout_s
         called["poll"] = poll_interval_s
+        called["on_tick"] = on_tick
         return None
 
     monkeypatch.setattr(mod, "wait_http_200", fake_probe)

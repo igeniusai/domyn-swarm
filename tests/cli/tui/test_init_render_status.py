@@ -33,7 +33,9 @@ def test_render_status_with_single_tuple_calls_swarm_status(mocker):
 
     TUI.render_status(("my-swarm", "slurm", status), console=console)
 
-    mock_swarm.assert_called_once_with("my-swarm", "slurm", status, console=console)
+    mock_swarm.assert_called_once_with(
+        "my-swarm", "slurm", status, replica_summary=None, console=console
+    )
     mock_multi.assert_not_called()
 
 
@@ -46,7 +48,9 @@ def test_render_status_with_single_item_iterable_calls_swarm_status(mocker):
 
     TUI.render_status([("solo", "lepton", status)], console=console)
 
-    mock_swarm.assert_called_once_with("solo", "lepton", status, console=console)
+    mock_swarm.assert_called_once_with(
+        "solo", "lepton", status, replica_summary=None, console=console
+    )
     mock_multi.assert_not_called()
 
 

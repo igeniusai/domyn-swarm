@@ -18,6 +18,7 @@ from rich.box import HEAVY
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 
 from domyn_swarm.cli.tui.components import (
@@ -27,6 +28,7 @@ from domyn_swarm.cli.tui.components import (
     _phase_badge,
 )
 from domyn_swarm.cli.tui.tables import _kv_table
+from domyn_swarm.core.state.watchdog import SwarmReplicaSummary
 from domyn_swarm.platform.protocols import ServingStatus
 
 
@@ -36,6 +38,7 @@ def render_swarm_status(
     backend: str,
     st: ServingStatus,
     *,
+    replica_summary: SwarmReplicaSummary | None = None,
     console: Console | None = None,
 ) -> None:
     """Renders a comprehensive status view for a single swarm deployment.
@@ -80,39 +83,101 @@ def render_swarm_status(
         url_txt.stylize(f"link {st.url}")
     info.add_row("Endpoint", url_txt)
 
-    # Diagnostics section (backend-agnostic, but friendly to Slurm/Lepton)
+    # Diagnostics section (existing behaviour)
     diag = _kv_table()
     _add_if(diag, "HTTP", _fmt_http(st.detail))
 
     if st.detail:
-        # Slurm-style signals
         rep = st.detail.get("rep")
         lb = st.detail.get("lb")
         if rep is not None or lb is not None:
-            rep_txt = _color_state(rep)
-            lb_txt = _color_state(lb)
-            diag.add_row("Replica", rep_txt)
-            diag.add_row("LB", lb_txt)
+            diag.add_row("Replica", _color_state(rep))
+            diag.add_row("LB", _color_state(lb))
 
-        # Lepton raw platform state
         raw = st.detail.get("raw_state")
         if raw is not None:
             diag.add_row("Platform", _color_state(raw))
 
-        # Any remaining keys → Extras
         extras = {k: v for k, v in st.detail.items() if k not in {"http", "rep", "lb", "raw_state"}}
         if extras:
             extras_kv = ", ".join(f"{k}={v}" for k, v in extras.items())
             diag.add_row("Extra", Text(extras_kv, overflow="fold"))
+
+    diag_panel = (
+        Panel(
+            diag,
+            title="Diagnostics",
+            border_style="dim",
+            padding=(1, 2),
+            box=HEAVY,
+        )
+        if len(diag.rows) > 0
+        else Text("")
+    )
+
+    # Replica health block from watchdog
+    replica_panel: Panel | Text
+    if replica_summary is not None:
+        rep_table = Table(box=None, show_header=False, pad_edge=False)
+        rep_table.add_column("Key", style="bold dim")
+        rep_table.add_column("Value")
+
+        rep_table.add_row("Total replicas", str(replica_summary.total))
+        rep_table.add_row("Running", str(replica_summary.running))
+        rep_table.add_row("HTTP ready", str(replica_summary.http_ready))
+        rep_table.add_row("Failed", str(replica_summary.failed))
+
+        # Failure reasons table (if any)
+        reasons_panel: Panel | Text = Text("")
+        if replica_summary.fail_reasons:
+            reasons_table = Table(
+                title=None,
+                box=None,
+                show_header=True,
+                header_style="bold",
+                pad_edge=False,
+            )
+            reasons_table.add_column("Reason")
+            reasons_table.add_column("Count", justify="right")
+
+            for reason, count in sorted(
+                replica_summary.fail_reasons.items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            ):
+                label = reason or "unknown"
+                reasons_table.add_row(label, str(count))
+
+            reasons_panel = Panel(
+                reasons_table,
+                title="Failure reasons",
+                border_style="red",
+                padding=(0, 1),
+            )
+
+        replica_body = Group(
+            rep_table,
+            Text(),  # spacer
+            reasons_panel if isinstance(reasons_panel, Panel) else Text(""),
+        )
+
+        replica_panel = Panel(
+            replica_body,
+            title="Replicas (watchdog)",
+            border_style="magenta",
+            padding=(1, 2),
+            box=HEAVY,
+        )
+    else:
+        replica_panel = Text("")
 
     body = Group(
         Rule(banner, style="cyan"),
         Text(),  # spacer
         info,
         Text(),  # spacer
-        Panel(diag, title="Diagnostics", border_style="dim", padding=(1, 2), box=HEAVY)
-        if len(diag.rows) > 0
-        else Text(""),
+        diag_panel,
+        Text(),  # spacer
+        replica_panel,
     )
 
     panel = Panel(

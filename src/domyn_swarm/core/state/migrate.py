@@ -13,10 +13,13 @@
 # limitations under the License.
 
 from importlib.resources import files
+import os
 
 from alembic import command
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine
 
 
 def alembic_config_for(db_path: str) -> Config:
@@ -53,8 +56,12 @@ def get_current_rev(db_path: str) -> str | None:
     Get the current revision of the database at the given path.
     Returns None if the database is unversioned.
     """
-    cfg = alembic_config_for(db_path)
-    return command.current(cfg, verbose=False)
+    url = f"sqlite:///{os.path.abspath(db_path)}"
+    engine = create_engine(url)
+
+    with engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        return context.get_current_revision()
 
 
 def get_head_rev(db_path: str) -> str | None:

@@ -32,6 +32,7 @@ from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
+from domyn_swarm.config.watchdog import WatchdogConfig
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 
@@ -87,6 +88,7 @@ class DomynLLMSwarmConfig(BaseModel):
     _plan: DeploymentPlan | None = PrivateAttr(default=None)
 
     env: dict[str, str] | None = None
+    watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
 
     @model_validator(mode="after")
     def _resolve_platform_from_backends(self):
@@ -157,6 +159,12 @@ class DomynLLMSwarmConfig(BaseModel):
 
         # Requires Ray?
         requires_ray = gpus_per_replica > gpus_per_node and nodes > 1
+        # Ensure watchdog config exists and update ray settings
+        if "watchdog" not in data:
+            data["watchdog"] = {}
+        if "ray" not in data["watchdog"]:
+            data["watchdog"]["ray"] = {}
+        data["watchdog"]["ray"]["enabled"] = requires_ray
 
         if requires_ray and gpus_per_replica % gpus_per_node != 0:
             raise ValueError(

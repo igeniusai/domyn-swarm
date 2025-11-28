@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 import time
 
 from rich.console import Console
 from rich.status import Status
 
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
+from domyn_swarm.core.state.watchdog import SwarmReplicaSummary, read_swarm_summary
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.http_probe import wait_http_200
 from domyn_swarm.platform.protocols import ServingHandle
@@ -32,6 +34,13 @@ SLURM_BAD_STATES = {
 }
 
 SLURM_WAIT_STATES = {"PENDING", "CONFIGURING"}
+
+
+class SwarmReplicaFailure(RuntimeError):
+    """Raised when watchdog DB indicates that all replicas are in terminal states."""
+
+    pass
+
 
 logger = setup_logger(__name__)
 
@@ -49,11 +58,18 @@ class SlurmReadiness(ServingReadiness):
         endpoint_port: int,
         poll_interval_s: float = 10.0,
         console: Console | None = None,
+        watchdog_db: Path | None = None,
+        swarm_name: str | None = None,
     ):
         self.driver = driver
         self.endpoint_port = endpoint_port
         self.poll_interval_s = poll_interval_s
         self.console = console or Console()
+        self.watchdog_db = watchdog_db
+        self.swarm_name = swarm_name
+        self.last_status_tuple: tuple[int, int, int, int] | None = (
+            None  # total, running, http_ready, failed
+        )
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int) -> ServingHandle:
         jobid = handle.meta.get("jobid")
@@ -68,10 +84,15 @@ class SlurmReadiness(ServingReadiness):
             status.update(f"[yellow]LB job running on {lb_node}, probing HTTP…")
 
             base = f"http://{lb_node}:{self.endpoint_port}"
+
+            def _watchdog_tick() -> None:
+                self._watchdog_probe(status)
+
             wait_http_200(
                 f"{base}/health",
                 timeout_s=timeout_s,
                 poll_interval_s=self.poll_interval_s,
+                on_tick=_watchdog_tick,
             )
             handle.url = base
             logger.info(f"[bold green]LB healthy → {handle.url}")
@@ -95,3 +116,61 @@ class SlurmReadiness(ServingReadiness):
             elif rep == "RUNNING" and lb == "RUNNING":
                 return
             time.sleep(self.poll_interval_s)
+
+    def _watchdog_probe(self, status: Status) -> None:
+        """
+        Called periodically by wait_http_200 via `_watchdog_tick`.
+
+        Uses the watchdog DB (if configured) to:
+
+        - Update the status line with replica counts.
+        - Abort early if all replicas are in terminal states.
+        """
+        if not (self.watchdog_db and self.swarm_name):
+            return  # nothing configured → no-op
+
+        summary: SwarmReplicaSummary | None = read_swarm_summary(self.watchdog_db, self.swarm_name)
+        if summary is None:
+            # DB not present yet, or no rows written yet
+            return
+
+        if self.last_status_tuple == (
+            summary.total,
+            summary.running,
+            summary.http_ready,
+            summary.failed,
+        ):
+            return  # no change since last time
+
+        self.last_status_tuple = (
+            summary.total,
+            summary.running,
+            summary.http_ready,
+            summary.failed,
+        )
+
+        # Update the CLI status with live replica information
+        msg = (
+            f"[yellow]Waiting for replicas for swarm '{self.swarm_name}': "
+            f"total={summary.total}, running={summary.running}, "
+            f"http_ready={summary.http_ready}, failed_or_exited={summary.failed}…[/]"
+        )
+        status.update(msg)
+
+        if (
+            summary.total > 0
+            and summary.running == 0
+            and summary.http_ready == 0
+            and summary.failed > 0
+        ):
+            reason_frag = (
+                f" Example: {summary.example_fail_reason}" if summary.example_fail_reason else ""
+            )
+            status.update(
+                f"[red]All replicas failed for swarm '{self.swarm_name}' "
+                f"(failed_or_exited={summary.failed}/{summary.total}).{reason_frag}[/]"
+            )
+            raise SwarmReplicaFailure(
+                f"All replicas for swarm '{self.swarm_name}' are in terminal "
+                f"states (failed_or_exited={summary.failed}, total={summary.total})."
+            )

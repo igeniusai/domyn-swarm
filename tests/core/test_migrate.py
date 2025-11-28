@@ -55,19 +55,34 @@ def test_stamp_head_calls_alembic_stamp(mocker, tmp_path, migrate_mod):
     assert cfg_arg.get_main_option("sqlalchemy.url") == f"sqlite:///{db_path}"
 
 
-def test_get_current_rev_delegates_to_command_current(mocker, tmp_path, migrate_mod):
+def test_get_current_rev_uses_migration_context(mocker, tmp_path, migrate_mod):
     db_path = tmp_path / "swarm.db"
 
-    current_mock = mocker.patch.object(migrate_mod.command, "current", return_value="abc123")
+    # Patch create_engine so we don't touch a real DB
+    engine_mock = mocker.patch.object(migrate_mod, "create_engine")
+    engine = mocker.MagicMock()
+    engine_mock.return_value = engine
+
+    # Mock the connection returned by the context manager
+    conn = mocker.MagicMock()
+    # engine.connect() returns a context manager whose __enter__ returns conn
+    engine.connect.return_value.__enter__.return_value = conn
+
+    # Patch MigrationContext.configure(...) and its get_current_revision()
+    configure_mock = mocker.patch.object(migrate_mod.MigrationContext, "configure")
+    ctx = mocker.MagicMock()
+    ctx.get_current_revision.return_value = "abc123"
+    configure_mock.return_value = ctx
 
     rev = migrate_mod.get_current_rev(str(db_path))
 
-    current_mock.assert_called_once()
-    (cfg_arg,) = current_mock.call_args[0]
-    kw = current_mock.call_args.kwargs
-    assert isinstance(cfg_arg, migrate_mod.Config)
-    # They should pass verbose=False
-    assert kw.get("verbose") is False
+    engine_mock.assert_called_once()
+    (url_arg,) = engine_mock.call_args[0]
+    assert url_arg.startswith("sqlite:///")
+    assert url_arg.endswith("/swarm.db")
+
+    configure_mock.assert_called_once_with(conn)
+    ctx.get_current_revision.assert_called_once_with()
     assert rev == "abc123"
 
 

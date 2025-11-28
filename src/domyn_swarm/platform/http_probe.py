@@ -20,6 +20,10 @@ import requests
 from domyn_swarm.config.settings import get_settings
 
 
+class HttpWaitError(RuntimeError):
+    pass
+
+
 def wait_http_200(
     url: str,
     *,
@@ -28,11 +32,14 @@ def wait_http_200(
     now: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     http_get: Callable = requests.get,
+    on_tick: Callable[[], None] | None = None,
 ) -> None:
     deadline = now() + timeout_s
     settings = get_settings()
     token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
     while now() < deadline:
+        if on_tick:
+            on_tick()
         try:
             if token:
                 headers = {"Authorization": f"Bearer {token.get_secret_value()}"}
@@ -44,7 +51,7 @@ def wait_http_200(
         except requests.RequestException:
             pass
         sleep(poll_interval_s)
-    raise RuntimeError(f"Timeout waiting for {url} to return 200 OK")
+    raise HttpWaitError(f"Timeout waiting for {url} to return 200 OK")
 
 
 def get_url_status(url: str, http_get: Callable = requests.get) -> int:
