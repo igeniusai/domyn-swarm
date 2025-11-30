@@ -7,14 +7,14 @@ Responsibilities:
 - Periodically:
   * Check HTTP readiness / liveness.
   * Optionally probe Ray cluster via CLI (Ray-aware mode).
-  * Update a small SQLite table with status/heartbeat.
+  * Report status to Domyn-Swarm collector over TCP.
 - Automatically restart the child on crash according to a restart policy.
 
 Intended usage (from Slurm sbatch/srun):
 
   srun ... bash -lc '
     python -m domyn_swarm.runtime.watchdog \
-      --db "$DSWARM_DB" \
+      --collector-address "$DSWARM_COLLECTOR_HOST:$DSWARM_COLLECTOR_PORT" \
       --swarm-id "$DSWARM_SWARM_ID" \
       --replica-id "$DSWARM_REPLICA_ID" \
       --node "$DSWARM_NODE" \
@@ -48,7 +48,6 @@ from pathlib import Path
 import random
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -61,7 +60,6 @@ from urllib import error as urlerror, request
 MAX_REASON_LEN = 2048
 
 REPLICA_STATUS_TABLE = "replica_status"
-_LAST_STATUS: dict[tuple[str, int], tuple] = {}
 
 
 class ReplicaState(str, enum.Enum):
@@ -109,89 +107,6 @@ class WatchdogConfig:
 
     def http_url(self) -> str:
         return f"http://{self.host}:{self.port}{self.http_path}"
-
-
-# ---------------------------------------------------------------------------
-# SQLite helpers
-# ---------------------------------------------------------------------------
-
-
-def open_db(path: Path) -> sqlite3.Connection:
-    """
-    Open (or create) the watchdog SQLite DB at `path`, ensuring the schema exists.
-
-    Returns the sqlite3.Connection.
-    """
-    path = Path(path)
-
-    is_new = not path.exists()
-
-    conn = sqlite3.connect(path.as_posix(), timeout=60.0)
-
-    # PRAGMA tweaks: all best-effort, never fatal
-    try:
-        conn.execute("PRAGMA synchronous=NORMAL")
-    except sqlite3.OperationalError as e:
-        print(
-            f"watchdog: could not set synchronous=NORMAL for {path} "
-            f"(likely FS/SQLite limitation: {e!r}) - keeping default.",
-            file=sys.stderr,
-        )
-
-    try:
-        conn.execute("PRAGMA busy_timeout=5000")
-    except sqlite3.OperationalError as e:
-        print(
-            f"watchdog: could not set busy_timeout for {path} (keeping default): {e!r}",
-            file=sys.stderr,
-        )
-
-    # WAL is nice to have, but especially fragile on shared FS.
-    # Only try it on first creation, and swallow errors.
-    if is_new:
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError as e:
-            print(
-                f"watchdog: could not enable WAL for {path} "
-                f"(shared FS / locking protocol / older SQLite?) - proceeding "
-                f"without WAL: {e!r}",
-                file=sys.stderr,
-            )
-
-    ensure_schema(conn)
-    return conn
-
-
-def ensure_schema(conn: sqlite3.Connection) -> None:
-    try:
-        conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {REPLICA_STATUS_TABLE} (
-            swarm_id      TEXT NOT NULL,
-            replica_id    INTEGER NOT NULL,
-            node          TEXT,
-            port          INTEGER,
-            pid           INTEGER,
-            state         TEXT,
-            http_ready    INTEGER,
-            exit_code     INTEGER,
-            exit_signal   INTEGER,
-            fail_reason   TEXT,
-            agent_version TEXT,
-            last_seen     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (swarm_id, replica_id)
-            );
-            """
-        )
-        conn.commit()
-    except sqlite3.OperationalError as e:
-        print(
-            f"watchdog: could not create schema in DB (corrupted / incompatible?): {e!r}",
-            file=sys.stderr,
-        )
-        with contextlib.suppress(Exception):
-            conn.rollback()
 
 
 def _send_status_once(collector_address: str, payload: dict) -> bool:
@@ -619,6 +534,9 @@ def _monitor_child_loop(
                     child.wait()
 
                 ret = child.returncode if child.returncode is not None else 1
+                # Force a non-zero code so on-failure policy still restarts.
+                if ret == 0:
+                    ret = 1
                 _mark_state(
                     collector_address,
                     meta,
@@ -725,7 +643,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Domyn-Swarm watchdog (spawn & monitor a single vLLM replica)."
     )
-    parser.add_argument("--db", required=True, help="Path to per-swarm SQLite DB.")
     parser.add_argument("--swarm-id", required=True, help="Swarm identifier.")
     parser.add_argument("--replica-id", type=int, required=True, help="Replica index.")
     parser.add_argument("--node", required=True, help="Node hostname for diagnostics.")

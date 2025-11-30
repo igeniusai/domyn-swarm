@@ -2,7 +2,7 @@
 """
 Domyn-Swarm watchdog collector (single writer).
 
-- Listens on a UDP socket for JSON messages from watchdogs.
+- Listens on a TCP socket for JSON messages from watchdogs.
 - Each message describes the status of one replica.
 - Collector is the *only* writer to watchdog.db for a given swarm.
 
@@ -13,7 +13,7 @@ Example (in LB job):
     --host 0.0.0.0 \
     --port 9100
 
-Watchdog instances then send small JSON blobs via UDP to <host>:<port>.
+Watchdog instances then send small JSON blobs via TCP to <host>:<port>.
 """
 
 from __future__ import annotations
@@ -119,7 +119,14 @@ def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
       - agent_version (str|None)
     """
     swarm_id = str(payload.get("swarm_id", ""))
-    replica_id = int(payload.get("replica_id", 0))
+    try:
+        replica_id = int(payload.get("replica_id", 0))
+    except (TypeError, ValueError):
+        print(
+            f"collector: ignoring payload with invalid replica_id: {payload!r}",
+            file=sys.stderr,
+        )
+        return
 
     if not swarm_id:
         # Ignore malformed packets quietly
@@ -173,7 +180,7 @@ def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# UDP collector loop
+# Collector loop (TCP)
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +188,7 @@ def run_collector(db_path: Path, host: str, port: int) -> int:
     """
     Main collector loop.
 
-    Listens on UDP socket at (host, port) for JSON messages from watchdogs.
+    Listens on TCP socket at (host, port) for JSON messages from watchdogs.
     Each message describes the status of one replica, which is upserted into
     the replica_status table in the SQLite DB at db_path.
 
@@ -305,13 +312,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--host",
         default="0.0.0.0",
-        help="IP/host to bind the UDP socket to (default: 0.0.0.0).",
+        help="IP/host to bind the TCP socket to (default: 0.0.0.0).",
     )
     p.add_argument(
         "--port",
         type=int,
         default=9100,
-        help="UDP port to listen on (default: 9100).",
+        help="TCP port to listen on (default: 9100).",
     )
     return p.parse_args(argv)
 
