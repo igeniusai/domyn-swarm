@@ -8,12 +8,12 @@ class WatchdogRayConfig(BaseModel):
     expected_tp: int | None = None
     probe_timeout_s: float = 120.0
     status_grace_s: float = 10.0
-    probe_interval_s: float = 10.0
+    probe_interval_s: float = 30.0
 
 
 class WatchdogConfig(BaseModel):
     enabled: bool = True
-    probe_interval: int = 5
+    probe_interval: int = 30
     http_path: str = "/health"
     http_timeout: float = 2.0
     readiness_timeout: int = 600

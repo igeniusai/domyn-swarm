@@ -45,7 +45,9 @@ import enum
 import json
 import os
 from pathlib import Path
+import random
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -59,6 +61,7 @@ from urllib import error as urlerror, request
 MAX_REASON_LEN = 2048
 
 REPLICA_STATUS_TABLE = "replica_status"
+_LAST_STATUS: dict[tuple[str, int], tuple] = {}
 
 
 class ReplicaState(str, enum.Enum):
@@ -86,8 +89,10 @@ class WatchdogConfig:
     port: int = 8000
     http_path: str = "/v1/models"
     http_timeout_s: float = 2.0
-    probe_interval_s: float = 5.0
+    probe_interval_s: float = 10.0
     unhealthy_http_failures: int = 3
+    # How long to allow UNHEALTHY before forcing a restart.
+    unhealthy_restart_after: float = 300.0
 
     kill_grace_seconds: float = 10.0
 
@@ -189,64 +194,42 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             conn.rollback()
 
 
-def upsert_status(
-    conn: sqlite3.Connection,
-    *,
-    swarm_id: str,
-    replica_id: int,
-    node: str | None,
-    port: int | None,
-    pid: int | None,
-    state: ReplicaState,
-    http_ready: bool,
-    exit_code: int | None,
-    exit_signal: int | None,
-    fail_reason: str | None,
-    agent_version: str,
-) -> None:
+def _send_status_once(collector_address: str, payload: dict) -> bool:
+    """
+    Try to send a single status update.
+
+    Returns True on success, False on failure.
+    """
+    host, port_str = collector_address.split(":")
     try:
-        with conn:
-            conn.execute(
-                f"""
-                INSERT INTO {REPLICA_STATUS_TABLE}
-                (swarm_id, replica_id, node, port, pid, state, http_ready,
-                exit_code, exit_signal, fail_reason, agent_version, last_seen)
-                VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT (swarm_id, replica_id) DO UPDATE SET
-                node          = excluded.node,
-                port          = excluded.port,
-                pid           = excluded.pid,
-                state         = excluded.state,
-                http_ready    = excluded.http_ready,
-                exit_code     = excluded.exit_code,
-                exit_signal   = excluded.exit_signal,
-                fail_reason   = excluded.fail_reason,
-                agent_version = excluded.agent_version,
-                last_seen     = CURRENT_TIMESTAMP;
-                """,
-                (
-                    swarm_id,
-                    replica_id,
-                    node,
-                    port,
-                    pid,
-                    state.value,
-                    1 if http_ready else 0,
-                    exit_code,
-                    exit_signal,
-                    fail_reason,
-                    agent_version,
-                ),
-            )
-            conn.commit()
-    except sqlite3.OperationalError as e:
+        with socket.create_connection((host, int(port_str)), timeout=1.0) as sock:
+            line = json.dumps(payload, separators=(",", ":")) + "\n"
+            sock.sendall(line.encode("utf-8"))
+        return True
+    except OSError as e:
+        # log & continue; status reporting must not kill watchdog
         print(
-            f"watchdog: failed to update replica_status for {swarm_id}[{replica_id}] "
-            f"(state={state}) due to SQLite error: {e!r}. "
-            "Continuing without DB persistence.",
+            f"watchdog[{payload['replica_id']}]: failed to send status: {e!r}",
             file=sys.stderr,
         )
+        return False
+
+
+def send_status(
+    collector_address: str,
+    *,
+    payload: dict,
+) -> None:
+    max_attempts = 5
+    base_delay = 0.1
+
+    for attempt in range(max_attempts):
+        if _send_status_once(collector_address, payload):
+            return
+
+        # exponential backoff + jitter
+        sleep_for = base_delay * (2**attempt) + random.uniform(0, 0.1)
+        time.sleep(sleep_for)
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +365,7 @@ class ReplicaMeta:
 
 
 def _mark_state(
-    conn: sqlite3.Connection,
+    collector_address: str,
     meta: ReplicaMeta,
     cfg: WatchdogConfig,
     *,
@@ -393,31 +376,35 @@ def _mark_state(
     exit_signal: int | None,
     fail_reason: str | None,
 ) -> None:
-    upsert_status(
-        conn,
-        swarm_id=meta.swarm_id,
-        replica_id=meta.replica_id,
-        node=meta.node,
-        port=meta.port,
-        pid=pid,
-        state=state,
-        http_ready=http_ready,
-        exit_code=exit_code,
-        exit_signal=exit_signal,
-        fail_reason=fail_reason,
-        agent_version=cfg.agent_version,
+    payload = {
+        "swarm_id": meta.swarm_id,
+        "replica_id": meta.replica_id,
+        "node": meta.node,
+        "port": meta.port,
+        "pid": pid,
+        "state": state.value,
+        "http_ready": http_ready,
+        "exit_code": exit_code,
+        "exit_signal": exit_signal,
+        "fail_reason": fail_reason,
+        "agent_version": cfg.agent_version,
+    }
+
+    send_status(
+        collector_address,
+        payload=payload,
     )
 
 
 def _spawn_child_and_mark_running(
-    conn: sqlite3.Connection,
+    collector_address: str,
     meta: ReplicaMeta,
     cfg: WatchdogConfig,
     child_argv: Sequence[str],
 ) -> tuple[subprocess.Popen, int]:
     # Mark STARTING
     _mark_state(
-        conn,
+        collector_address,
         meta,
         cfg,
         state=ReplicaState.STARTING,
@@ -438,7 +425,7 @@ def _spawn_child_and_mark_running(
 
     # Mark RUNNING
     _mark_state(
-        conn,
+        collector_address,
         meta,
         cfg,
         state=ReplicaState.RUNNING,
@@ -460,7 +447,7 @@ def _should_restart(exit_code: int, cfg: WatchdogConfig, restart_count: int) -> 
 
 
 def _probe_and_update(
-    conn: sqlite3.Connection,
+    collector_address: str,
     meta: ReplicaMeta,
     cfg: WatchdogConfig,
     pid: int,
@@ -469,7 +456,7 @@ def _probe_and_update(
     ray_ok_since: float | None,
     last_ray_probe: float,
     ray_prefix: Sequence[str],
-) -> tuple[int, float | None, float | None, float]:
+) -> tuple[int, float | None, float | None, float, ReplicaState]:
     now = time.time()
     url = cfg.http_url()
 
@@ -502,7 +489,7 @@ def _probe_and_update(
     )
 
     _mark_state(
-        conn,
+        collector_address,
         meta,
         cfg,
         state=state,
@@ -513,11 +500,11 @@ def _probe_and_update(
         fail_reason=None,
     )
 
-    return http_failures, http_ok_since, ray_ok_since, last_ray_probe
+    return http_failures, http_ok_since, ray_ok_since, last_ray_probe, state
 
 
 def _monitor_child_loop(
-    conn: sqlite3.Connection,
+    collector_address: str,
     meta: ReplicaMeta,
     cfg: WatchdogConfig,
     child: subprocess.Popen,
@@ -536,6 +523,7 @@ def _monitor_child_loop(
     ray_ok_since: float | None = None
     last_ray_probe = 0.0
     fail_reason: str | None = None
+    unhealthy_since: float | None = None
 
     while True:
         if stop_flag.get("stop"):
@@ -543,9 +531,15 @@ def _monitor_child_loop(
             if child.poll() is None:
                 with contextlib.suppress(Exception):
                     child.terminate()
-            child.wait(timeout=cfg.kill_grace_seconds)
+            try:
+                child.wait(timeout=cfg.kill_grace_seconds)
+            except subprocess.TimeoutExpired:
+                # Prevent watchdog crash on hung child: force-kill then mark state.
+                with contextlib.suppress(Exception):
+                    child.kill()
+                child.wait()
             _mark_state(
-                conn,
+                collector_address,
                 meta,
                 cfg,
                 state=ReplicaState.EXITED,
@@ -573,7 +567,7 @@ def _monitor_child_loop(
                 )
 
             _mark_state(
-                conn,
+                collector_address,
                 meta,
                 cfg,
                 state=state,
@@ -587,8 +581,14 @@ def _monitor_child_loop(
             return ret, should_restart, fail_reason
 
         # Still running → probe and update status
-        http_failures, http_ok_since, ray_ok_since, last_ray_probe = _probe_and_update(
-            conn,
+        (
+            http_failures,
+            http_ok_since,
+            ray_ok_since,
+            last_ray_probe,
+            state,
+        ) = _probe_and_update(
+            collector_address,
             meta,
             cfg,
             pid,
@@ -599,11 +599,45 @@ def _monitor_child_loop(
             ray_prefix,
         )
 
+        if state != ReplicaState.UNHEALTHY:
+            unhealthy_since = None
+        else:
+            unhealthy_since = unhealthy_since or time.time()
+            if (
+                cfg.unhealthy_restart_after
+                and time.time() - unhealthy_since >= cfg.unhealthy_restart_after
+            ):
+                # After sustained UNHEALTHY, restart the child and mark FAILED.
+                fail_reason = f"unhealthy_timeout>={cfg.unhealthy_restart_after}s"
+                with contextlib.suppress(Exception):
+                    child.terminate()
+                try:
+                    child.wait(timeout=cfg.kill_grace_seconds)
+                except subprocess.TimeoutExpired:
+                    with contextlib.suppress(Exception):
+                        child.kill()
+                    child.wait()
+
+                ret = child.returncode if child.returncode is not None else 1
+                _mark_state(
+                    collector_address,
+                    meta,
+                    cfg,
+                    state=ReplicaState.FAILED,
+                    http_ready=False,
+                    pid=pid,
+                    exit_code=ret,
+                    exit_signal=None,
+                    fail_reason=fail_reason,
+                )
+                should_restart = _should_restart(ret, cfg, restart_count)
+                return ret, should_restart, fail_reason
+
         time.sleep(cfg.probe_interval_s)
 
 
 def run_watchdog(
-    db_path: Path,
+    collector_address: str,
     swarm_id: str,
     replica_id: int,
     node: str,
@@ -626,7 +660,6 @@ def run_watchdog(
 
     cfg.port = port
 
-    db_conn = open_db(db_path)
     ray_prefix: Sequence[str] = ray_exec_prefix or []
 
     meta = ReplicaMeta(
@@ -648,11 +681,11 @@ def run_watchdog(
 
     while True:
         # 1) Spawn child and mark STARTING/RUNNING
-        child, pid = _spawn_child_and_mark_running(db_conn, meta, cfg, child_argv)
+        child, pid = _spawn_child_and_mark_running(collector_address, meta, cfg, child_argv)
 
         # 2) Monitor until it exits or we get a stop signal
         exit_code, should_restart, fail_reason = _monitor_child_loop(
-            db_conn,
+            collector_address,
             meta,
             cfg,
             child,
@@ -670,7 +703,7 @@ def run_watchdog(
 
         # 3) Mark RESTARTING and backoff before re-spawn
         _mark_state(
-            db_conn,
+            collector_address,
             meta,
             cfg,
             state=ReplicaState.RESTARTING,
@@ -806,6 +839,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--collector-address",
+        type=str,
+        default="localhost:9100",
+        help="Address and port of the Domyn-Swarm metrics collector.",
+    )
+    parser.add_argument(
         "child",
         nargs=argparse.REMAINDER,
         help="Child command to run (must appear after '--').",
@@ -858,6 +897,7 @@ def main(argv: list[str] | None = None) -> int:
         http_timeout_s=args.http_timeout,
         probe_interval_s=args.probe_interval,
         unhealthy_http_failures=args.unhealthy_http_failures,
+        unhealthy_restart_after=args.unhealthy_restart_after,
         restart_policy=args.restart_policy,
         restart_backoff_s=args.restart_backoff,
         max_restarts=args.max_restarts,
@@ -871,11 +911,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
-    db_path = Path(args.db)
     ray_prefix: Sequence[str] | None = args.ray_exec_prefix or None
 
     return run_watchdog(
-        db_path=db_path,
+        collector_address=args.collector_address,
         swarm_id=args.swarm_id,
         replica_id=args.replica_id,
         node=args.node,

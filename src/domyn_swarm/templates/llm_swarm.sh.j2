@@ -91,6 +91,15 @@ export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DI
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
 
+#Wait for creation of file "SWARM_DIR/serving/collector.env" containing COLLECTOR_HOST and COLLECTOR_PORT
+echo "[replica $REPL_ID] waiting for collector.env file..."
+while [ ! -f "{{ swarm_directory }}/serving/collector.env" ]; do
+    sleep 2
+done
+
+source "{{ swarm_directory }}/serving/collector.env"
+echo "[replica $REPL_ID] loaded collector config: COLLECTOR_HOST=$COLLECTOR_HOST COLLECTOR_PORT=$COLLECTOR_PORT"
+
 ###############################################################################
 #  SINGLE-NODE or SHARED-NODES DEPLOYMENT
 ###############################################################################
@@ -134,6 +143,7 @@ function start_vllm_replica() {
       --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
       --max-restarts {{ cfg.watchdog.max_restarts }} \
       --log-dir "$log_dir" \
+      --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
       -- \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.args %}

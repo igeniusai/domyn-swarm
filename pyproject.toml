@@ -173,7 +173,7 @@ max-complexity = 14
 "tests/**/*.py" = ["T201"]
 "scripts/**/*.py" = ["T201"]
 "src/domyn_swarm/helpers/*.py" = ["T201"]
-"src/domyn_swarm/runtime/watchdog.py" = ["T201"]
+"src/domyn_swarm/runtime/*.py" = ["T201"]
 "src/domyn_swarm/utils/version.py" = ["T201"]
 "src/domyn_swarm/cli/main.py" = ["T201"]
 

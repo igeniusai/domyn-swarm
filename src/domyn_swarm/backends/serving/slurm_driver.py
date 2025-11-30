@@ -23,6 +23,7 @@ from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
+import domyn_swarm.runtime.collector as collector_mod
 import domyn_swarm.runtime.watchdog as watchdog_mod
 
 logger = setup_logger(__name__)
@@ -112,6 +113,7 @@ class SlurmDriver:
             dep_jobid=dep_jobid,
             replicas=replicas,
             swarm_directory=swarm_directory,
+            collector_script_path=Path(collector_mod.__file__).resolve().as_posix(),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:

@@ -23,9 +23,29 @@ HOME_DIR="{{ cfg.home_directory }}"
 HOST_DIR="{{ swarm_directory }}"
 WAIT_SEC={{ cfg.wait_endpoint_s | default(1800) }}
 NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
+PYTHON_IMG={{ cfg.image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
 PORT={{ cfg.backend.endpoint.port }}
 
+COLLECTOR_PORT="${COLLECTOR_PORT:-9100}"
+COLLECTOR_HOST="$(hostname -f)"   # or -s, or IP, as long as replicas can reach it
+
+singularity exec --writable-tmpfs --bind "{{ collector_script_path }}:/opt/watchdog_collector.py,$HOST_DIR" "$PYTHON_IMG" \
+  python3 /opt/watchdog_collector.py \
+  --db "$HOST_DIR/watchdog.db" \
+  --host "0.0.0.0" \
+  --port "$COLLECTOR_PORT" \
+  >>"$HOST_DIR/logs/collector.log" 2>&1 &
+COLLECTOR_PID=$!
+
+{
+    echo "COLLECTOR_HOST=$COLLECTOR_HOST"
+    echo "COLLECTOR_PORT=$COLLECTOR_PORT"
+} > "$HOST_DIR/serving/collector.env"
+
+echo "[lb] started collector on $COLLECTOR_HOST:$COLLECTOR_PORT with PID $COLLECTOR_PID"
+
+trap 'echo "[lb] shutting down collector"; kill $COLLECTOR_PID' EXIT
 
 echo "[lb] waiting for $REPLICAS head files from job $DEP_JOBID"
 
