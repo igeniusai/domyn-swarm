@@ -306,7 +306,7 @@ function start_vllm_server() {
            instance://"$INSTANCE_TAG" \
            python3 /opt/watchdog.py \
             --swarm-id {{job_name}} \
-            --replica-id=0 \
+            --replica-id $REPL_ID \
             --node $HEAD_NODE \
             --port $HEAD_PORT \
             --probe-interval {{ cfg.watchdog.probe_interval }} \

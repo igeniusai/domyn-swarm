@@ -42,6 +42,7 @@ from collections.abc import Sequence
 import contextlib
 from dataclasses import dataclass, field
 import enum
+from http.client import BadStatusLine
 import json
 import os
 from pathlib import Path
@@ -205,7 +206,7 @@ def _check_http(url: str, timeout: float) -> bool:
     try:
         with request.urlopen(url, timeout=timeout) as resp:
             return 200 <= resp.status < 300
-    except (urlerror.URLError, urlerror.HTTPError, TimeoutError, OSError):
+    except (urlerror.URLError, urlerror.HTTPError, TimeoutError, OSError, BadStatusLine):
         return False
 
 
@@ -617,6 +618,11 @@ def run_watchdog(
             return exit_code
 
         restart_count += 1
+
+        print(
+            f"watchdog[{meta.replica_id}]: restarting child (attempt #{restart_count})",
+            file=sys.stderr,
+        )
 
         # 3) Mark RESTARTING and backoff before re-spawn
         _mark_state(
