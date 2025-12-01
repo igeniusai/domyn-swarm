@@ -661,6 +661,27 @@ with DomynLLMSwarm(cfg=cfg) as swarm:
 
 ---
 
+## Watchdog & Collector
+
+Domyn-Swarm uses a lightweight **watchdog + collector** pair to monitor vLLM replicas and persist their health.
+
+- Each replica is launched via `domyn_swarm.runtime.watchdog`, which:
+  - Spawns `vllm serve …`
+  - Probes HTTP `/health` (and optionally Ray)
+  - Applies restart policy (`always` / `on-failure` / `never`) plus `unhealthy_restart_after` for forced restarts
+  - Sends compact JSON status updates (state, `http_ready`, `pid`, `exit_code`, `fail_reason`, `agent_version`, `last_seen`, …) over **TCP** to the collector.
+
+- A single **collector** (`domyn_swarm.runtime.collector`) runs per swarm (on the LB node) and:
+  - Listens on `--host` / `--port` for watchdog updates
+  - Acts as the **only writer** to a per-swarm SQLite DB (`watchdog.db`)
+  - Upserts into a `replica_status` table keyed by `(swarm_id, replica_id)`
+  - Enables WAL / `busy_timeout` on a best-effort basis and ignores malformed packets or transient SQLite errors.
+
+- Watchdogs discover the collector via `--collector-address host:port` (injected by the Slurm backend); you normally don’t have to wire this manually.
+
+- `domyn-swarm status` reads from `watchdog.db` to show per-replica health (running/unhealthy/failed, HTTP readiness, and failure reasons) alongside the load balancer endpoint.
+---
+
 ## Contributing
 
 We welcome issues and PRs! Please see:
