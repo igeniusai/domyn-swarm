@@ -533,10 +533,9 @@ def _monitor_child_loop(
                         child.kill()
                     child.wait()
 
-                ret = child.returncode if child.returncode is not None else 1
-                # Force a non-zero code so on-failure policy still restarts.
-                if ret == 0:
-                    ret = 1
+                raw_ret = child.returncode
+                ret = raw_ret if raw_ret not in (None, 0) else 1
+
                 _mark_state(
                     collector_address,
                     meta,
@@ -806,6 +805,11 @@ def main(argv: list[str] | None = None) -> int:
     if not child_argv:
         print("watchdog: no child command provided after '--'", file=sys.stderr)
         return 1
+
+    print(
+        f"[debug] restart_policy={args.restart_policy}, max_restarts={args.max_restarts}",
+        file=sys.stderr,
+    )
 
     cfg = WatchdogConfig(
         host="127.0.0.1",  # typically localhost inside the replica node

@@ -199,3 +199,6 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 addopts = "--cov-config=.coveragerc --cov=src/ --cov-report html"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')"
+]
