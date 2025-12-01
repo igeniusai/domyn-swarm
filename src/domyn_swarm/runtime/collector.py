@@ -63,13 +63,6 @@ def open_db(path: Path) -> sqlite3.Connection:
             f"collector: could not set busy_timeout ({e!r}); continuing.",
             file=sys.stderr,
         )
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-    except sqlite3.OperationalError as e:
-        print(
-            f"collector: could not enable WAL ({e!r}); continuing without WAL.",
-            file=sys.stderr,
-        )
 
     ensure_schema(conn)
     return conn
