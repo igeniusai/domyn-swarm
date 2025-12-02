@@ -111,6 +111,15 @@ def main(argv: list[str] | None = None) -> int:
         _serve_http(args.port, mode="http_unhealthy")
         return 0
 
+    if mode == "slow_start_then_ok":
+        delay_s = float(os.environ.get("FAKE_CHILD_START_DELAY", "5") or "5")
+        print(
+            f"[fake-child] run #{run_no}: slow_start_then_ok, sleeping {delay_s}s "
+            "before starting healthy HTTP server",
+            file=sys.stderr,
+        )
+        time.sleep(delay_s)
+
     # Default / healthy mode: start a /health server and stay alive
     print(
         f"[fake-child] run #{run_no}: starting healthy HTTP server on {args.port}", file=sys.stderr

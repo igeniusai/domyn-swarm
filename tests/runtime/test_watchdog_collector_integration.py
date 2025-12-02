@@ -782,3 +782,96 @@ def test_watchdog_unhealthy_restart_after_triggers_restart(
     # or a non-zero exit; but don't make this too strict to avoid flakiness.
     if fail_reason:
         assert "unhealthy" in fail_reason or "exit_code" in fail_reason or "timeout" in fail_reason
+
+
+@pytest.mark.integration
+def test_watchdog_respects_startup_readiness_timeout(
+    collector_process,
+    spawn_watchdog,
+    fake_child_script,
+):
+    """
+    The child takes some time before its /health endpoint becomes ready,
+    but becomes healthy *within* readiness_timeout.
+
+    We expect:
+      - No watchdog restarts (run_count == 1).
+      - Replica eventually reaches RUNNING with http_ready=1 in watchdog.db.
+      - No UNHEALTHY/FAILED state purely due to slow startup.
+    """
+    db_path, host, port, _collector_proc = collector_process
+    swarm_id = "swarm-readiness-grace"
+    replica_id = 0
+    node = "test-node"
+    child_port = get_free_port()
+
+    # Fake child: sleep for a while, then start healthy HTTP server.
+    # Delay is shorter than readiness_timeout so no restart should happen.
+    env_overrides = {
+        "FAKE_CHILD_MODE": "slow_start_then_ok",
+        "FAKE_CHILD_START_DELAY": "5",  # seconds
+    }
+
+    watchdog_proc, state_file, _log_dir = spawn_watchdog(
+        collector_host=host,
+        collector_port=port,
+        child_script=fake_child_script,
+        swarm_id=swarm_id,
+        replica_id=replica_id,
+        node=node,
+        child_port=child_port,
+        extra_args=[
+            "--probe-interval",
+            "0.5",
+            "--http-timeout",
+            "0.5",
+            "--unhealthy-http-failures",
+            "1",
+            "--unhealthy-restart-after",
+            "10",  # > readiness_timeout; we care about grace, not restart here
+            "--readiness-timeout",
+            "15",  # > FAKE_CHILD_START_DELAY (5s) → no restart during startup
+        ],
+        env_overrides=env_overrides,
+    )
+
+    start = time.time()
+    timeout_s = 40.0
+    seen_http_ready = False
+    states_seen: list[tuple[str, int, int | None, str | None]] = []
+
+    while time.time() - start < timeout_s:
+        # Did watchdog die unexpectedly?
+        if watchdog_proc.poll() is not None:
+            break
+
+        row = read_replica_row(db_path, swarm_id, replica_id)
+        if row is not None:
+            state, http_ready, exit_code_db, fail_reason = row
+            states_seen.append((state, http_ready, exit_code_db, fail_reason))
+            if state == "running" and int(http_ready or 0) == 1:
+                seen_http_ready = True
+                break
+
+        time.sleep(0.5)
+
+    # Cleanup watchdog so the test doesn't leak processes
+    terminate_proc_with_logs(watchdog_proc, label="watchdog")
+
+    # --- Assertions ---
+
+    # We must have observed at least one DB row for this replica.
+    assert states_seen, "no states observed in replica_status for this swarm/replica"
+
+    # At least once, we should see RUNNING with http_ready=1
+    assert seen_http_ready, f"never observed RUNNING with http_ready=1; states_seen={states_seen}"
+
+    # The child should have been started exactly once (no restart)
+    assert state_file.exists(), "fake child state file was not created"
+    runs = read_run_count(state_file)
+    assert runs == 1, f"expected a single child run (no restart), got {runs}"
+
+    # We should not have gone through UNHEALTHY purely due to slow startup.
+    assert not any(s == "unhealthy" for (s, *_rest) in states_seen), (
+        f"replica went UNHEALTHY during startup despite readiness grace; states_seen={states_seen}"
+    )
