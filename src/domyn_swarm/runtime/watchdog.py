@@ -100,6 +100,8 @@ class WatchdogConfig:
     restart_backoff_s: float = 10.0
     max_restarts: int | None = None  # None => unlimited
 
+    readiness_timeout: float = 60.0  # seconds to wait for initial readiness
+
     # Metadata
     agent_version: str = "unknown"
 
@@ -372,6 +374,7 @@ def _probe_and_update(
     ray_ok_since: float | None,
     last_ray_probe: float,
     ray_prefix: Sequence[str],
+    in_startup_grace: bool = False,
 ) -> tuple[int, float | None, float | None, float, ReplicaState]:
     now = time.time()
     url = cfg.http_url()
@@ -398,11 +401,16 @@ def _probe_and_update(
     http_ready_flag = bool(http_ok_since) and (not cfg.ray.enabled or ray_ready)
 
     # Running vs Unhealthy
-    state = (
-        ReplicaState.UNHEALTHY
-        if http_failures >= cfg.unhealthy_http_failures
-        else ReplicaState.RUNNING
-    )
+    if in_startup_grace:
+        # During startup, never mark UNHEALTHY just because HTTP is not ready yet
+        state = ReplicaState.STARTING if not http_ready_flag else ReplicaState.RUNNING
+        http_failures = 0
+    else:
+        state = (
+            ReplicaState.UNHEALTHY
+            if http_failures >= cfg.unhealthy_http_failures
+            else ReplicaState.RUNNING
+        )
 
     _mark_state(
         collector_address,
@@ -440,6 +448,7 @@ def _monitor_child_loop(
     last_ray_probe = 0.0
     fail_reason: str | None = None
     unhealthy_since: float | None = None
+    started_at = time.time()
 
     while True:
         if stop_flag.get("stop"):
@@ -497,6 +506,9 @@ def _monitor_child_loop(
             return ret, should_restart, fail_reason
 
         # Still running → probe and update status
+        now = time.time()
+        in_startup_grace = (now - started_at) < cfg.readiness_timeout
+
         (
             http_failures,
             http_ok_since,
@@ -513,43 +525,45 @@ def _monitor_child_loop(
             ray_ok_since,
             last_ray_probe,
             ray_prefix,
+            in_startup_grace=in_startup_grace,
         )
 
         if state != ReplicaState.UNHEALTHY:
             unhealthy_since = None
         else:
-            unhealthy_since = unhealthy_since or time.time()
-            if (
-                cfg.unhealthy_restart_after
-                and time.time() - unhealthy_since >= cfg.unhealthy_restart_after
-            ):
-                # After sustained UNHEALTHY, restart the child and mark FAILED.
-                fail_reason = f"unhealthy_timeout>={cfg.unhealthy_restart_after}s"
-                with contextlib.suppress(Exception):
-                    child.terminate()
-                try:
-                    child.wait(timeout=cfg.kill_grace_seconds)
-                except subprocess.TimeoutExpired:
+            if not in_startup_grace:
+                unhealthy_since = unhealthy_since or time.time()
+                if (
+                    cfg.unhealthy_restart_after
+                    and time.time() - unhealthy_since >= cfg.unhealthy_restart_after
+                ):
+                    # After sustained UNHEALTHY, restart the child and mark FAILED.
+                    fail_reason = f"unhealthy_timeout>={cfg.unhealthy_restart_after}s"
                     with contextlib.suppress(Exception):
-                        child.kill()
-                    child.wait()
+                        child.terminate()
+                    try:
+                        child.wait(timeout=cfg.kill_grace_seconds)
+                    except subprocess.TimeoutExpired:
+                        with contextlib.suppress(Exception):
+                            child.kill()
+                        child.wait()
 
-                raw_ret = child.returncode
-                ret = raw_ret if raw_ret not in (None, 0) else 1
+                    raw_ret = child.returncode
+                    ret = raw_ret if raw_ret not in (None, 0) else 1
 
-                _mark_state(
-                    collector_address,
-                    meta,
-                    cfg,
-                    state=ReplicaState.FAILED,
-                    http_ready=False,
-                    pid=pid,
-                    exit_code=ret,
-                    exit_signal=None,
-                    fail_reason=fail_reason,
-                )
-                should_restart = _should_restart(ret, cfg, restart_count)
-                return ret, should_restart, fail_reason
+                    _mark_state(
+                        collector_address,
+                        meta,
+                        cfg,
+                        state=ReplicaState.FAILED,
+                        http_ready=False,
+                        pid=pid,
+                        exit_code=ret,
+                        exit_signal=None,
+                        fail_reason=fail_reason,
+                    )
+                    should_restart = _should_restart(ret, cfg, restart_count)
+                    return ret, should_restart, fail_reason
 
         time.sleep(cfg.probe_interval_s)
 
@@ -829,6 +843,7 @@ def main(argv: list[str] | None = None) -> int:
         restart_backoff_s=args.restart_backoff,
         max_restarts=args.max_restarts,
         agent_version=args.agent_version,
+        readiness_timeout=args.readiness_timeout,
         ray=WatchdogRayConfig(
             enabled=bool(args.ray_enabled),
             expected_tp=args.ray_expected_tp or None,
