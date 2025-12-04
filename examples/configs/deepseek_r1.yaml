@@ -6,16 +6,16 @@ gpus_per_node: 4
 replicas: 1
 args: "--block-size 32 --enable-expert-parallel --reasoning-parser deepseek_r1 --pipeline-parallel-size 6  --dtype bfloat16 --gpu-memory-utilization 0.95 --max-model-len 32768 --max-num-seqs 128"
 lb_wait: 3600
-image: "/leonardo_work/iGen_train/fdambro1/images/vllm_0.11.0.sif"
+image: "/path/to/vllm.sif"
 env:
-  HF_HOME: /leonardo_work/iGen_train/shared_hf_cache
+  HF_HOME: /path/to/hf_home/
 backend:
   type: slurm
-  partition: boost_usr_prod
-  account: iGen_train
-  qos: qos_llm_min
+  partition: your_partition
+  account: your_account
+  qos: your_qos
   endpoint:
-    nginx_image: "/leonardo_work/iGen_train/fdambro1/images/nginx.sif"
+    nginx_image: "/path/to/nginx.sif"
     port: 9001
     cpus_per_task: 4
     wall_time: "36:00:00"
