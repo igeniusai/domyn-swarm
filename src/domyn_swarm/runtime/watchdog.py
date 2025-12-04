@@ -388,17 +388,25 @@ def _probe_and_update(
         http_failures += 1
         http_ok_since = None
 
-    # Ray probe (optional)
+    # Ray probe
     ray_ready = True
     if cfg.ray.enabled:
-        if now - last_ray_probe >= cfg.ray.probe_interval_s:
+        should_probe = (last_ray_probe == 0.0) or (now - last_ray_probe >= cfg.ray.probe_interval_s)
+        if should_probe:
             ray_single_ok = _ray_probe_once(cfg.ray, ray_prefix)
             last_ray_probe = now
-            ray_ok_since = now if ray_single_ok else None
 
-        ray_ready = ray_ok_since is not None and now - ray_ok_since >= cfg.ray.status_grace_s
+            if ray_single_ok:
+                # Only set the "ok since" timestamp on the *first* success
+                if ray_ok_since is None:
+                    ray_ok_since = now
+            else:
+                # Any failed probe resets the ok-since timer
+                ray_ok_since = None
 
-    http_ready_flag = bool(http_ok_since) and (not cfg.ray.enabled or ray_ready)
+        ray_ready = ray_ok_since is not None and (now - ray_ok_since) >= cfg.ray.status_grace_s
+
+    http_ready_flag = bool(http_ok_since) and ray_ready
 
     # Running vs Unhealthy
     if in_startup_grace:
@@ -481,6 +489,8 @@ def _monitor_child_loop(
             # Child exited
             state = ReplicaState.EXITED if ret == 0 else ReplicaState.FAILED
 
+            print("Child has exited with return code", ret, file=sys.stderr)
+
             if state == ReplicaState.FAILED:
                 log_path = log_dir / "vllm.log"
                 fail_reason = build_fail_reason(
@@ -528,6 +538,16 @@ def _monitor_child_loop(
             in_startup_grace=in_startup_grace,
         )
 
+        print(
+            f"[watchdog[{meta.replica_id}] State:",
+            state,
+            "HTTP failures:",
+            http_failures,
+            file=sys.stderr,
+        )
+        print(f"[watchdog[{meta.replica_id}] Ray ok since:", ray_ok_since, file=sys.stderr)
+        print(f"[watchdog[{meta.replica_id}] Last Ray probe:", last_ray_probe, file=sys.stderr)
+
         if state != ReplicaState.UNHEALTHY:
             unhealthy_since = None
         else:
@@ -551,6 +571,12 @@ def _monitor_child_loop(
                     raw_ret = child.returncode
                     ret = raw_ret if raw_ret not in (None, 0) else 1
 
+                    print(
+                        f"[watchdog[{meta.replica_id}] Marking FAILED due to "
+                        "sustained UNHEALTHY state",
+                        file=sys.stderr,
+                    )
+
                     _mark_state(
                         collector_address,
                         meta,
@@ -563,6 +589,12 @@ def _monitor_child_loop(
                         fail_reason=fail_reason,
                     )
                     should_restart = _should_restart(ret, cfg, restart_count)
+
+                    print(
+                        f"[watchdog[{meta.replica_id}] should_restart =",
+                        should_restart,
+                        file=sys.stderr,
+                    )
                     return ret, should_restart, fail_reason
 
         time.sleep(cfg.probe_interval_s)
@@ -626,6 +658,11 @@ def run_watchdog(
             ray_prefix,
             restart_count,
             log_dir,
+        )
+
+        print(
+            f"watchdog[{meta.replica_id}]: child exited with code {exit_code}",
+            file=sys.stderr,
         )
 
         if not should_restart:

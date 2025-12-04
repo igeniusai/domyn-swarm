@@ -217,8 +217,6 @@ def run_collector(db_path: Path, host: str, port: int) -> int:
             try:
                 client_sock, addr = sock.accept()
             except TimeoutError:
-                # periodic wake-up so we can see stop_flag and log if you want
-                print("collector: waiting for data...", file=sys.stderr)
                 continue
             except OSError as e:
                 print(f"collector: accept() error: {e!r}", file=sys.stderr)
@@ -285,7 +283,6 @@ def run_collector(db_path: Path, host: str, port: int) -> int:
         print("collector: cleaning up...", file=sys.stderr)
         with contextlib.suppress(Exception):
             conn.close()
-        with contextlib.suppress(Exception):
             sock.close()
 
     print("collector: shutting down.", file=sys.stderr)

@@ -16,6 +16,7 @@
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem=0
 #SBATCH --time={{ cfg.backend.time_limit }}
+#SBATCH --requeue
 {% if cfg.backend.exclude_nodes %}
 #SBATCH --exclude={{ cfg.backend.exclude_nodes }}
 {% endif %}
@@ -370,12 +371,30 @@ singularity exec instance://"$INSTANCE_TAG" ray status
 start_vllm_server
 wait_for_vllm_server_ready
 
-# Keep job alive
+# How long we tolerate Ray being down in a row (seconds)
+RAY_CHECK_INTERVAL=30
+RAY_MAX_CONSEC_FAILS=4
+
+consec_fail=0
+
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
 
-while true; do
-  sleep 60
-done
+echo "[head] entering Ray + vLLM health loop (requeue='on')"
 
-singularity instance stop "$INSTANCE_TAG" || true
+while true; do
+  # 1) Check Ray health
+  if singularity exec instance://"$INSTANCE_TAG" ray status >/dev/null 2>&1; then
+    consec_fail=0
+  else
+    consec_fail=$((consec_fail + 1))
+    echo "[head] ray status failed ($consec_fail/${RAY_MAX_CONSEC_FAILS})"
+  fi
+
+  if [ "$consec_fail" -ge "$RAY_MAX_CONSEC_FAILS" ]; then
+    echo "[head] Ray cluster appears dead for too long → exiting 1 to let Slurm requeue."
+    exit 1
+  fi
+
+  sleep "$RAY_CHECK_INTERVAL"
+done
 {% endif %}
