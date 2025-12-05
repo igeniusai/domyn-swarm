@@ -500,8 +500,6 @@ def _monitor_child_loop(
             # Child exited
             state = ReplicaState.EXITED if ret == 0 else ReplicaState.FAILED
 
-            print("Child has exited with return code", ret, file=sys.stderr)
-
             if state == ReplicaState.FAILED:
                 log_path = log_dir / "vllm.log"
                 fail_reason = build_fail_reason(
@@ -549,15 +547,18 @@ def _monitor_child_loop(
             in_startup_grace=in_startup_grace,
         )
 
+        monitor_status = {
+            "state": state,
+            "http_failures": http_failures,
+            "ray_ok_since": ray_ok_since,
+            "last_ray_probe": last_ray_probe,
+        }
+
         print(
-            f"watchdog[{meta.replica_id}] State:",
-            state,
-            "HTTP failures:",
-            http_failures,
+            f"watchdog[{meta.replica_id}] Status:",
+            json.dumps(monitor_status, separators=(",", ":")),
             file=sys.stderr,
         )
-        print(f"watchdog[{meta.replica_id}] Ray ok since:", ray_ok_since, file=sys.stderr)
-        print(f"watchdog[{meta.replica_id}] Last Ray probe:", last_ray_probe, file=sys.stderr)
 
         if state != ReplicaState.UNHEALTHY:
             unhealthy_since = None
@@ -675,8 +676,14 @@ def run_watchdog(
             log_dir,
         )
 
+        exit_status = {
+            "exit_code": exit_code,
+            "should_restart": should_restart,
+            "fail_reason": fail_reason,
+        }
+
         print(
-            f"watchdog[{meta.replica_id}]: child exited with code {exit_code}",
+            f"watchdog[{meta.replica_id}]: {json.dumps(exit_status, separators=(',', ':'))}",
             file=sys.stderr,
         )
 
