@@ -74,9 +74,6 @@ generate_nginx_conf() {
     local files=("$SERVING_DIR"/replica-*.head)
 
     {
-        echo "pid /tmp/nginx.pid;"
-        echo "events { worker_connections 100000; }"
-        echo "http {"
         echo "  upstream llm {"
         echo "    least_conn;"
 
@@ -156,7 +153,6 @@ generate_nginx_conf() {
     }
     {% endif %}
   }
-}
 CONF
     }
 }
@@ -164,29 +160,50 @@ CONF
 generate_nginx_conf > $HOST_DIR/serving/nginx.conf
 
 CACHE_DIR="$TMPDIR/cache"
-mkdir -p "$CACHE_DIR"
+mkdir -p "$CACHE_DIR" "$HOST_DIR/run"
 
 singularity instance start --writable-tmpfs \
-    -B "$HOST_DIR/serving/nginx.conf":/etc/nginx/nginx.conf:ro \
+    -B "$SERVING_DIR:/etc/nginx/conf.d:ro" \
+    -B "$HOST_DIR/run":/run \
     -B "$CACHE_DIR":/var/cache/nginx \
     -B "$HOST_DIR/logs/endpoint:/var/log/nginx" \
     "$NGINX_IMG" "$INSTANCE_NAME"
 
+generate_nginx_conf > $SERVING_DIR/nginx.conf
+
+echo "[lb] started nginx instance '$INSTANCE_NAME'"
 trap 'echo "[lb] caught SIGTERM → shutting down"; singularity instance stop "$INSTANCE_NAME" || true; exit 0' SIGTERM
 
 echo "[lb] starting reload loop; watching $SERVING_DIR/replica-*.head"
 
 while true; do
   tmp_conf="$SERVING_DIR/nginx.conf.tmp"
-  generate_nginx_conf > "$tmp_conf"
 
-  # If config changed (or nginx.conf doesn't exist yet), replace & reload
+  # 1. Generate new config into a temp file
+  if ! generate_nginx_conf > "$tmp_conf"; then
+    echo "[lb] WARNING: generate_nginx_conf failed, keeping existing config" >&2
+    rm -f "$tmp_conf"
+    sleep 5
+    continue
+  fi
+
+  # 2. If the content changed (or nginx.conf doesn't exist yet), swap & reload
   if ! cmp -s "$tmp_conf" "$SERVING_DIR/nginx.conf"; then
     mv "$tmp_conf" "$SERVING_DIR/nginx.conf"
-    echo "[lb] updated nginx.conf; reloading nginx..."
-    # Reload inside the instance
-    singularity exec "instance://$INSTANCE_NAME" nginx -s reload || \
-      echo "[lb] WARNING: nginx reload failed" >&2
+
+    singularity exec instance://"$INSTANCE_NAME" bash -lc '
+      # Validate full nginx config (which includes /etc/nginx/conf.d/*.conf)
+      PATH=/usr/sbin:$PATH
+      if nginx -t; then
+        if nginx -s reload; then
+          echo "[lb] nginx reload OK"
+        else
+          echo "[lb] WARNING: nginx reload failed, keeping existing config" >&2
+        fi
+      else
+        echo "[lb] WARNING: nginx config test failed, keeping existing config" >&2
+      fi
+    '
   else
     rm -f "$tmp_conf"
   fi

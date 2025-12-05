@@ -208,7 +208,8 @@ def _check_http(url: str, timeout: float) -> bool:
     try:
         with request.urlopen(url, timeout=timeout) as resp:
             return 200 <= resp.status < 300
-    except (urlerror.URLError, urlerror.HTTPError, TimeoutError, OSError, BadStatusLine):
+    except (urlerror.URLError, urlerror.HTTPError, TimeoutError, OSError, BadStatusLine) as exc:
+        print(f"watchdog: HTTP probe to {url} failed: {exc!r}", file=sys.stderr)
         return False
 
 
@@ -231,7 +232,8 @@ def _ray_cluster_ok(ray_prefix: Sequence[str]) -> bool:
             timeout=10.0,
         )
         return p.returncode == 0
-    except Exception:
+    except Exception as e:
+        print(f"watchdog: Ray status check failed: {e!r}", file=sys.stderr)
         return False
 
 
@@ -254,10 +256,11 @@ def _ray_gpu_capacity_ok(
         for n in data:
             if n.get("state") != "ALIVE":
                 continue
-            resources = n.get("resources", {}) or {}
+            resources = n.get("resources_total", {}) or {}
             total_gpu += float(resources.get("GPU", 0))
         return total_gpu >= float(expected_tp)
-    except Exception:
+    except Exception as e:
+        print(f"watchdog: Ray GPU capacity check failed: {e!r}", file=sys.stderr)
         return False
 
 
@@ -266,6 +269,7 @@ def _ray_probe_once(ray_cfg: WatchdogRayConfig, ray_prefix: Sequence[str]) -> bo
         return True
     alive = _ray_cluster_ok(ray_prefix)
     capacity = _ray_gpu_capacity_ok(ray_prefix, ray_cfg.expected_tp)
+    print(f"watchdog: Ray cluster alive={alive}, capacity_ok={capacity}", file=sys.stderr)
     return alive and capacity
 
 
@@ -406,6 +410,7 @@ def _probe_and_update(
 
         ray_ready = ray_ok_since is not None and (now - ray_ok_since) >= cfg.ray.status_grace_s
 
+    print(f"watchdog[{meta.replica_id}] HTTP ok={http_ok}, Ray Ready={ray_ready} ", file=sys.stderr)
     http_ready_flag = bool(http_ok_since) and ray_ready
 
     # Running vs Unhealthy
@@ -419,6 +424,12 @@ def _probe_and_update(
             if http_failures >= cfg.unhealthy_http_failures
             else ReplicaState.RUNNING
         )
+
+    print(
+        f"watchdog[{meta.replica_id}] HTTP ready={http_ready_flag}, "
+        f"State={state}, HTTP Failures={http_failures}",
+        file=sys.stderr,
+    )
 
     _mark_state(
         collector_address,
@@ -539,14 +550,14 @@ def _monitor_child_loop(
         )
 
         print(
-            f"[watchdog[{meta.replica_id}] State:",
+            f"watchdog[{meta.replica_id}] State:",
             state,
             "HTTP failures:",
             http_failures,
             file=sys.stderr,
         )
-        print(f"[watchdog[{meta.replica_id}] Ray ok since:", ray_ok_since, file=sys.stderr)
-        print(f"[watchdog[{meta.replica_id}] Last Ray probe:", last_ray_probe, file=sys.stderr)
+        print(f"watchdog[{meta.replica_id}] Ray ok since:", ray_ok_since, file=sys.stderr)
+        print(f"watchdog[{meta.replica_id}] Last Ray probe:", last_ray_probe, file=sys.stderr)
 
         if state != ReplicaState.UNHEALTHY:
             unhealthy_since = None
@@ -572,7 +583,7 @@ def _monitor_child_loop(
                     ret = raw_ret if raw_ret not in (None, 0) else 1
 
                     print(
-                        f"[watchdog[{meta.replica_id}] Marking FAILED due to "
+                        f"watchdog[{meta.replica_id}] Marking FAILED due to "
                         "sustained UNHEALTHY state",
                         file=sys.stderr,
                     )
@@ -591,7 +602,7 @@ def _monitor_child_loop(
                     should_restart = _should_restart(ret, cfg, restart_count)
 
                     print(
-                        f"[watchdog[{meta.replica_id}] should_restart =",
+                        f"watchdog[{meta.replica_id}] should_restart =",
                         should_restart,
                         file=sys.stderr,
                     )
@@ -647,6 +658,10 @@ def run_watchdog(
         # 1) Spawn child and mark STARTING/RUNNING
         child, pid = _spawn_child_and_mark_running(collector_address, meta, cfg, child_argv)
 
+        print(
+            f"watchdog[{meta.replica_id}]: spawned child with pid {pid}",
+            file=sys.stderr,
+        )
         # 2) Monitor until it exits or we get a stop signal
         exit_code, should_restart, fail_reason = _monitor_child_loop(
             collector_address,

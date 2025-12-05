@@ -239,6 +239,39 @@ done
 ###############################################################################
 #  MULTI-NODE DEPLOYMENT (RAY)
 ###############################################################################
+
+requeue_this_job() {
+  # Requeue *this* Slurm job or array element.
+  #
+  # - For arrays: requeues <array_job_id>_<task_id>
+  # - For normal jobs: requeues <job_id>
+  # Exits the script afterward (0 on success, 1 on failure).
+
+  local jid
+
+  if [[ -n "${SLURM_ARRAY_JOB_ID:-}" && -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+    jid="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+  else
+    jid="${SLURM_JOB_ID:-}"
+  fi
+
+  if [[ -z "${jid}" ]]; then
+    echo "[head] cannot requeue: no SLURM_JOB_ID / SLURM_ARRAY_* set" >&2
+    # Nothing else we can do — fail hard so it shows up.
+    exit 1
+  fi
+
+  echo "[head] requesting requeue via: scontrol requeue ${jid}"
+
+  if scontrol requeue "${jid}"; then
+    echo "[head] requeue request accepted for ${jid}, exiting 0"
+    exit 0
+  else
+    echo "[head] scontrol requeue failed for ${jid}, exiting 1" >&2
+    exit 1
+  fi
+}
+
 echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
 
 # NCCL configuration for multi-node communication
@@ -309,7 +342,7 @@ function start_vllm_server() {
             --swarm-id {{job_name}} \
             --replica-id $REPL_ID \
             --node $HEAD_NODE \
-            --port $HEAD_PORT \
+            --port $REST_PORT \
             --probe-interval {{ cfg.watchdog.probe_interval }} \
             --http-path "{{ cfg.watchdog.http_path }}" \
             --http-timeout {{ cfg.watchdog.http_timeout }} \
@@ -319,7 +352,6 @@ function start_vllm_server() {
             --max-restarts {{ cfg.watchdog.max_restarts }} \
             --ray-enabled 1 \
             --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
-            --ray-exec-prefix singularity exec instance://"$INSTANCE_TAG" \
             --log-dir "$RAY_LOG_DIR" \
             --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
             -- \
@@ -391,8 +423,8 @@ while true; do
   fi
 
   if [ "$consec_fail" -ge "$RAY_MAX_CONSEC_FAILS" ]; then
-    echo "[head] Ray cluster appears dead for too long → exiting 1 to let Slurm requeue."
-    exit 1
+    echo "[head] Ray cluster appears dead for too long → exiting to let Slurm requeue."
+    requeue_this_job
   fi
 
   sleep "$RAY_CHECK_INTERVAL"
