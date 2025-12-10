@@ -352,6 +352,7 @@ function start_vllm_server() {
             --max-restarts {{ cfg.watchdog.max_restarts }} \
             --ray-enabled 1 \
             --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
+            --ray-expected-workers $SLURM_JOB_NUM_NODES \
             --log-dir "$RAY_LOG_DIR" \
             --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
             -- \
@@ -363,6 +364,8 @@ function start_vllm_server() {
            {{ cfg.args | default('') }} \
            --port $REST_PORT \
            >> "$RAY_LOG_DIR/vllm.log" 2>&1 &
+  WATCHDOG_PID=$!
+  echo "[head] vLLM REST server started with PID $WATCHDOG_PID"
 }
 
 function wait_for_vllm_server_ready() {
@@ -406,6 +409,7 @@ wait_for_vllm_server_ready
 # How long we tolerate Ray being down in a row (seconds)
 RAY_CHECK_INTERVAL=30
 RAY_MAX_CONSEC_FAILS=4
+RAY_CAPACITY_EXIT_CODE=190
 
 consec_fail=0
 
@@ -414,6 +418,22 @@ trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
 echo "[head] entering Ray + vLLM health loop (requeue='on')"
 
 while true; do
+  # 0) Check if watchdog died with a special exit code
+  if ! kill -0 "$WATCHDOG_PID" 2>/dev/null; then
+    # Reap it once
+    wait "$WATCHDOG_PID"
+    ec=$?
+    echo "[head] watchdog exited with code $ec"
+    if [[ $ec -eq $RAY_CAPACITY_EXIT_CODE ]]; then
+      echo "[head] Watchdog reported ray_capacity_exhausted → exiting to let Slurm requeue."
+      requeue_this_job
+    else
+      # Optional: decide what to do for other watchdog exits
+      echo "[head] Watchdog died unexpectedly (exit=$ec) → exiting to be safe."
+      requeue_this_job
+    fi
+  fi
+
   # 1) Check Ray health
   if singularity exec instance://"$INSTANCE_TAG" ray status >/dev/null 2>&1; then
     consec_fail=0

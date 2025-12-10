@@ -62,6 +62,8 @@ MAX_REASON_LEN = 2048
 
 REPLICA_STATUS_TABLE = "replica_status"
 
+RAY_CAPACITY_EXIT_CODE = 190
+
 
 class ReplicaState(str, enum.Enum):
     STARTING = "starting"
@@ -76,6 +78,7 @@ class ReplicaState(str, enum.Enum):
 class WatchdogRayConfig:
     enabled: bool = False
     expected_tp: int | None = None  # None => don't gate on GPU capacity
+    expected_workers: int | None = None  # None => don't gate on worker count
     probe_timeout_s: float = 120.0
     status_grace_s: float = 10.0
     probe_interval_s: float = 10.0  # how often to check Ray once child is running
@@ -155,6 +158,22 @@ def send_status(
 # ---------------------------------------------------------------------------
 
 
+def classify_fail_reason_from_log(log_tail: str) -> tuple[str, bool]:
+    """
+    Returns (fail_reason, retryable).
+    """
+    # Base reason is whatever you already build (unhealthy_timeout, exit code, etc.)
+    base = "unhealthy_timeout"
+    retryable = True
+
+    # Placement group cannot be created within timeout: cluster too small or bad layout.
+    if "Cannot provide a placement group" in log_tail:
+        return "ray_pg_insufficient_capacity", False
+
+    # You could add other patterns here (OOM, bad config, etc.)
+    return base, retryable
+
+
 def build_fail_reason(
     *,
     exit_code: int | None,
@@ -162,8 +181,17 @@ def build_fail_reason(
     log_path: str | None = None,
     restart_attempt: int | None = None,
     max_restarts: int | None = None,
-) -> str:
+) -> tuple[str, bool]:
+    """
+    Build a human-readable failure reason plus a `retryable` flag.
+
+    The string is what we persist in SQLite; the boolean is for watchdog
+    policy (e.g. avoid restarting in clearly non-recoverable cases like
+    Ray placement-group capacity issues).
+    """
     parts: list[str] = []
+    retryable = True
+    tail_text: str | None = None
 
     # 1) Exit code / signal
     if exit_code is not None:
@@ -186,17 +214,31 @@ def build_fail_reason(
         try:
             with open(log_path, "rb") as f:
                 tail_bytes = f.read()[-4096:]
-            tail = tail_bytes.decode(errors="replace")
-            lines = tail.splitlines()[-10:]  # last 10 lines
+            tail_text = tail_bytes.decode(errors="replace")
+            lines = tail_text.splitlines()[-10:]  # last 10 lines
             parts.append("log_tail:\n" + "\n".join(lines))
         except Exception:
             # If we fail to read logs, don't block the reason
             parts.append(f"log_tail: <unavailable: error reading {log_path}>")
 
+    # 4) Classification from log content (non-retryable patterns)
+    #
+    # Example: vLLM / Ray cannot ever satisfy the placement group
+    #   ValueError: Cannot provide a placement group ...
+    #
+    if tail_text and "Cannot provide a placement group" in tail_text:
+        # Put a short, machine-greppable tag at the front
+        parts.insert(0, "ray_pg_insufficient_capacity")
+        retryable = False
+
     reason = " | ".join(parts).strip()
     if len(reason) > MAX_REASON_LEN:
         reason = reason[: MAX_REASON_LEN - 3] + "..."
-    return reason or "unknown failure"
+
+    if not reason:
+        reason = "unknown failure"
+
+    return reason, retryable
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +279,14 @@ def _ray_cluster_ok(ray_prefix: Sequence[str]) -> bool:
         return False
 
 
-def _ray_gpu_capacity_ok(
+def _ray_capacity_ok(
     ray_prefix: Sequence[str],
     expected_tp: int | None,
+    expected_workers: int | None,
 ) -> bool:
-    if expected_tp is None or expected_tp <= 0:
+    if (expected_tp is None or expected_tp <= 0) and (
+        expected_workers is None or expected_workers <= 0
+    ):
         return True
 
     try:
@@ -253,12 +298,46 @@ def _ray_gpu_capacity_ok(
             return False
         data = json.loads(p.stdout or "[]")
         total_gpu = 0.0
+        available_workers = 0
         for n in data:
             if n.get("state") != "ALIVE":
                 continue
             resources = n.get("resources_total", {}) or {}
             total_gpu += float(resources.get("GPU", 0))
-        return total_gpu >= float(expected_tp)
+            available_workers += 1
+
+        if available_workers == 0:
+            print("watchdog: Ray has 0 ALIVE nodes", file=sys.stderr)
+            return False
+
+        if (
+            expected_workers is not None
+            and expected_workers > 0
+            and available_workers < expected_workers
+        ):
+            print(
+                f"watchdog: Ray has {available_workers} ALIVE workers, "
+                f"expected at least {expected_workers}",
+                file=sys.stderr,
+            )
+            return False
+
+        # Check total GPU capacity:
+        # - If expected_workers is set: we expect TP GPUs per worker → TP * workers.
+        # - If not: we just require at least TP GPUs somewhere in the cluster.
+        if expected_tp is not None and expected_tp > 0:
+            required_workers = expected_workers or 1
+            required_total_gpus = float(expected_tp) * float(required_workers)
+
+            if total_gpu < required_total_gpus:
+                print(
+                    f"watchdog: Ray has total_gpu={total_gpu}, "
+                    f"expected at least {required_total_gpus} "
+                    f"(tp={expected_tp}, workers={required_workers})",
+                    file=sys.stderr,
+                )
+                return False
+        return True
     except Exception as e:
         print(f"watchdog: Ray GPU capacity check failed: {e!r}", file=sys.stderr)
         return False
@@ -268,7 +347,7 @@ def _ray_probe_once(ray_cfg: WatchdogRayConfig, ray_prefix: Sequence[str]) -> bo
     if not ray_cfg.enabled:
         return True
     alive = _ray_cluster_ok(ray_prefix)
-    capacity = _ray_gpu_capacity_ok(ray_prefix, ray_cfg.expected_tp)
+    capacity = _ray_capacity_ok(ray_prefix, ray_cfg.expected_tp, ray_cfg.expected_workers)
     print(f"watchdog: Ray cluster alive={alive}, capacity_ok={capacity}", file=sys.stderr)
     return alive and capacity
 
@@ -361,6 +440,8 @@ def _spawn_child_and_mark_running(
 
 
 def _should_restart(exit_code: int, cfg: WatchdogConfig, restart_count: int) -> bool:
+    if exit_code == RAY_CAPACITY_EXIT_CODE:
+        return False
     if cfg.restart_policy == "never":
         return False
     if cfg.restart_policy == "on-failure" and exit_code == 0:
@@ -379,7 +460,7 @@ def _probe_and_update(
     last_ray_probe: float,
     ray_prefix: Sequence[str],
     in_startup_grace: bool = False,
-) -> tuple[int, float | None, float | None, float, ReplicaState]:
+) -> tuple[int, float | None, float | None, float, ReplicaState, bool]:
     now = time.time()
     url = cfg.http_url()
 
@@ -411,23 +492,24 @@ def _probe_and_update(
         ray_ready = ray_ok_since is not None and (now - ray_ok_since) >= cfg.ray.status_grace_s
 
     print(f"watchdog[{meta.replica_id}] HTTP ok={http_ok}, Ray Ready={ray_ready} ", file=sys.stderr)
-    http_ready_flag = bool(http_ok_since) and ray_ready
+    ready_flag = bool(http_ok_since) and ray_ready
 
     # Running vs Unhealthy
     if in_startup_grace:
         # During startup, never mark UNHEALTHY just because HTTP is not ready yet
-        state = ReplicaState.STARTING if not http_ready_flag else ReplicaState.RUNNING
+        state = ReplicaState.STARTING if not ready_flag else ReplicaState.RUNNING
         http_failures = 0
     else:
         state = (
             ReplicaState.UNHEALTHY
-            if http_failures >= cfg.unhealthy_http_failures
+            if http_failures >= cfg.unhealthy_http_failures or not ray_ready
             else ReplicaState.RUNNING
         )
 
     print(
-        f"watchdog[{meta.replica_id}] HTTP ready={http_ready_flag}, "
-        f"State={state}, HTTP Failures={http_failures}",
+        f"watchdog[{meta.replica_id}] HTTP ready={ready_flag}, "
+        f"State={state}, HTTP Failures={http_failures}, Ray ready={ray_ready}, "
+        f"Startup grace={in_startup_grace}",
         file=sys.stderr,
     )
 
@@ -436,14 +518,14 @@ def _probe_and_update(
         meta,
         cfg,
         state=state,
-        http_ready=http_ready_flag,
+        http_ready=ready_flag,
         pid=pid,
         exit_code=None,
         exit_signal=None,
         fail_reason=None,
     )
 
-    return http_failures, http_ok_since, ray_ok_since, last_ray_probe, state
+    return http_failures, http_ok_since, ray_ok_since, last_ray_probe, state, ray_ready
 
 
 def _monitor_child_loop(
@@ -468,6 +550,7 @@ def _monitor_child_loop(
     fail_reason: str | None = None
     unhealthy_since: float | None = None
     started_at = time.time()
+    ever_ready = False
 
     while True:
         if stop_flag.get("stop"):
@@ -497,12 +580,23 @@ def _monitor_child_loop(
 
         ret = child.poll()
         if ret is not None:
-            # Child exited
+            # Child exited.
+            # If it had *ever* been ready, a clean exit is still a failure from
+            # the watchdog's perspective: we want to restart it.
+            if ret == 0 and ever_ready:
+                ret = 1
+                fail_reason = (
+                    "child exited cleanly after being RUNNING; "
+                    "treating as failure to trigger restart"
+                )
+
             state = ReplicaState.EXITED if ret == 0 else ReplicaState.FAILED
+
+            retryable = True
 
             if state == ReplicaState.FAILED:
                 log_path = log_dir / "vllm.log"
-                fail_reason = build_fail_reason(
+                fail_reason, retryable = build_fail_reason(
                     exit_code=ret,
                     log_path=log_path.as_posix() if log_path.exists() else None,
                     exit_signal=None,
@@ -521,30 +615,28 @@ def _monitor_child_loop(
                 exit_signal=None,
                 fail_reason=fail_reason,
             )
-            should_restart = _should_restart(ret, cfg, restart_count)
+
+            # Only restart if the failure is considered retryable
+            should_restart = _should_restart(ret, cfg, restart_count) if retryable else False
             return ret, should_restart, fail_reason
 
         # Still running → probe and update status
         now = time.time()
         in_startup_grace = (now - started_at) < cfg.readiness_timeout
 
-        (
-            http_failures,
-            http_ok_since,
-            ray_ok_since,
-            last_ray_probe,
-            state,
-        ) = _probe_and_update(
-            collector_address,
-            meta,
-            cfg,
-            pid,
-            http_failures,
-            http_ok_since,
-            ray_ok_since,
-            last_ray_probe,
-            ray_prefix,
-            in_startup_grace=in_startup_grace,
+        (http_failures, http_ok_since, ray_ok_since, last_ray_probe, state, ray_ready) = (
+            _probe_and_update(
+                collector_address,
+                meta,
+                cfg,
+                pid,
+                http_failures,
+                http_ok_since,
+                ray_ok_since,
+                last_ray_probe,
+                ray_prefix,
+                in_startup_grace=in_startup_grace,
+            )
         )
 
         monitor_status = {
@@ -559,6 +651,9 @@ def _monitor_child_loop(
             json.dumps(monitor_status, separators=(",", ":")),
             file=sys.stderr,
         )
+
+        if state == ReplicaState.RUNNING:
+            ever_ready = True
 
         if state != ReplicaState.UNHEALTHY:
             unhealthy_since = None
@@ -588,6 +683,13 @@ def _monitor_child_loop(
                         "sustained UNHEALTHY state",
                         file=sys.stderr,
                     )
+
+                    if not ray_ready:
+                        fail_reason += (
+                            "|ray_capacity_exhausted: alive nodes/GPUs < expected; "
+                            "letting Slurm requeue the job"
+                        )
+                        ret = RAY_CAPACITY_EXIT_CODE
 
                     _mark_state(
                         collector_address,
@@ -807,6 +909,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Expected tensor-parallel (GPU) capacity. 0 => ignore capacity.",
     )
     parser.add_argument(
+        "--ray-expected-workers",
+        type=int,
+        default=0,
+        help="Expected number of Ray workers/nodes. 0 => ignore worker count.",
+    )
+    parser.add_argument(
         "--ray-timeout",
         type=float,
         default=120.0,
@@ -906,6 +1014,7 @@ def main(argv: list[str] | None = None) -> int:
         ray=WatchdogRayConfig(
             enabled=bool(args.ray_enabled),
             expected_tp=args.ray_expected_tp or None,
+            expected_workers=args.ray_expected_workers or None,
             probe_timeout_s=args.ray_timeout,
             status_grace_s=args.ray_grace,
             probe_interval_s=args.ray_probe_interval,

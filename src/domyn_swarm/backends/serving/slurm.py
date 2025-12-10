@@ -65,15 +65,18 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
 
         swarm_directory = spec.get("swarm_directory", settings.home / "swarms" / name)
 
-        jobid = self.driver.submit_replicas(
-            name,
-            replicas,
-            nodes,
-            gpus_per_node,
-            gpus_per_replica,
-            replicas_per_node,
-            swarm_directory,
-        )
+        try:
+            jobid = self.driver.submit_replicas(
+                name,
+                replicas,
+                nodes,
+                gpus_per_node,
+                gpus_per_replica,
+                replicas_per_node,
+                swarm_directory,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to submit replicas Slurm job: {e}") from e
         lb_jobid = self.driver.submit_endpoint(name, jobid, replicas, swarm_directory)
         return ServingHandle(
             id=str(lb_jobid),
