@@ -16,6 +16,7 @@
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem=0
 #SBATCH --time={{ cfg.backend.time_limit }}
+#SBATCH --requeue
 {% if cfg.backend.exclude_nodes %}
 #SBATCH --exclude={{ cfg.backend.exclude_nodes }}
 {% endif %}
@@ -86,10 +87,19 @@ REST_PORT="{{ cfg.port }}"
 echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
 
 # Mount configuration
-export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR"
+export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
 {% if is_folder(cfg.model) and path_exists(cfg.model) %}
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
+
+#Wait for creation of file "SWARM_DIR/serving/collector.env" containing COLLECTOR_HOST and COLLECTOR_PORT
+echo "[replica $REPL_ID] waiting for collector.env file..."
+while [ ! -f "{{ swarm_directory }}/serving/collector.env" ]; do
+    sleep 2
+done
+
+source "{{ swarm_directory }}/serving/collector.env"
+echo "[replica $REPL_ID] loaded collector config: COLLECTOR_HOST=$COLLECTOR_HOST COLLECTOR_PORT=$COLLECTOR_PORT"
 
 ###############################################################################
 #  SINGLE-NODE or SHARED-NODES DEPLOYMENT
@@ -120,6 +130,21 @@ function start_vllm_replica() {
   srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
+     python3 /opt/watchdog.py \
+      --swarm-id {{ job_name }} \
+      --replica-id $global_id \
+      --node $node \
+      --port $port \
+      --probe-interval {{ cfg.watchdog.probe_interval }} \
+      --http-path "{{ cfg.watchdog.http_path }}" \
+      --http-timeout {{ cfg.watchdog.http_timeout }} \
+      --restart-policy {{ cfg.watchdog.restart_policy }} \
+      --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
+      --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
+      --max-restarts {{ cfg.watchdog.max_restarts }} \
+      --log-dir "$log_dir" \
+      --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
+      -- \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.args %}
      --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min  }} \
@@ -214,6 +239,39 @@ done
 ###############################################################################
 #  MULTI-NODE DEPLOYMENT (RAY)
 ###############################################################################
+
+requeue_this_job() {
+  # Requeue *this* Slurm job or array element.
+  #
+  # - For arrays: requeues <array_job_id>_<task_id>
+  # - For normal jobs: requeues <job_id>
+  # Exits the script afterward (0 on success, 1 on failure).
+
+  local jid
+
+  if [[ -n "${SLURM_ARRAY_JOB_ID:-}" && -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+    jid="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+  else
+    jid="${SLURM_JOB_ID:-}"
+  fi
+
+  if [[ -z "${jid}" ]]; then
+    echo "[head] cannot requeue: no SLURM_JOB_ID / SLURM_ARRAY_* set" >&2
+    # Nothing else we can do — fail hard so it shows up.
+    exit 1
+  fi
+
+  echo "[head] requesting requeue via: scontrol requeue ${jid}"
+
+  if scontrol requeue "${jid}"; then
+    echo "[head] requeue request accepted for ${jid}, exiting 0"
+    exit 0
+  else
+    echo "[head] scontrol requeue failed for ${jid}, exiting 1" >&2
+    exit 1
+  fi
+}
+
 echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
 
 # NCCL configuration for multi-node communication
@@ -280,6 +338,24 @@ function start_vllm_server() {
   echo "[head] starting vLLM REST server ..."
   singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
+           python3 /opt/watchdog.py \
+            --swarm-id {{job_name}} \
+            --replica-id $REPL_ID \
+            --node $HEAD_NODE \
+            --port $REST_PORT \
+            --probe-interval {{ cfg.watchdog.probe_interval }} \
+            --http-path "{{ cfg.watchdog.http_path }}" \
+            --http-timeout {{ cfg.watchdog.http_timeout }} \
+            --restart-policy {{ cfg.watchdog.restart_policy }} \
+            --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
+            --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
+            --max-restarts {{ cfg.watchdog.max_restarts }} \
+            --ray-enabled 1 \
+            --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
+            --ray-expected-workers $SLURM_JOB_NUM_NODES \
+            --log-dir "$RAY_LOG_DIR" \
+            --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
+            -- \
            vllm serve {{ cfg.model }} \
            {% if 'tensor-parallel-size' not in cfg.args %}
            --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
@@ -288,6 +364,8 @@ function start_vllm_server() {
            {{ cfg.args | default('') }} \
            --port $REST_PORT \
            >> "$RAY_LOG_DIR/vllm.log" 2>&1 &
+  WATCHDOG_PID=$!
+  echo "[head] vLLM REST server started with PID $WATCHDOG_PID"
 }
 
 function wait_for_vllm_server_ready() {
@@ -328,12 +406,47 @@ singularity exec instance://"$INSTANCE_TAG" ray status
 start_vllm_server
 wait_for_vllm_server_ready
 
-# Keep job alive
+# How long we tolerate Ray being down in a row (seconds)
+RAY_CHECK_INTERVAL=30
+RAY_MAX_CONSEC_FAILS=4
+RAY_CAPACITY_EXIT_CODE=190
+
+consec_fail=0
+
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
 
-while true; do
-  sleep 60
-done
+echo "[head] entering Ray + vLLM health loop (requeue='on')"
 
-singularity instance stop "$INSTANCE_TAG" || true
+while true; do
+  # 0) Check if watchdog died with a special exit code
+  if ! kill -0 "$WATCHDOG_PID" 2>/dev/null; then
+    # Reap it once
+    wait "$WATCHDOG_PID"
+    ec=$?
+    echo "[head] watchdog exited with code $ec"
+    if [[ $ec -eq $RAY_CAPACITY_EXIT_CODE ]]; then
+      echo "[head] Watchdog reported ray_capacity_exhausted → exiting to let Slurm requeue."
+      requeue_this_job
+    else
+      # Optional: decide what to do for other watchdog exits
+      echo "[head] Watchdog died unexpectedly (exit=$ec) → exiting to be safe."
+      requeue_this_job
+    fi
+  fi
+
+  # 1) Check Ray health
+  if singularity exec instance://"$INSTANCE_TAG" ray status >/dev/null 2>&1; then
+    consec_fail=0
+  else
+    consec_fail=$((consec_fail + 1))
+    echo "[head] ray status failed ($consec_fail/${RAY_MAX_CONSEC_FAILS})"
+  fi
+
+  if [ "$consec_fail" -ge "$RAY_MAX_CONSEC_FAILS" ]; then
+    echo "[head] Ray cluster appears dead for too long → exiting to let Slurm requeue."
+    requeue_this_job
+  fi
+
+  sleep "$RAY_CHECK_INTERVAL"
+done
 {% endif %}

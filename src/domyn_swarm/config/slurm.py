@@ -17,7 +17,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from domyn_swarm import utils
-from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
@@ -83,9 +82,10 @@ class SlurmConfig(BaseModel):
         """Builds the deployment plan for SLURM-based deployments."""
         from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
         from domyn_swarm.backends.serving.slurm import SlurmServingBackend
+        from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 
         driver = SlurmDriver(cfg=cfg_ctx)
-        serving = SlurmServingBackend(driver=driver, cfg=self)
+        serving = SlurmServingBackend(cfg=self, driver=driver)
         compute = SlurmComputeBackend(cfg=self, lb_jobid=0, lb_node="")
 
         serving_spec = self.model_dump(exclude_none=True) | cfg_ctx.model_dump(

@@ -35,5 +35,4 @@ def create_engine_for(db_path: Path):
 
 def make_session_factory(db_path: Path):
     engine = create_engine_for(db_path)
-    # DO NOT call Base.metadata.create_all() here; Alembic will manage schema.
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)

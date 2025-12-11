@@ -173,6 +173,7 @@ max-complexity = 14
 "tests/**/*.py" = ["T201"]
 "scripts/**/*.py" = ["T201"]
 "src/domyn_swarm/helpers/*.py" = ["T201"]
+"src/domyn_swarm/runtime/*.py" = ["T201"]
 "src/domyn_swarm/utils/version.py" = ["T201"]
 "src/domyn_swarm/cli/main.py" = ["T201"]
 
@@ -198,3 +199,6 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 addopts = "--cov-config=.coveragerc --cov=src/ --cov-report html"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')"
+]

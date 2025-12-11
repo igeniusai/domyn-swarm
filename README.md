@@ -378,6 +378,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **env**                 |  `dict` | `null` | A yaml dict of key values that will be set as environment variables |
 | **wait_endpoint_s** | `int` | 600 | How many seconds should the lb script wait for the endpoint to go up | |
 | **backend**                    | `BackendConfig` | *see below*                                  | Backend specific configurations, either Slurm or Lepton                                                             |                                                                   |
+| **watchdog** | `WatchdogConfig` | *see below* | Watchdog specific configurations to be used when monitoring the spawned vLLM instances | |
 
 ### Backend Configuration: `BackendConfig`
 
@@ -503,6 +504,29 @@ backend:
 
 * **MountLike**: either a Lepton SDK `Mount` object (when SDK is installed) or a dict with the same fields; validated at runtime.
 * **Resource shape**: Lepton preset describing accelerator type/count and other resources (e.g., `gpu.4xh200`).
+
+
+#### WatchdogConfig
+
+| Field                              | Type                                                 | Default        | Purpose                                                                                                                  |                                                                                                                                  |
+| ---------------------------------- | ---------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                 | bool                                                 | `true`         | Master switch to enable/disable the per-replica watchdog process.                                                        |                                                                                                                                  |
+| `probe_interval`          | int (seconds)                                        | `30`           | Interval between watchdog HTTP/Ray health probes.                                                                        |                                                                                                                                  |
+| `http_path`               | str                                                  | `"/health"`    | HTTP path probed on the vLLM REST server to determine readiness/health. A leading `/` is added automatically if missing. |                                                                                                                                  |
+| `http_timeout`            | float (seconds)                                      | `2.0`          | Timeout for each HTTP health probe request.                                                                              |                                                                                                                                  |
+| `readiness_timeout`       | int (seconds)                                        | `600`          | Maximum time allowed for the server to become ready before being considered unhealthy.                                   |                                                                                                                                  |
+| `restart_policy`          | Literal[`"always"`, `"on-failure"`, `"never"`]       | `"on-failure"` | When the watchdog should restart the child process (vLLM).                                                               |                                                                                                                                  |
+| `unhealthy_restart_after` | int (seconds)                                        | `120`          | If the replica stays UNHEALTHY for this long, the watchdog forces a restart (or exits, depending on policy).             |                                                                                                                                  |
+| `max_restarts`            | int                                                  | `3`            | Maximum number of restart attempts before giving up and leaving the replica in FAILED state.                             |                                                                                                                                  |
+| `restart_backoff_initial` | int (seconds)                                        | `5`            | Initial delay before the first restart attempt.                                                                          |                                                                                                                                  |
+| `restart_backoff_max`     | int (seconds)                                        | `60`           | Upper bound for the exponential backoff between restart attempts.                                                        |                                                                                                                                  |
+| `kill_grace_seconds`      | int (seconds)                                        | `10`           | Grace period after SIGTERM before the watchdog sends SIGKILL to the child.                                               |                                                                                                                                  |
+| `log_level`               | Literal[`"debug"`, `"info"`, `"warning"`, `"error"`] | `"info"`       | Log verbosity for the watchdog process.                                                                                  |                                                                                                                                  |
+| `ray.enabled`             | bool                                                 | `false`        | Enable Ray-aware health checks (cluster liveness/capacity) in addition to HTTP checks.                                   |                                                                                                                                  |
+| `ray.expected_tp`         | int                                                  | null           | `null`                                                                                                                   | Expected tensor-parallel world size (total GPUs for vLLM). Used by the Ray capacity check; `null` disables capacity enforcement. |
+| `ray.probe_timeout_s`     | float (seconds)                                      | `120.0`        | Timeout for each Ray health probe command (e.g. `ray status`, `ray list nodes`).                                         |                                                                                                                                  |
+| `ray.status_grace_s`      | float (seconds)                                      | `10.0`         | Ray must report healthy for at least this window before the watchdog treats it as fully ready.                           |                                                                                                                                  |
+| `ray.probe_interval_s`    | float (seconds)                                      | `30.0`         | Interval between Ray health probes when Ray checks are enabled.                                                          |                                                                                                                                  |
 
 
 ---
@@ -659,6 +683,27 @@ with DomynLLMSwarm(cfg=cfg) as swarm:
 * **SwarmJob API** → implement `transform_items(items)`; batching/retries/checkpointing provided by the framework
 * **State** → saved/loaded locally; rehydrate swarm for later submissions
 
+---
+
+## Watchdog & Collector
+
+Domyn-Swarm uses a lightweight **watchdog + collector** pair to monitor vLLM replicas and persist their health.
+
+- Each replica is launched via `domyn_swarm.runtime.watchdog`, which:
+  - Spawns `vllm serve …`
+  - Probes HTTP `/health` (and optionally Ray)
+  - Applies restart policy (`always` / `on-failure` / `never`) plus `unhealthy_restart_after` for forced restarts
+  - Sends compact JSON status updates (state, `http_ready`, `pid`, `exit_code`, `fail_reason`, `agent_version`, `last_seen`, …) over **TCP** to the collector.
+
+- A single **collector** (`domyn_swarm.runtime.collector`) runs per swarm (on the LB node) and:
+  - Listens on `--host` / `--port` for watchdog updates
+  - Acts as the **only writer** to a per-swarm SQLite DB (`watchdog.db`)
+  - Upserts into a `replica_status` table keyed by `(swarm_id, replica_id)`
+  - Enables WAL / `busy_timeout` on a best-effort basis and ignores malformed packets or transient SQLite errors.
+
+- Watchdogs discover the collector via `--collector-address host:port` (injected by the Slurm backend); you normally don’t have to wire this manually.
+
+- `domyn-swarm status` reads from `watchdog.db` to show per-replica health (running/unhealthy/failed, HTTP readiness, and failure reasons) alongside the load balancer endpoint.
 ---
 
 ## Contributing

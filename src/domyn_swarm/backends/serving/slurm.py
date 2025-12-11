@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from pathlib import Path
 import subprocess
 
 import requests
@@ -51,8 +52,8 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         }
     """
 
-    driver: SlurmDriver
     cfg: SlurmConfig
+    driver: SlurmDriver
     readiness: SlurmReadiness | None = None
 
     def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle:
@@ -64,15 +65,18 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
 
         swarm_directory = spec.get("swarm_directory", settings.home / "swarms" / name)
 
-        jobid = self.driver.submit_replicas(
-            name,
-            replicas,
-            nodes,
-            gpus_per_node,
-            gpus_per_replica,
-            replicas_per_node,
-            swarm_directory,
-        )
+        try:
+            jobid = self.driver.submit_replicas(
+                name,
+                replicas,
+                nodes,
+                gpus_per_node,
+                gpus_per_replica,
+                replicas_per_node,
+                swarm_directory,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to submit replicas Slurm job: {e}") from e
         lb_jobid = self.driver.submit_endpoint(name, jobid, replicas, swarm_directory)
         return ServingHandle(
             id=str(lb_jobid),
@@ -87,10 +91,20 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int, extras: dict) -> ServingHandle:
         # Delegate to your health checker which sets endpoint when LB is alive
+        swarm_dir = extras.get("swarm_directory")
+        swarm_name = handle.meta.get("name", "")
+
+        if swarm_dir:
+            watchdog_db = Path(f"{swarm_dir}/watchdog.db")
+        else:
+            watchdog_db = get_settings().home / "swarms" / swarm_name / "watchdog.db"
+
         probe = self.readiness or SlurmReadiness(
             driver=self.driver,
             endpoint_port=self.cfg.endpoint.port,
             poll_interval_s=self.cfg.endpoint.poll_interval,
+            watchdog_db=watchdog_db,
+            swarm_name=swarm_name,
         )
         return probe.wait_ready(handle, timeout_s)
 

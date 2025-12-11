@@ -2,7 +2,19 @@ Bootstrap: docker
 From: nginx:1.29.1
 
 %post
-    echo "Minimal reusable NGINX container built."
+    mkdir -p /etc/nginx/conf.d
+    cat >/etc/nginx/nginx.conf <<'EOF'
+worker_processes auto;
+
+events { worker_connections 1024; }
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+EOF
 
 %labels
     Author Federico D'Ambrosio

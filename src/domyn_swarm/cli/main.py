@@ -20,6 +20,8 @@ from rich.console import Console
 from rich.table import Table
 import typer
 
+from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
+from domyn_swarm.core.state.watchdog import SwarmReplicaSummary, read_swarm_summary
 from domyn_swarm.utils.cli import _pick_one
 
 from ..cli.init import init_app
@@ -110,6 +112,13 @@ def launch_up(
     """
     cfg = _load_swarm_config(config, replicas=replicas)
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
+
+    def _safe_down(ctx: DomynLLMSwarm) -> None:
+        try:
+            ctx.down()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+
     try:
         with swarm_ctx as swarm:
             # Print ONLY the name to stdout so command substitution works if not tty:
@@ -117,20 +126,16 @@ def launch_up(
             if not sys.stdout.isatty():
                 typer.echo(swarm.name)
             raise typer.Exit(code=0)
-    except KeyboardInterrupt:
-        abort = typer.confirm(
-            "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-        )
-        if abort:
-            try:
-                swarm_ctx.down()
-            except Exception as e:
-                logger.error(f"Error during cleanup: {e}")
-                pass
+    except KeyboardInterrupt as ki:
+        if typer.confirm("KeyboardInterrupt detected. Cancel the swarm allocation?"):
+            _safe_down(swarm_ctx)
             typer.echo("Swarm allocation cancelled by user", err=True)
-            raise typer.Abort() from None
-        else:
-            typer.echo(f"Waiting for swarm {swarm_ctx.name}…", err=True)
+            raise typer.Abort() from ki
+        typer.echo(f"Waiting for swarm {swarm_ctx.name}…", err=True)
+    except SwarmReplicaFailure as srf:
+        logger.error(f"Swarm replica failure detected: {srf}")
+        _safe_down(swarm_ctx)
+        raise typer.Exit(code=1) from srf
 
 
 @app.command(
@@ -158,7 +163,16 @@ def check_status(
         raise ValueError("Swarm does not have a serving handle.")
 
     serving_status = swarm.status()
-    render_status((name, swarm._platform, serving_status), console=console)
+    replica_summary: SwarmReplicaSummary | None = None
+
+    try:
+        replica_summary = read_swarm_summary(swarm.watchdog_db_path, swarm_id=name)
+    except Exception as e:
+        logger.debug(f"Could not read swarm replica summary: {e}")
+
+    render_status(
+        (name, swarm._platform, serving_status), replica_summary=replica_summary, console=console
+    )
 
 
 def down_by_name(name: str, yes: bool) -> None:
