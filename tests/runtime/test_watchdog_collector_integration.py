@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from .fixtures import *  # noqa: F403
 from .helpers import (
     get_free_port,
     read_replica_row,
