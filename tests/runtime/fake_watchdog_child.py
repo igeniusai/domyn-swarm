@@ -7,6 +7,8 @@ import socketserver
 import sys
 import time
 
+from domyn_swarm.runtime.watchdog import RAY_FATAL_EXIT_CODE
+
 
 def _bump_run_counter(state_file: Path) -> int:
     """
@@ -84,6 +86,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # Increment run counter at each process invocation
     run_no = _bump_run_counter(state_file)
+
+    if mode == "ray_fatal_exit":
+        # Simulate a Ray-level fatal exit (e.g. placement-group failure,
+        # raylet crash, etc.). The watchdog should treat this as
+        # non-restartable.
+        print(
+            f"[fake-child] run #{run_no}: ray_fatal_exit (exit {RAY_FATAL_EXIT_CODE})",
+            file=sys.stderr,
+        )
+        return RAY_FATAL_EXIT_CODE
 
     if mode == "always_fail":
         # Simulate immediate failure without ever becoming healthy

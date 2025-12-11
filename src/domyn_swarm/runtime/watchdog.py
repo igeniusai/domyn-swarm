@@ -62,7 +62,7 @@ MAX_REASON_LEN = 2048
 
 REPLICA_STATUS_TABLE = "replica_status"
 
-RAY_CAPACITY_EXIT_CODE = 190
+RAY_FATAL_EXIT_CODE = 190
 
 
 class ReplicaState(str, enum.Enum):
@@ -440,7 +440,7 @@ def _spawn_child_and_mark_running(
 
 
 def _should_restart(exit_code: int, cfg: WatchdogConfig, restart_count: int) -> bool:
-    if exit_code == RAY_CAPACITY_EXIT_CODE:
+    if exit_code == RAY_FATAL_EXIT_CODE:
         return False
     if cfg.restart_policy == "never":
         return False
@@ -689,7 +689,7 @@ def _monitor_child_loop(
                             "|ray_capacity_exhausted: alive nodes/GPUs < expected; "
                             "letting Slurm requeue the job"
                         )
-                        ret = RAY_CAPACITY_EXIT_CODE
+                        ret = RAY_FATAL_EXIT_CODE
 
                     _mark_state(
                         collector_address,
