@@ -1,3 +1,49 @@
+## v0.23.0 (2025-12-12)
+
+### Feat
+
+- enhance nginx configuration and add job requeue functionality in Slurm scripts
+- add readiness timeout and improve health check handling during startup in watchdog
+- add integration tests for watchdog and collector functionality
+- add watchdog collector and update slurm scripts accordingly
+- add replica summary rendering to swarm status and introduce watchdog database path
+- add fail reasons fetching to watchdog, display fail reasons during up command
+- add watchdog agent to monitor and restart vllm in case of failures
+- **cli**: add autoupgrade when executing any cli command
+- **state**: add alembic migration and baseline, update SwarmStateManager to use SQAlchemy
+- **state**: add orm and model for state management
+
+### Fix
+
+- enhance error handling in Slurm job submission and improve watchdog capacity checks
+- improve error handling during swarm allocation cleanup and add logging for replica failures
+- enhance logging in watchdog by consolidating status and exit information into structured JSON output
+- improve error handling and logging in collector and watchdog; update lb.sh.j2 and llm_swarm.sh.j2 for better configuration management
+- improve error handling in database read and remove unnecessary WAL setup in collector
+- ensure exit code is not None for clean exit in watchdog restart test
+- handle BadStatusLine exception in HTTP check and add restart logging in watchdog
+- update collector and watchdog to use TCP instead of UDP for message communication
+- improve error handling in upsert_status for SQLite operations
+- increase SQLite connection timeout and add error handling for schema creation
+- increase SQLite connection timeout to reduce "database is locked" issues
+- increase SQLite connection timeout and improve error handling for PRAGMA settings
+- update test_get_current_rev to use migration context and mock database engine
+- ensure watchdog configuration exists and update Ray settings based on replica and node count
+- update get_current_rev function to use SQLAlchemy engine for retrieving current database revision
+- enable Ray in watchdog configuration and adjust script parameter syntax
+- rename restart_max to max_restarts in watchdog configuration and update related scripts
+- update python command to python3 for watchdog script execution
+- fix checkpointing logic and add debug logging in JobRunner
+- fix some minor issues
+- fix various issues in watchdog
+- update paths in deepseek_r1.yaml for consistency and clarity
+- fix checkpointing logic and add debug logging in JobRunner
+- autoupgrade to work when swarm db is not present
+
+### Refactor
+
+- format test_slurm_serving_backend.py
+
 ## v0.22.1 (2025-11-14)
 
 ### Fix
