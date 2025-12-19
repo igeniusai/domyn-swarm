@@ -1,26 +1,28 @@
-model: "/leonardo_scratch/fast/iGen_train/models/Qwen3-32B"
+model: Qwen/Qwen3-30B-A3B
 
-#model: Qwen/Qwen3-32B
-name: qwen-32b
+name: qwen3-30b
 revision: main
 gpus_per_replica: 4
-replicas: 4
+replicas: 1
 wait_endpoint_s: 1800
-image: "/leonardo_work/iGen_train/fdambro1/images/vllm_0.11.2.sif"
-args: "--max-model-len 32768 --max-num-seqs 1024 --dtype bfloat16 --gpu-memory-utilization 0.95 --max-num-batched-tokens 32768 --enforce-eager"
+args: >-
+  --max-model-len 32768
+  --max-num-seqs 128
+  --dtype bfloat16
+  --gpu-memory-utilization 0.90
+  --max-num-batched-tokens 8192
+  --compilation-config='{"level":"3","cudagraph_capture_sizes":[64,32,16,8,4,2,1], "use_inductor": true, "max_capture_size": 64, "cudagraph_copy_inputs": true, "cudagraph_num_of_warmups": 2}'
 
+image: "/path/to/vllm.sif"
 env:
-  HF_HOME: /leonardo_scratch/fast/iGen_train/shared_hf_cache_2/
+  HF_HOME: /path/to/shared_hf_cache
 backend:
   type: slurm
-  partition: boost_usr_prod
-  account: AIFAC_L07_016
-  qos: qos_llm_min
-  time_limit: "24:00:00"
+  partition: partition_name
+  account: account_name
+  qos: qos_name
   endpoint:
-    nginx_image: "/leonardo_work/iGen_train/fdambro1/images/nginx.sif"
-    nginx_timeout: "8h"
-    wall_time: "24:00:00"
-watchdog:
-  enabled: true
-  readiness_timeout: 600
+    port: 9001
+    cpus_per_task: 4
+    wall_time: "36:00:00"
+    nginx_image: "/path/to/nginx.sif"
