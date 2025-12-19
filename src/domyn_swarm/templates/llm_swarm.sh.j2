@@ -352,6 +352,8 @@ function start_ray_workers() {
             "$SHARED_NODE_LOGS/" \
             || true
         fi
+
+        ( dmesg -T | tail -200 ) >"$SHARED_NODE_LOGS/dmesg_tail_200.txt" || true
         sleep 5
       done
      ' 2>&1 &
