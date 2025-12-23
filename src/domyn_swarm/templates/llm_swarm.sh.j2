@@ -88,9 +88,13 @@ echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${
 
 # Mount configuration
 LOCAL_RAY_LOGS="$TMPDIR/ray_tmp"
-export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py,$LOCAL_RAY_LOGS:/tmp/ray"
+export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
 {% if is_folder(cfg.model) and path_exists(cfg.model) %}
 MOUNTS=$MOUNTS,{{ cfg.model }}
+{% endif %}
+
+{% if cfg.backend.requires_ray %}
+MOUNTS=$MOUNTS,$LOCAL_RAY_LOGS:/tmp/ray
 {% endif %}
 
 #Wait for creation of file "SWARM_DIR/serving/collector.env" containing COLLECTOR_HOST and COLLECTOR_PORT
