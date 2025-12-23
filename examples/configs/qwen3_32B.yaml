@@ -1,28 +1,57 @@
-model: Qwen/Qwen3-30B-A3B
-
-name: qwen3-30b
+model: Qwen/Qwen3-30B-A3B-Thinking-2507
+name: qwen3_30b
 revision: main
-gpus_per_replica: 4
+gpus_per_replica: 8
 replicas: 1
-wait_endpoint_s: 1800
+image: "/leonardo_work/iGen_train/fdambro1/images/vllm_0.12.0.sif"
 args: >-
-  --max-model-len 32768
-  --max-num-seqs 128
   --dtype bfloat16
   --gpu-memory-utilization 0.90
-  --max-num-batched-tokens 8192
-  --compilation-config='{"level":"3","cudagraph_capture_sizes":[64,32,16,8,4,2,1], "use_inductor": true, "max_capture_size": 64, "cudagraph_copy_inputs": true, "cudagraph_num_of_warmups": 2}'
-
-image: "/path/to/vllm.sif"
+  --max-model-len 32768
+  --max-num-seqs 64
+  --reasoning-parser qwen3
+  --pipeline-parallel-size 2
+  --tensor-parallel-size 4
+  --disable-custom-all-reduce
 env:
-  HF_HOME: /path/to/shared_hf_cache
+  HF_HOME: /leonardo_work/iGen_train/shared-hf-home
+  PYTORCH_ALLOC_CONF: garbage_collection_threshold:0.6,max_split_size_mb:512,expandable_segments:True
+  TORCHINDUCTOR_CACHE_DIR: /tmp/ray
+  # NCCL Settings
+  NCCL_ASYNC_ERROR_HANDLING: "1"
+  NCCL_SOCKET_IFNAME: "ib"
+  NCCL_IB_DISABLE: "0"
+  NCCL_CROSS_NIC: "1"
+
+  NCCL_IB_HCA: "mlx5"
+  NCCL_IB_CUDA_SUPPORT: "1"
+
+  # Let's try these additional NCCL settings
+  NCCL_IB_SL: "1"
+  NCCL_IB_GDR_LEVEL: PXB
+  NCCL_P2P_LEVEL: NVL
+  NCCL_CUMEM_ENABLE: "1"
+
+  TORCH_NCCL_BLOCKING_WAIT: "1"
+
+  # CUDA Settings
+  CUDA_DEVICE_MAX_CONNECTIONS: "8"
+
+  TORCH_CUDA_ARCH_LIST: "8.0"
+  RAY_CGRAPH_get_timeout: "900"
+
 backend:
   type: slurm
-  partition: partition_name
-  account: account_name
-  qos: qos_name
+  partition: boost_usr_prod
+  account: AIFAC_L07_016
+  qos: qos_llm_min
+  wait_endpoint_s: 3600
+  modules:
+    - cuda/12.2
+    - nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
+  exclude_nodes: lrdn[2671-3456]
+
   endpoint:
     port: 9001
-    cpus_per_task: 4
     wall_time: "36:00:00"
-    nginx_image: "/path/to/nginx.sif"
+    nginx_timeout: "8h"

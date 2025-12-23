@@ -1,3 +1,17 @@
+## v0.24.0 (2025-12-23)
+
+### Feat
+
+- conditionally mount local Ray logs based on backend requirements
+- add logging of the last 200 dmesg entries to shared node logs
+- improve Ray log synchronization with local and shared directories
+- enhance Ray log management with node-specific directories and synchronization of internal logs
+
+### Fix
+
+- correct string formatting in job submission log message
+- fix example config for qwen
+
 ## v0.23.0 (2025-12-12)
 
 ### Feat

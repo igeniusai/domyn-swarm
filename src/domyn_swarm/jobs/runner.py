@@ -151,7 +151,7 @@ class JobRunner:
         job: SwarmJob,
         df: pd.DataFrame,
         *,
-        input_col: str,
+        input_col: str | list[str] | tuple[str],
         output_cols: list[str] | None,
         output_mode: OutputJoinMode | None = None,
     ) -> pd.DataFrame:
