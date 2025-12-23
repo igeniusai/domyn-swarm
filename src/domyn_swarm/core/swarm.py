@@ -465,7 +465,7 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(
             f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "
-            "to swarm {self.name} on {self._platform}"
+            f"to swarm {self.name} on {self._platform}"
         )
 
         job_handle = self._deployment.run(
