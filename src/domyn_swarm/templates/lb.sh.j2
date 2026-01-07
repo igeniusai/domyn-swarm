@@ -30,6 +30,8 @@ PORT={{ cfg.backend.endpoint.port }}
 COLLECTOR_PORT="${COLLECTOR_PORT:-9100}"
 COLLECTOR_HOST="$(hostname -f)"
 
+mkdir -p "$HOST_DIR" "$SERVING_DIR"
+
 singularity exec --writable-tmpfs --bind "{{ collector_script_path }}:/opt/watchdog_collector.py,$HOST_DIR" "$PYTHON_IMG" \
   python3 /opt/watchdog_collector.py \
   --db "$HOST_DIR/watchdog.db" \

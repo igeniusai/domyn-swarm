@@ -44,7 +44,6 @@ def open_db(path: Path) -> sqlite3.Connection:
     Collector is single-writer, so locking issues should be minimal.
     """
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(path.as_posix(), timeout=30.0)
 
