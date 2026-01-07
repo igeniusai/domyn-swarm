@@ -85,7 +85,7 @@ def save_dataframe(df: pd.DataFrame, path: Path):
         # Allow parquet datasets to be written to a directory (or suffix-less path).
         dest_dir = path
         os.makedirs(dest_dir, exist_ok=True)
-        target = dest_dir / "part-0.parquet"
+        target = dest_dir
         suffix = ".parquet"
     else:
         os.makedirs(path.parent, exist_ok=True)
