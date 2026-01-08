@@ -56,8 +56,6 @@ class SrunCommandBuilder:
             f"--nodelist={self.nodelist}",
             f"--ntasks={ntasks}",
             "--overlap",
-            f"--mem={self.cfg.endpoint.mem}",
-            f"--cpus-per-task={self.cfg.endpoint.cpus_per_task}",
         ]
 
         if self.env:
@@ -69,6 +67,18 @@ class SrunCommandBuilder:
         if self.mail_user:
             cmd.append(f"--mail-user={self.mail_user}")
             cmd.append("--mail-type=END,FAIL")
+
+        if (
+            any("--mem" in arg for arg in self.extra_args) is False
+            and self.cfg.endpoint.mem is not None
+        ):
+            cmd.append(f"--mem={self.cfg.endpoint.mem}")
+
+        if (
+            any("--cpus-per-task" in arg for arg in self.extra_args) is False
+            and self.cfg.endpoint.cpus_per_task is not None
+        ):
+            cmd.append(f"--cpus-per-task={self.cfg.endpoint.cpus_per_task}")
 
         if self.extra_args:
             cmd.extend(self.extra_args)

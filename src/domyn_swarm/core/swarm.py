@@ -345,6 +345,7 @@ class DomynLLMSwarm(BaseModel):
         limit: int | None = None,
         mail_user: str | None = None,
         checkpoint_dir: str | Path | None = None,
+        job_resources: dict | None = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -422,7 +423,9 @@ class DomynLLMSwarm(BaseModel):
         python_interpreter = compute.default_python(self.cfg)
         image = compute.default_image(self.cfg.backend)
 
-        resources = self._plan.job_resources or compute.default_resources(self.cfg.backend)
+        resources = (
+            job_resources or self._plan.job_resources or compute.default_resources(self.cfg.backend)
+        )
         env_overrides = compute.default_env(self.cfg)
 
         exe = [

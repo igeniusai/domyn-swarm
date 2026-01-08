@@ -63,6 +63,16 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         builder = SrunCommandBuilder(self.cfg, self.lb_jobid, self.lb_node)
         if env:
             builder = builder.with_env(dict(env))
+
+        if resources:
+            # Resources should be a dict like {"cpus_per_task": 4, "mem": "16G", ...}
+            builder = builder.with_extra_args(
+                [
+                    f"--{key.replace('_', '-')}" + (f"={value}" if value is not True else "")
+                    for key, value in resources.items()
+                ]
+            )
+
         cmd = builder.build([*map(str, command)])
 
         full_cmd = shlex.join(cmd)
@@ -113,3 +123,13 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         if self.cfg.venv_path and self.cfg.venv_path.is_dir():
             return str(self.cfg.venv_path / "bin" / "python")
         return super().default_python(cfg)
+
+    def default_resources(self, cfg):
+        if self.cfg.endpoint.cpus_per_task is not None or self.cfg.endpoint.mem is not None:
+            res: dict = {}
+            if self.cfg.endpoint.cpus_per_task is not None:
+                res["cpus_per_task"] = self.cfg.endpoint.cpus_per_task
+            if self.cfg.endpoint.mem is not None:
+                res["mem"] = self.cfg.endpoint.mem
+            return res
+        return super().default_resources(cfg)
