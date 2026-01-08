@@ -66,12 +66,16 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         if resources:
             # Resources should be a dict like {"cpus_per_task": 4, "mem": "16G", ...}
-            builder = builder.with_extra_args(
-                [
-                    f"--{key.replace('_', '-')}" + (f"={value}" if value is not True else "")
-                    for key, value in resources.items()
-                ]
-            )
+            extra_args: list[str] = []
+            for key, value in resources.items():
+                flag = f"--{key.replace('_', '-')}"
+                if value is True:
+                    extra_args.append(flag)
+                elif value is False or value is None:
+                    continue
+                else:
+                    extra_args.append(f"{flag}={value}")
+            builder = builder.with_extra_args(extra_args)
 
         cmd = builder.build([*map(str, command)])
 
