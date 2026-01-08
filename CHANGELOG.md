@@ -1,3 +1,18 @@
+## v0.25.0 (2026-01-08)
+
+### Feat
+
+- add support for custom job resources in SlurmComputeBackend and SrunCommandBuilder
+- enhance load_dataframe and save_dataframe functions to support directory input and glob patterns
+
+### Fix
+
+- refactor parquet_hash to improve file handling and hashing logic
+- improve resource handling in SlurmComputeBackend by refining argument construction
+- reorder environment and mail user handling in SrunCommandBuilder
+- update save_dataframe to allow writing parquet datasets directly to a directory
+- remove redundant directory creation in open_db and ensure directories are created in lb.sh.j2
+
 ## v0.24.0 (2025-12-23)
 
 ### Feat
