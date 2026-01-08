@@ -256,6 +256,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     # Dummy job with to_kwargs
     class DummyJob:
         name = "job"
+        checkpoint_interval = 15
 
         def to_kwargs(self):
             return {"alpha": 1}
@@ -309,6 +310,7 @@ def test_submit_job_returns_none_when_not_detached(cfg_stub):
 
     class Job:
         name = "job"
+        checkpoint_interval = 10
 
         def to_kwargs(self):
             return {}
