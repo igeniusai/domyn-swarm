@@ -177,7 +177,7 @@ async def test_multi_turn_chat_completion_job(monkeypatch, tmp_path):
     _ = await job.run(df, tag="test", checkpoint_dir=tmp_path / "checkpoints")
 
     print(job.results)
-    assert isinstance(job.results["results"][0], list)
-    assert len(job.results["results"][0]) == 5
-    assert job.results["results"][0][-1]["role"] == "assistant"
-    assert job.results["results"][0][-1]["content"] == "Mocked reply"
+    results = list(job.results["results"][0])
+    assert len(results) == 5
+    assert results[-1]["role"] == "assistant"
+    assert results[-1]["content"] == "Mocked reply"

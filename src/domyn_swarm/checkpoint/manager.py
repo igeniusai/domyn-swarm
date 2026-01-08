@@ -153,12 +153,17 @@ class CheckpointManager:
 
     @staticmethod
     def _compute_fingerprint(df: pd.DataFrame, input_col: str) -> str:
+        def _stable_repr(value: object) -> str:
+            if isinstance(value, dict | list):
+                return json.dumps(value, sort_keys=True, default=str)
+            return str(value)
+
         hasher = blake3()
-        index_series = pd.Series(df.index, dtype="object")
+        index_series = pd.Series(df.index, dtype="object").map(_stable_repr)
         index_hash = hash_pandas_object(index_series)  # type: ignore[arg-type]
         hasher.update(np.asarray(index_hash, dtype="uint64").tobytes())
         if input_col in df.columns:
-            col_series = cast(pd.Series, df[input_col])
+            col_series = cast(pd.Series, df[input_col]).map(_stable_repr)
             col_hash = hash_pandas_object(col_series)  # type: ignore[arg-type]
             hasher.update(np.asarray(col_hash, dtype="uint64").tobytes())
         return hasher.hexdigest()
