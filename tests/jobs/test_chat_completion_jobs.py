@@ -178,4 +178,6 @@ async def test_multi_turn_chat_completion_job(monkeypatch, tmp_path):
 
     print(job.results)
     assert isinstance(job.results["results"][0], list)
-    assert any(m.get("content") == "Mocked reply" for m in job.results["results"][0])
+    assert len(job.results["results"][0]) == 5
+    assert job.results["results"][0][-1]["role"] == "assistant"
+    assert job.results["results"][0][-1]["content"] == "Mocked reply"

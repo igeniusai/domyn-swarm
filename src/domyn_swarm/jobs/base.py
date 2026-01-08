@@ -283,7 +283,8 @@ class SwarmJob(abc.ABC):
         self.register_callback("on_batch_done", flush)
 
         try:
-            await self.transform(todo_df)
+            items = todo_df[self.input_column_name].tolist()
+            await self.batched(items, self._call_unit)
         finally:
             self._callbacks.clear()
 
@@ -299,15 +300,10 @@ class SwarmJob(abc.ABC):
         executor = BatchExecutor(self.max_concurrency, self.checkpoint_interval, self.retries)
         return await executor.run(seq, fn, on_batch_done=self.get_callback("on_batch_done"))
 
-    @deprecated(reason="The `transform` method is deprecated in favor of `transform_items`.")
+    @deprecated(reason="Legacy transform(df) is no longer supported; implement transform_items.")
     async def transform(self, df: pd.DataFrame):
-        """
-        Subclasses must implement this to process a DataFrame slice.
-        It should invoke `self.batched(...)` internally.
-        """
-        raise NotImplementedError(
-            "Sub-classes must implement `transform(df)`."
-            "Note: the `transform_items` method is preferred."
+        raise RuntimeError(
+            "transform(df) is no longer supported. Implement transform_items(items) instead."
         )
 
     def to_kwargs(self) -> dict:

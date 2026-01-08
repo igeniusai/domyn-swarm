@@ -14,10 +14,8 @@
 
 from typing import Any
 
-from deprecated import deprecated
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.chat.chat_completion import ChatCompletion, Choice
-import pandas as pd
 
 from domyn_swarm.helpers.data import (
     compute_perplexity_metrics,
@@ -58,19 +56,6 @@ class CompletionJob(SwarmJob):
             **extra_kwargs,
         )
 
-    async def transform(self, df: pd.DataFrame):
-        df = df.copy()
-
-        async def _call(prompt: str) -> str:
-            from openai.types.completion import Completion
-
-            resp: Completion = await self.client.completions.create(
-                model=self.model, prompt=prompt, extra_body=self.kwargs
-            )
-            return resp.choices[0].text
-
-        await self.batched(df[self.input_column_name].tolist(), _call)
-
     async def transform_items(self, items: list[str]) -> list[Any]:
         """
         Transform a list of prompts into a list of completions.
@@ -105,27 +90,6 @@ class ChatCompletionJob(SwarmJob):
         self.parse_reasoning = explicit if explicit is not None else from_extras
         self.output_cols = ["result", "reasoning_content"] if self.parse_reasoning else "result"
 
-    @deprecated("Use transform_items instead for better performance with small batches.")
-    async def transform(self, df: pd.DataFrame):
-        from openai.types.chat import ChatCompletion
-
-        df = df.copy()
-
-        async def _call(
-            messages: list[ChatCompletionMessageParam],
-        ) -> str | None | tuple[str | None, str | None]:
-            resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=messages, extra_body=self.kwargs
-            )
-
-            choice: Choice = resp.choices[0]
-            if self.parse_reasoning:
-                reasoning_content = getattr(choice.message, "reasoning_content", None)
-                return choice.message.content, reasoning_content
-            return choice.message.content
-
-        await self.batched([messages for messages in df[self.input_column_name].tolist()], _call)
-
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
         for msgs in items:
@@ -135,10 +99,10 @@ class ChatCompletionJob(SwarmJob):
             choice = resp.choices[0]
             if self.parse_reasoning:
                 outs.append(
-                    {
-                        "result": choice.message.content,
-                        "reasoning_content": getattr(choice.message, "reasoning_content", None),
-                    }
+                    (
+                        choice.message.content,
+                        getattr(choice.message, "reasoning_content", None),
+                    )
                 )
             else:
                 outs.append(choice.message.content)
@@ -163,28 +127,6 @@ class MultiChatCompletionJob(SwarmJob):
             [f"{base_output_cols}_{i + 1}" for i in range(n)]
             if isinstance(base_output_cols, str)
             else base_output_cols
-        )
-
-    @deprecated("Use transform_items instead for better performance with small batches.")
-    async def transform(self, df: pd.DataFrame):
-        from openai.types.chat import ChatCompletion
-
-        df = df.copy()
-
-        async def _call(messages: list[ChatCompletionMessageParam]) -> list[Any]:
-            """Return *n* completions for one prompt."""
-            resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                n=self.n,  # ask the API for n choices at once
-                extra_body=self.kwargs,
-            )
-            return [choice.message.content for choice in resp.choices]
-
-        # _batched now returns List[List[str]] (len == n for each inner list)
-        await self.batched(
-            [messages for messages in df[self.input_column_name].tolist()],
-            _call,
         )
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
@@ -242,29 +184,6 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
         )
         self.output_cols = ["text", "perplexity", "bottom50_perplexity"]
 
-    @deprecated("Use transform_items instead for better performance with small batches.")
-    async def transform(self, df: pd.DataFrame):
-        df = df.copy()
-
-        async def _call(
-            messages: list[ChatCompletionMessageParam],
-        ) -> tuple[str | None, float, float]:
-            resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                logprobs=True,
-                extra_body=self.kwargs,
-            )
-
-            choice: Choice = resp.choices[0]
-            text = choice.message.content
-
-            return text, *self.compute_from_choice(choice)
-
-        _ = await self.batched(
-            [messages for messages in df[self.input_column_name].tolist()], _call
-        )
-
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
         for msgs in items:
@@ -276,7 +195,8 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
             )
             choice = resp.choices[0]
             text = choice.message.content
-            outs.append((*self.compute_from_choice(choice), text))
+            perp, bottom50 = self.compute_from_choice(choice)
+            outs.append((text, perp, bottom50))
         return outs
 
 
@@ -310,16 +230,6 @@ class MultiTurnChatCompletionJob(SwarmJob):
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
-        )
-
-    @deprecated("Use transform_items instead for better performance with small batches.")
-    async def transform(self, df: pd.DataFrame):
-        # Copy input
-        df = df.copy()
-
-        await self.batched(
-            df[self.input_column_name].tolist(),
-            self._run_multi_turn,
         )
 
     async def _run_multi_turn(
@@ -390,7 +300,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
 
                 # update the index skipping assistant message
                 idx = i + 2
-            outs.append([running])
+            outs.append(running)
         return outs
 
 
@@ -426,16 +336,6 @@ class MultiTurnTranslationJob(SwarmJob):
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
-        )
-
-    @deprecated("Use transform_items instead for better performance with small batches.")
-    async def transform(self, df: pd.DataFrame):
-        # Copy input
-        df = df.copy()
-
-        await self.batched(
-            df[self.input_column_name].tolist(),
-            self._run_translation,
         )
 
     async def _run_translation(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -502,5 +402,5 @@ class MultiTurnTranslationJob(SwarmJob):
                     response_dict["reasoning_content"] = choice.message.reasoning_content
                 running.append(response_dict)
 
-            outs.append([running])
+            outs.append(running)
         return outs

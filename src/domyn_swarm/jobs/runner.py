@@ -127,8 +127,8 @@ class JobRunner:
                                       on_flush: Callable[[list[int], list[Any]], Awaitable[None]],
                                       checkpoint_every: int) -> None
 
-    If your current jobs implement `transform(df)` + `batched(...)`, create a thin
-    adapter method on the job to satisfy `transform_streaming`.
+    Jobs are expected to implement `transform_streaming`, which is provided by
+    `SwarmJob` and relies on `transform_items`.
 
     Parameters
     ----------
