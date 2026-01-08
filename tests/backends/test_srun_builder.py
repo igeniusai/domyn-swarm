@@ -117,3 +117,22 @@ def test_export_all_without_env_is_exact_flag():
     # There should be EXACTLY one export flag and it must be "--export=ALL"
     export_args = [a for a in cmd if a.startswith("--export=")]
     assert export_args == ["--export=ALL"]
+
+
+def test_extra_args_override_default_mem_and_cpus():
+    cfg = _fake_cfg(mem="64GB", cpus=16)
+    extra = ["--mem=4GB", "--cpus-per-task=2", "--qos=debug"]
+    cmd = (
+        SrunCommandBuilder(cfg=cfg, jobid=8, nodelist="n8")
+        .with_extra_args(extra)
+        .build(["/bin/true"])
+    )
+
+    # Default mem/cpus should be suppressed when provided via extra args
+    assert "--mem=64GB" not in cmd
+    assert "--cpus-per-task=16" not in cmd
+
+    # Extra args appear once and before the executable tail
+    for flag in extra:
+        assert flag in cmd
+        assert cmd.index(flag) < len(cmd) - 1

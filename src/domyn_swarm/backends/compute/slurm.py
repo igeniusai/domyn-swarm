@@ -25,10 +25,13 @@ from rich.syntax import Syntax
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
 
 if TYPE_CHECKING:
     from domyn_swarm.config.slurm import SlurmConfig
+
+logger = setup_logger(__name__)
 
 
 @dataclass

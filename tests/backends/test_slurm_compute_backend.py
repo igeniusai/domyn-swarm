@@ -35,11 +35,16 @@ class FakeBuilder:
         self.jobid = jobid
         self.nodelist = nodelist
         self.env = {}
+        self.extra_args = []
         self._exe = None
         FakeBuilder.last = self
 
     def with_env(self, env):
         self.env.update(env)
+        return self
+
+    def with_extra_args(self, args):
+        self.extra_args.extend(args)
         return self
 
     def build(self, exe):
@@ -49,6 +54,7 @@ class FakeBuilder:
             "srun",
             f"--jobid={self.jobid}",
             f"--nodelist={self.nodelist}",
+            *self.extra_args,
             *self._exe,
         ]
 
@@ -157,6 +163,44 @@ def test_submit_sync_uses_run_and_returns_succeeded(monkeypatch):
     assert handle.status is JobStatus.SUCCEEDED
     assert handle.id == "job-1"
     assert handle.meta["cmd"] == shlex.join(run_calls["cmd"])
+
+
+def test_submit_adds_resource_flags(monkeypatch):
+    run_calls = {}
+
+    def fake_run(cmd, check):
+        run_calls["cmd"] = cmd
+        run_calls["check"] = check
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=11, lb_node="n-res")
+    handle = be.submit(
+        name="job-res",
+        image=None,
+        command=["echo", "hi"],
+        resources={"cpus_per_task": 8, "mem": "24G", "exclusive": True, "tmp": False},
+        detach=False,
+    )
+
+    # Extra args passed to builder in order and False skipped
+    b = FakeBuilder.last
+    assert b.extra_args == ["--cpus-per-task=8", "--mem=24G", "--exclusive"]
+
+    # subprocess.run invoked with extra args before the exe tail
+    assert run_calls["cmd"] == [
+        "srun",
+        "--jobid=11",
+        "--nodelist=n-res",
+        "--cpus-per-task=8",
+        "--mem=24G",
+        "--exclusive",
+        "echo",
+        "hi",
+    ]
+    assert handle.status is JobStatus.SUCCEEDED
+    assert handle.id == "job-res"
 
 
 # ----------------------------

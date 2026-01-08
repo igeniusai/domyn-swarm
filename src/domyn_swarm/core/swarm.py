@@ -345,6 +345,7 @@ class DomynLLMSwarm(BaseModel):
         limit: int | None = None,
         mail_user: str | None = None,
         checkpoint_dir: str | Path | None = None,
+        checkpoint_interval: int | None = None,
         job_resources: dict | None = None,
     ) -> int | None:
         """
@@ -439,6 +440,7 @@ class DomynLLMSwarm(BaseModel):
             f"--endpoint={self.endpoint}",
             f"--nthreads={num_threads}",
             f"--checkpoint-dir={checkpoint_dir}",
+            f"--checkpoint-interval={checkpoint_interval or job.checkpoint_interval}",
             "--job-kwargs",
             job_kwargs,
         ]
