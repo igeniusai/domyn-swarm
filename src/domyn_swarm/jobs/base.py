@@ -267,7 +267,12 @@ class SwarmJob(abc.ABC):
         checkpoint_dir = Path(checkpoint_dir)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         path = checkpoint_dir / f"{self.__class__.__name__}_{tag}.parquet"
-        manager = CheckpointManager(path, df, expected_output_cols=self.output_cols)
+        manager = CheckpointManager(
+            path,
+            df,
+            expected_output_cols=self.output_cols,
+            input_col=self.input_column_name,
+        )
 
         todo_df = manager.filter_todo()
         idx_map = todo_df.index.to_numpy()
