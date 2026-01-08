@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from _hashlib import HASH
 import hashlib
 import math
 import mmap
@@ -52,20 +53,34 @@ def parquet_hash(
     env_path: utils.EnvPath = utils.EnvPath(path)
     h = hashlib.new(algorithm)
 
-    file_size = env_path.stat().st_size
-    with env_path.open("rb", buffering=0) as f:
-        # On 64-bit Pythons (or “small” files) we can map the whole thing.
-        if sys.maxsize > 2**32 or file_size < 2**31:
-            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                h.update(mm)  # zero-copy→kernel pages it in lazily
-        else:
-            # 32-bit fall-back: slide a window across the file.
-            offset = 0
-            while offset < file_size:
-                length = min(block_size, file_size - offset)
-                with mmap.mmap(f.fileno(), length, offset=offset, access=mmap.ACCESS_READ) as mm:
-                    h.update(mm)
-                offset += length
+    def _update_from_file(file_path: utils.EnvPath, hasher: HASH):
+        file_size = file_path.stat().st_size
+        with file_path.open("rb", buffering=0) as f:
+            # On 64-bit Pythons (or “small” files) we can map the whole thing.
+            if sys.maxsize > 2**32 or file_size < 2**31:
+                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                    hasher.update(mm)  # zero-copy→kernel pages it in lazily
+            else:
+                # 32-bit fall-back: slide a window across the file.
+                offset = 0
+                while offset < file_size:
+                    length = min(block_size, file_size - offset)
+                    with mmap.mmap(
+                        f.fileno(), length, offset=offset, access=mmap.ACCESS_READ
+                    ) as mm:
+                        hasher.update(mm)
+                    offset += length
+        return hasher
+
+    if env_path.is_dir():
+        # Deterministically walk files so folder-order differences do not change the hash.
+        files = sorted(p for p in env_path.rglob("*") if p.is_file())
+        for f in files:
+            rel = f.relative_to(env_path).as_posix()
+            h.update(rel.encode("utf-8"))
+            h = _update_from_file(utils.EnvPath(f), h)
+    else:
+        h = _update_from_file(env_path, h)
 
     return h.hexdigest()[:8]
 
