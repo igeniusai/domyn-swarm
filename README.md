@@ -563,6 +563,9 @@ Environment variables use the prefix `DOMYN_SWARM_` (case-insensitive) **unless 
 
 > [!NOTE]
 > This API is in constant evolution and you can expect breaking changes up to the final stable release
+>
+> Migration note: legacy `transform(df)`-based jobs are no longer supported; implement
+> `transform_items(items)` (or rely on `transform_streaming` provided by `SwarmJob`).
 
 In the [examples](examples/) folder, you can see some examples of programmatic usage of `DomynLLMSwarm` by instantiating a custom implementation of SwarmJob and how to run it via CLI or in a custom script: [examples/scripts/custom_main.py](examples/scripts/custom_main.py).
 
