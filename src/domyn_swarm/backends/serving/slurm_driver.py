@@ -18,6 +18,7 @@ import tempfile
 
 import jinja2
 
+import domyn_swarm
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.data import get_device_slices
@@ -64,6 +65,7 @@ class SlurmDriver:
             watchdog_script_path=Path(watchdog_mod.__file__).resolve().as_posix(),
             build_watchdog_args=watchdog_args_mod.build_watchdog_args,
             args_to_str=watchdog_args_mod.args_to_str,
+            dswarm_agent_version=domyn_swarm.__version__,
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:

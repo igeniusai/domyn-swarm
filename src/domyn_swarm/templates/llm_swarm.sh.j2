@@ -69,6 +69,7 @@ REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
 {% if not cfg.backend.requires_ray %}
 GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
 {% endif %}
+export DSWARM_AGENT_VERSION={{ dswarm_agent_version }}
 export SWARM_DIR="{{ swarm_directory }}"
 export LOG_DIR={{ swarm_directory }}/logs/replicas/replica-${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
