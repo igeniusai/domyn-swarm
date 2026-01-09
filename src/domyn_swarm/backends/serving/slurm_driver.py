@@ -18,6 +18,7 @@ import tempfile
 
 import jinja2
 
+import domyn_swarm
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.data import get_device_slices
@@ -25,6 +26,7 @@ from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
 import domyn_swarm.runtime.collector as collector_mod
 import domyn_swarm.runtime.watchdog as watchdog_mod
+import domyn_swarm.runtime.watchdog_args as watchdog_args_mod
 
 logger = setup_logger(__name__)
 
@@ -61,6 +63,9 @@ class SlurmDriver:
             cuda_visible_devices=get_device_slices(gpus_per_node, gpus_per_replica),
             swarm_directory=swarm_directory,
             watchdog_script_path=Path(watchdog_mod.__file__).resolve().as_posix(),
+            build_watchdog_args=watchdog_args_mod.build_watchdog_args,
+            args_to_str=watchdog_args_mod.args_to_str,
+            dswarm_agent_version=domyn_swarm.__version__,
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:

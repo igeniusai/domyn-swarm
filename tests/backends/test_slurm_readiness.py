@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 import pytest
 
 # SUT
@@ -191,3 +193,38 @@ def test_wait_jobs_running_handles_unknown_then_pending_then_running(monkeypatch
 
     # Should return without raising
     readiness._wait_jobs_running(111, 222, DummyStatusCtx())
+
+
+def test_watchdog_probe_includes_replica_row_hint(monkeypatch):
+    driver = FakeDriver(rep_states=["RUNNING"], lb_states=["RUNNING"])
+    readiness = SlurmReadiness(
+        driver=driver,
+        endpoint_port=9000,
+        watchdog_db=Path("/tmp/watchdog.db"),
+        swarm_name="swarm-1",
+    )
+
+    import domyn_swarm.backends.serving.slurm_readiness as mod
+
+    summary = mod.SwarmReplicaSummary(
+        total=2,
+        running=0,
+        http_ready=0,
+        failed=2,
+        fail_reasons={"boom": 2},
+        example_fail_reason="boom",
+    )
+    monkeypatch.setattr(mod, "read_swarm_summary", lambda *a, **k: summary)
+
+    class _Row:
+        replica_id = 0
+        state = "failed"
+        fail_reason = "boom"
+
+    monkeypatch.setattr(mod, "read_replica_statuses", lambda *a, **k: [_Row()])
+
+    status = DummyStatusCtx()
+    with pytest.raises(mod.SwarmReplicaFailure, match="replica=0 state=failed"):
+        readiness._watchdog_probe(status)
+
+    assert any("replica=0 state=failed reason=boom" in msg for msg in status.messages)

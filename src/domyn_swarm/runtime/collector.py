@@ -93,6 +93,42 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    swarm_id = payload.get("swarm_id")
+    if not swarm_id:
+        return None
+    replica_raw = payload.get("replica_id")
+    if replica_raw is None:
+        return None
+    try:
+        replica_id = int(replica_raw)
+    except (TypeError, ValueError):
+        return None
+
+    def _as_int(value: object) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    normalized = {
+        "swarm_id": str(swarm_id),
+        "replica_id": replica_id,
+        "node": payload.get("node"),
+        "port": _as_int(payload.get("port")),
+        "pid": _as_int(payload.get("pid")),
+        "state": str(payload.get("state", "unknown")),
+        "http_ready": 1 if bool(payload.get("http_ready", 0)) else 0,
+        "exit_code": _as_int(payload.get("exit_code")),
+        "exit_signal": _as_int(payload.get("exit_signal")),
+        "fail_reason": payload.get("fail_reason"),
+        "agent_version": payload.get("agent_version") or "unknown",
+    }
+    return normalized
+
+
 def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
     """
     Insert or update a row in replica_status for a single (swarm_id, replica_id).
@@ -110,30 +146,10 @@ def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
       - fail_reason (str|None)
       - agent_version (str|None)
     """
-    swarm_id = str(payload.get("swarm_id", ""))
-    try:
-        replica_id = int(payload.get("replica_id", 0))
-    except (TypeError, ValueError):
-        print(
-            f"collector: ignoring payload with invalid replica_id: {payload!r}",
-            file=sys.stderr,
-        )
+    normalized = _normalize_payload(payload)
+    if normalized is None:
+        print(f"collector: ignoring invalid payload: {payload!r}", file=sys.stderr)
         return
-
-    if not swarm_id:
-        # Ignore malformed packets quietly
-        return
-
-    node = payload.get("node")
-    port = payload.get("port")
-    pid = payload.get("pid")
-    state = payload.get("state", "unknown")
-    http_ready_raw = payload.get("http_ready", 0)
-    http_ready = 1 if bool(http_ready_raw) else 0
-    exit_code = payload.get("exit_code")
-    exit_signal = payload.get("exit_signal")
-    fail_reason = payload.get("fail_reason")
-    agent_version = payload.get("agent_version") or "unknown"
 
     with conn:
         conn.execute(
@@ -156,17 +172,17 @@ def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
               last_seen     = CURRENT_TIMESTAMP;
             """,
             (
-                swarm_id,
-                replica_id,
-                node,
-                port,
-                pid,
-                state,
-                http_ready,
-                exit_code,
-                exit_signal,
-                fail_reason,
-                agent_version,
+                normalized["swarm_id"],
+                normalized["replica_id"],
+                normalized["node"],
+                normalized["port"],
+                normalized["pid"],
+                normalized["state"],
+                normalized["http_ready"],
+                normalized["exit_code"],
+                normalized["exit_signal"],
+                normalized["fail_reason"],
+                normalized["agent_version"],
             ),
         )
 
