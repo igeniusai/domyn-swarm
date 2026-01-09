@@ -303,7 +303,12 @@ class SwarmJob(abc.ABC):
         Supports retrying and invokes the 'on_batch_done' callback if registered.
         """
         executor = BatchExecutor(self.max_concurrency, self.checkpoint_interval, self.retries)
-        return await executor.run(seq, fn, on_batch_done=self.get_callback("on_batch_done"))
+        return await executor.run(
+            seq,
+            fn,
+            on_batch_done=self.get_callback("on_batch_done"),
+            progress=True,
+        )
 
     @deprecated(reason="Legacy transform(df) is no longer supported; implement transform_items.")
     async def transform(self, df: pd.DataFrame):
@@ -357,4 +362,5 @@ class SwarmJob(abc.ABC):
             items,
             self._call_unit,
             on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+            progress=True,
         )

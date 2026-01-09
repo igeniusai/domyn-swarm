@@ -52,7 +52,16 @@ class BatchExecutor:
         self.checkpoint_interval = checkpoint_interval
         self.retries = retries
 
-    async def run(self, items, fn, *, on_batch_done=None, progress: bool = True):
+    async def run(
+        self,
+        items,
+        fn,
+        *,
+        on_batch_done=None,
+        progress: bool = True,
+        on_progress=None,
+        on_batch_progress=None,
+    ):
         """
         Run a function `fn` on `items` in parallel batches.
 
@@ -61,42 +70,32 @@ class BatchExecutor:
             fn: Function to apply to each item or batch of items.
             on_batch_done: Optional callback to run after each batch is processed.
             progress: Whether to display progress bars.
+            on_progress: Optional callback with (completed, total) updates.
+            on_batch_progress: Optional callback with (batch_completed, batch_total) updates.
+
+        Example:
+            >>> async def on_progress(done, total):
+            ...     print(f"total progress {done}/{total}")
+            >>> async def on_batch_progress(done, total):
+            ...     print(f"batch progress {done}/{total}")
+            >>> executor = BatchExecutor(max_concurrency=4, checkpoint_interval=8, retries=2)
+            >>> results = await executor.run(
+            ...     items,
+            ...     fn,
+            ...     progress=False,
+            ...     on_progress=on_progress,
+            ...     on_batch_progress=on_batch_progress,
+            ... )
         """
         out = [None] * len(items)
         sem = asyncio.Semaphore(self.max_concurrency)
-        queue: asyncio.Queue[tuple[int, object]] = asyncio.Queue()
-        for idx, item in enumerate(items):
-            queue.put_nowait((idx, item))
-
+        queue = self._init_queue(items)
         lock = asyncio.Lock()
         completed = 0
-        pending_ids = []
+        pending_ids: list[int] = []
 
-        fn = retry(
-            wait=wait_exponential(multiplier=1, min=4, max=10),
-            stop=stop_after_attempt(self.retries),
-            reraise=True,
-            before_sleep=before_sleep_log(logger, logging.WARNING),
-        )(fn)
-
-        thread_name = threading.current_thread().name
-
-        if progress:
-            total_progress_bar = tqdm(
-                total=len(items),
-                desc=f"[{thread_name}] Processing all items in worker",
-                leave=True,
-                unit="sample",
-            )
-            pbar = tqdm(
-                total=min(self.checkpoint_interval, len(items)),
-                leave=True,
-                desc=f"[{thread_name}] Processing batch",
-                unit="sample",
-            )
-        else:
-            total_progress_bar = None
-            pbar = None
+        fn = self._wrap_retry(fn)
+        total_progress_bar, pbar = self._init_progress(progress, len(items))
 
         async def worker():
             nonlocal completed, pending_ids
@@ -110,28 +109,106 @@ class BatchExecutor:
                 queue.task_done()
 
                 async with lock:
-                    completed += 1
-                    pending_ids.append(idx)
-
-                    flush_now = completed % self.checkpoint_interval == 0 or completed == len(items)
-                    if flush_now and on_batch_done:
-                        await on_batch_done(out, pending_ids)
-                        if total_progress_bar is not None:
-                            total_progress_bar.update(len(pending_ids))
-                        pending_ids = []
-                        if pbar is not None:
-                            pbar.reset(total=min(queue.qsize(), self.checkpoint_interval))
-
-                    if pbar is not None:
-                        pbar.update(1)
+                    completed, pending_ids = await self._after_item(
+                        completed=completed,
+                        pending_ids=pending_ids,
+                        idx=idx,
+                        out=out,
+                        on_batch_done=on_batch_done,
+                        on_progress=on_progress,
+                        on_batch_progress=on_batch_progress,
+                        total=len(items),
+                        queue_size=queue.qsize(),
+                        total_progress_bar=total_progress_bar,
+                        pbar=pbar,
+                    )
 
         await asyncio.gather(*(worker() for _ in range(self.max_concurrency)))
         if pending_ids and on_batch_done:
             await on_batch_done(out, pending_ids)
             if total_progress_bar is not None:
                 total_progress_bar.update(len(pending_ids))
+        self._finalize_progress(total_progress_bar, pbar)
+        return out
+
+    @staticmethod
+    def _init_queue(items):
+        """Initialize an async queue with (index, item) pairs."""
+        queue: asyncio.Queue[tuple[int, object]] = asyncio.Queue()
+        for idx, item in enumerate(items):
+            queue.put_nowait((idx, item))
+        return queue
+
+    def _wrap_retry(self, fn):
+        """Wrap a coroutine function with retry/backoff policy."""
+        return retry(
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            stop=stop_after_attempt(self.retries),
+            reraise=True,
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+        )(fn)
+
+    def _init_progress(self, progress: bool, total: int):
+        """Initialize total and batch progress bars."""
+        if not progress:
+            return None, None
+        thread_name = threading.current_thread().name
+        total_progress_bar = tqdm(
+            total=total,
+            desc=f"[{thread_name}] Processing all items in worker",
+            leave=True,
+            unit="sample",
+        )
+        pbar = tqdm(
+            total=min(self.checkpoint_interval, total),
+            leave=True,
+            desc=f"[{thread_name}] Processing batch",
+            unit="sample",
+        )
+        return total_progress_bar, pbar
+
+    async def _after_item(
+        self,
+        *,
+        completed: int,
+        pending_ids: list[int],
+        idx: int,
+        out,
+        on_batch_done,
+        on_progress,
+        on_batch_progress,
+        total: int,
+        queue_size: int,
+        total_progress_bar,
+        pbar,
+    ):
+        """Update counters, trigger callbacks, and update progress after one item."""
+        completed += 1
+        pending_ids.append(idx)
+
+        flush_now = completed % self.checkpoint_interval == 0 or completed == total
+        if flush_now and on_batch_done:
+            await on_batch_done(out, pending_ids)
+            if total_progress_bar is not None:
+                total_progress_bar.update(len(pending_ids))
+            pending_ids = []
+            if pbar is not None:
+                pbar.reset(total=min(queue_size, self.checkpoint_interval))
+
+        if pbar is not None:
+            pbar.update(1)
+        if on_progress:
+            await on_progress(completed, total)
+        if on_batch_progress:
+            batch_total = min(self.checkpoint_interval, total)
+            await on_batch_progress(pbar.n if pbar is not None else 0, batch_total)
+
+        return completed, pending_ids
+
+    @staticmethod
+    def _finalize_progress(total_progress_bar, pbar):
+        """Close progress bars if they were initialized."""
         if pbar is not None:
             pbar.close()
         if total_progress_bar is not None:
             total_progress_bar.close()
-        return out

@@ -84,3 +84,49 @@ async def test_batch_executor_retries():
 
     assert result == [x + 5 for x in items]
     assert attempts[1] == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_executor_progress_hooks():
+    items = list(range(4))
+    progress_calls = []
+    batch_calls = []
+
+    async def fn(x):
+        return x
+
+    async def on_progress(done, total):
+        progress_calls.append((done, total))
+
+    async def on_batch_progress(done, total):
+        batch_calls.append((done, total))
+
+    executor = BatchExecutor(max_concurrency=2, checkpoint_interval=2, retries=1)
+    await executor.run(
+        items,
+        fn,
+        progress=False,
+        on_progress=on_progress,
+        on_batch_progress=on_batch_progress,
+    )
+
+    assert progress_calls
+    assert progress_calls[-1] == (4, 4)
+    assert batch_calls
+
+
+@pytest.mark.asyncio
+async def test_batch_executor_cancellation():
+    items = list(range(100))
+
+    async def fn(x):
+        await asyncio.sleep(0.01)
+        return x
+
+    executor = BatchExecutor(max_concurrency=4, checkpoint_interval=10, retries=1)
+    task = asyncio.create_task(executor.run(items, fn, progress=False))
+    await asyncio.sleep(0.05)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
