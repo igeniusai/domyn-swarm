@@ -15,7 +15,7 @@
 from types import SimpleNamespace
 
 from domyn_swarm.config.lepton import LeptonConfig
-from domyn_swarm.config.slurm import SlurmConfig
+from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 
 
 class SlurmCfgCtx:
@@ -42,7 +42,12 @@ class SlurmCfgCtx:
 
 
 def test_slurm_plan_output_consistency():
-    cfg = SlurmConfig(partition="debug", account="acct", qos="normal")
+    cfg = SlurmConfig(
+        partition="debug",
+        account="acct",
+        qos="normal",
+        endpoint=SlurmEndpointConfig(nginx_image="nginx:latest"),
+    )
     plan = cfg.build(SlurmCfgCtx())
 
     assert plan.platform == "slurm"
