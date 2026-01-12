@@ -30,6 +30,7 @@ from pydantic import (
 
 from domyn_swarm import utils
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
+from domyn_swarm.config.plan import DeploymentContext
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
@@ -267,6 +268,9 @@ class DomynLLMSwarm(BaseModel):
         self._state_mgr = SwarmStateManager(self)
 
         plan = self.cfg.get_deployment_plan()
+        if plan is None and self.cfg.backend is not None:
+            plan = self.cfg.build_plan()
+
         if plan is not None:
             extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
             self._plan = plan
@@ -283,13 +287,21 @@ class DomynLLMSwarm(BaseModel):
         assert self._deployment is not None
 
         serving_spec = dict(self._plan.serving_spec, swarm_directory=self.swarm_dir)
+        ctx = DeploymentContext(
+            serving_spec=serving_spec,
+            job_resources=self._plan.job_resources,
+            extras=self._plan.extras | {"swarm_directory": str(self.swarm_dir)},
+            timeout_s=self._plan.timeout_s or self.cfg.wait_endpoint_s,
+            shared_env=self._plan.shared_env,
+            image=self._plan.image,
+        )
 
         logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}...")
 
-        handle = self._deployment.up(self.name, serving_spec, timeout_s=self.cfg.wait_endpoint_s)
+        handle = self._deployment.up(self.name, ctx)
         # We save the handle before waiting to be ready, so we can clean up
         self.serving_handle = handle
-        handle = self._deployment.wait_ready(timeout_s=self.cfg.wait_endpoint_s)
+        handle = self._deployment.wait_ready(timeout_s=ctx.timeout_s or self.cfg.wait_endpoint_s)
 
         # Update the handle and deployment with the ready state
         self.serving_handle = handle
@@ -456,6 +468,8 @@ class DomynLLMSwarm(BaseModel):
             "JOB_CLASS": job_class,
         }
 
+        if self._plan and self._plan.shared_env:
+            env.update(self._plan.shared_env)
         if self.cfg.backend and self.cfg.backend.env:
             env.update(self.cfg.backend.env)
         if env_overrides:
@@ -500,6 +514,8 @@ class DomynLLMSwarm(BaseModel):
             "ENDPOINT": self.endpoint,
             "MODEL": self.model,
         }
+        if self._plan and self._plan.shared_env:
+            env.update(self._plan.shared_env)
         # Global backend env from config
         if getattr(self.cfg, "backend", None) and getattr(self.cfg.backend, "env", None):
             env.update(self.cfg.backend.env)  # type: ignore[attr-defined]

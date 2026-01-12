@@ -30,7 +30,7 @@ import yaml
 from domyn_swarm import utils
 from domyn_swarm.config.backend import BackendConfig
 from domyn_swarm.config.defaults import default_for
-from domyn_swarm.config.plan import DeploymentPlan
+from domyn_swarm.config.plan import DeploymentPlan, PlanBuilder
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.watchdog import WatchdogConfig
 from domyn_swarm.helpers.io import to_path
@@ -90,23 +90,13 @@ class DomynLLMSwarmConfig(BaseModel):
     env: dict[str, str] | None = None
     watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
 
-    @model_validator(mode="after")
-    def _resolve_platform_from_backends(self):
-        """
-        If `backends` is provided, set a runtime plan now.
-        This keeps BC: legacy configs with no `backends` continue to use `platform`.
-        """
-        if self.backend:
-            # Build deployment plans with `self` as context
-            # (to access replicas, hf_home, vllm args, etc.)
-            self._plan = self.backend.build(self)
-            if not self._plan:
-                raise ValueError("At least one backend must be configured")
-
-        return self
-
     # Convenience accessor
     def get_deployment_plan(self) -> DeploymentPlan | None:
+        return self._plan
+
+    def build_plan(self) -> DeploymentPlan:
+        builder = PlanBuilder(self)
+        self._plan = builder.build()
         return self._plan
 
     @field_validator("backend")
