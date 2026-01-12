@@ -69,6 +69,7 @@ REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
 {% if not cfg.backend.requires_ray %}
 GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
 {% endif %}
+export DSWARM_AGENT_VERSION={{ dswarm_agent_version }}
 export SWARM_DIR="{{ swarm_directory }}"
 export LOG_DIR={{ swarm_directory }}/logs/replicas/replica-${REPL_ID}
 export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
@@ -136,19 +137,17 @@ function start_vllm_replica() {
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
      python3 /opt/watchdog.py \
-      --swarm-id {{ job_name }} \
-      --replica-id $global_id \
-      --node $node \
-      --port $port \
-      --probe-interval {{ cfg.watchdog.probe_interval }} \
-      --http-path "{{ cfg.watchdog.http_path }}" \
-      --http-timeout {{ cfg.watchdog.http_timeout }} \
-      --restart-policy {{ cfg.watchdog.restart_policy }} \
-      --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
-      --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
-      --max-restarts {{ cfg.watchdog.max_restarts }} \
-      --log-dir "$log_dir" \
-      --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
+      {{ args_to_str(build_watchdog_args(
+        cfg.watchdog,
+        swarm_id=job_name,
+        replica_id="$global_id",
+        node="$node",
+        port="$port",
+        log_dir="$log_dir",
+        collector_address="$COLLECTOR_HOST:$COLLECTOR_PORT",
+        agent_version="$DSWARM_AGENT_VERSION",
+        ray_enabled=False
+      )) }} \
       -- \
      vllm serve {{ cfg.model }} \
      {% if 'tensor-parallel-size' not in cfg.args %}
@@ -371,22 +370,19 @@ function start_vllm_server() {
   singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
            python3 /opt/watchdog.py \
-            --swarm-id {{job_name}} \
-            --replica-id $REPL_ID \
-            --node $HEAD_NODE \
-            --port $REST_PORT \
-            --probe-interval {{ cfg.watchdog.probe_interval }} \
-            --http-path "{{ cfg.watchdog.http_path }}" \
-            --http-timeout {{ cfg.watchdog.http_timeout }} \
-            --restart-policy {{ cfg.watchdog.restart_policy }} \
-            --readiness-timeout {{ cfg.watchdog.readiness_timeout }} \
-            --unhealthy-restart-after {{ cfg.watchdog.unhealthy_restart_after }} \
-            --max-restarts {{ cfg.watchdog.max_restarts }} \
-            --ray-enabled 1 \
-            --ray-expected-tp {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
-            --ray-expected-workers $SLURM_JOB_NUM_NODES \
-            --log-dir "$RAY_LOG_DIR" \
-            --collector-address "$COLLECTOR_HOST:$COLLECTOR_PORT" \
+            {{ args_to_str(build_watchdog_args(
+              cfg.watchdog,
+              swarm_id=job_name,
+              replica_id="$REPL_ID",
+              node="$HEAD_NODE",
+              port="$REST_PORT",
+              log_dir="$RAY_LOG_DIR",
+              collector_address="$COLLECTOR_HOST:$COLLECTOR_PORT",
+              agent_version="$DSWARM_AGENT_VERSION",
+              ray_enabled=True,
+              ray_expected_tp=([cfg.gpus_per_replica,cfg.gpus_per_node] | min),
+              ray_expected_workers="$SLURM_JOB_NUM_NODES"
+            )) }} \
             -- \
            vllm serve {{ cfg.model }} \
            {% if 'tensor-parallel-size' not in cfg.args %}

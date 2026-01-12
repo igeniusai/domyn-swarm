@@ -21,9 +21,6 @@ import logging
 import os
 from pathlib import Path
 import sys
-import warnings
-
-import pandas as pd
 
 from domyn_swarm.helpers.data import compute_hash, parquet_hash
 from domyn_swarm.helpers.io import load_dataframe, save_dataframe
@@ -37,54 +34,6 @@ logger = setup_logger("domyn_swarm.jobs.run", level=logging.INFO)
 def _load_cls(path: str) -> type[SwarmJob]:
     mod, cls = path.split(":")
     return getattr(importlib.import_module(mod), cls)
-
-
-async def run_swarm_in_threads(
-    df: pd.DataFrame,
-    job_cls: type["SwarmJob"],
-    *,
-    job_kwargs: dict,
-    tag: str,
-    checkpoint_dir: str | Path = ".checkpoints",
-    num_threads: int | None = None,
-) -> pd.DataFrame:
-    """
-    Runs SwarmJob across multiple threads with individual asyncio event loops.
-
-    Each thread gets a shard of the input DataFrame and runs the full pipeline
-    asynchronously. Checkpoints and results are kept per-thread and merged at the end.
-
-    Parameters:
-        df: The full input dataframe
-        job_cls: Your concrete SwarmJob class
-        job_kwargs: Arguments to instantiate the job (e.g., model, endpoint, etc.)
-        tag: Base tag name for checkpoints
-        checkpoint_dir: Directory to store per-shard checkpoints
-        num_threads: Optional override for how many threads/cores to use
-
-    Returns:
-        A single combined DataFrame with all outputs.
-    """
-    warnings.warn(
-        "run_swarm_in_threads is deprecated; sharding handled by run_job_unified.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    def make_job():
-        return job_cls(**job_kwargs)
-
-    return await run_job_unified(
-        make_job,
-        df,
-        input_col=job_kwargs.get("input_column_name", "messages"),
-        output_cols=[job_kwargs.get("output_cols", "result")],
-        nshards=num_threads or 1,
-        store_uri=None,  # disables new-style path
-        checkpoint_every=job_kwargs.get("checkpoint_interval", 16),
-        tag=tag,
-        checkpoint_dir=str(checkpoint_dir),
-    )
 
 
 def parse_args(cli_args=None):
@@ -175,7 +124,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         checkpoint_dir=args.checkpoint_dir,  # used by old-style
     )
 
-    save_dataframe(df_out, out_path)
+    save_dataframe(df_out, out_path, nshards=nshards)
 
 
 def main(cli_args: list[str] | None = None):

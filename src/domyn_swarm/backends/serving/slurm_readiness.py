@@ -24,6 +24,7 @@ from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.http_probe import wait_http_200
 from domyn_swarm.platform.protocols import ServingHandle
 from domyn_swarm.platform.readiness import ServingReadiness
+from domyn_swarm.runtime.status import read_replica_statuses
 
 SLURM_BAD_STATES = {
     "FAILED",
@@ -163,14 +164,22 @@ class SlurmReadiness(ServingReadiness):
             and summary.http_ready == 0
             and summary.failed > 0
         ):
+            rows = read_replica_statuses(self.watchdog_db, self.swarm_name)
+            row_hint = ""
+            if rows:
+                first = rows[0]
+                row_hint = (
+                    f" replica={first.replica_id} state={first.state} "
+                    f"reason={first.fail_reason or 'unknown'}"
+                )
             reason_frag = (
                 f" Example: {summary.example_fail_reason}" if summary.example_fail_reason else ""
             )
             status.update(
                 f"[red]All replicas failed for swarm '{self.swarm_name}' "
-                f"(failed_or_exited={summary.failed}/{summary.total}).{reason_frag}[/]"
+                f"(failed_or_exited={summary.failed}/{summary.total}).{reason_frag}{row_hint}[/]"
             )
             raise SwarmReplicaFailure(
                 f"All replicas for swarm '{self.swarm_name}' are in terminal "
-                f"states (failed_or_exited={summary.failed}, total={summary.total})."
+                f"states (failed_or_exited={summary.failed}, total={summary.total}).{row_hint}"
             )

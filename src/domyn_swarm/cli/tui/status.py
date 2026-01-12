@@ -39,6 +39,7 @@ def render_swarm_status(
     st: ServingStatus,
     *,
     replica_summary: SwarmReplicaSummary | None = None,
+    replica_rows: list | None = None,
     console: Console | None = None,
 ) -> None:
     """Renders a comprehensive status view for a single swarm deployment.
@@ -117,19 +118,20 @@ def render_swarm_status(
 
     # Replica health block from watchdog
     replica_panel: Panel | Text
-    if replica_summary is not None:
+    if replica_summary is not None or replica_rows:
         rep_table = Table(box=None, show_header=False, pad_edge=False)
         rep_table.add_column("Key", style="bold dim")
         rep_table.add_column("Value")
 
-        rep_table.add_row("Total replicas", str(replica_summary.total))
-        rep_table.add_row("Running", str(replica_summary.running))
-        rep_table.add_row("HTTP ready", str(replica_summary.http_ready))
-        rep_table.add_row("Failed", str(replica_summary.failed))
+        if replica_summary is not None:
+            rep_table.add_row("Total replicas", str(replica_summary.total))
+            rep_table.add_row("Running", str(replica_summary.running))
+            rep_table.add_row("HTTP ready", str(replica_summary.http_ready))
+            rep_table.add_row("Failed", str(replica_summary.failed))
 
         # Failure reasons table (if any)
         reasons_panel: Panel | Text = Text("")
-        if replica_summary.fail_reasons:
+        if replica_summary and replica_summary.fail_reasons:
             reasons_table = Table(
                 title=None,
                 box=None,
@@ -154,10 +156,45 @@ def render_swarm_status(
                 padding=(0, 1),
             )
 
+        rows_panel: Panel | Text = Text("")
+        if replica_rows:
+            rows_table = Table(
+                title=None,
+                box=None,
+                show_header=True,
+                header_style="bold",
+                pad_edge=False,
+            )
+            rows_table.add_column("Replica", justify="right")
+            rows_table.add_column("State")
+            rows_table.add_column("HTTP", justify="right")
+            rows_table.add_column("Node")
+            rows_table.add_column("Port", justify="right")
+            rows_table.add_column("Fail reason")
+
+            for row in replica_rows:
+                rows_table.add_row(
+                    str(getattr(row, "replica_id", "")),
+                    str(getattr(row, "state", "")),
+                    str(getattr(row, "http_ready", "")),
+                    str(getattr(row, "node", "") or ""),
+                    str(getattr(row, "port", "") or ""),
+                    str(getattr(row, "fail_reason", "") or ""),
+                )
+
+            rows_panel = Panel(
+                rows_table,
+                title="Replica rows",
+                border_style="cyan",
+                padding=(0, 1),
+            )
+
         replica_body = Group(
-            rep_table,
+            rep_table if replica_summary is not None else Text(""),
             Text(),  # spacer
             reasons_panel if isinstance(reasons_panel, Panel) else Text(""),
+            Text(),  # spacer
+            rows_panel if isinstance(rows_panel, Panel) else Text(""),
         )
 
         replica_panel = Panel(

@@ -267,7 +267,12 @@ class SwarmJob(abc.ABC):
         checkpoint_dir = Path(checkpoint_dir)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         path = checkpoint_dir / f"{self.__class__.__name__}_{tag}.parquet"
-        manager = CheckpointManager(path, df)
+        manager = CheckpointManager(
+            path,
+            df,
+            expected_output_cols=self.output_cols,
+            input_col=self.input_column_name,
+        )
 
         todo_df = manager.filter_todo()
         idx_map = todo_df.index.to_numpy()
@@ -283,7 +288,8 @@ class SwarmJob(abc.ABC):
         self.register_callback("on_batch_done", flush)
 
         try:
-            await self.transform(todo_df)
+            items = todo_df[self.input_column_name].tolist()
+            await self.batched(items, self._call_unit)
         finally:
             self._callbacks.clear()
 
@@ -297,17 +303,17 @@ class SwarmJob(abc.ABC):
         Supports retrying and invokes the 'on_batch_done' callback if registered.
         """
         executor = BatchExecutor(self.max_concurrency, self.checkpoint_interval, self.retries)
-        return await executor.run(seq, fn, on_batch_done=self.get_callback("on_batch_done"))
+        return await executor.run(
+            seq,
+            fn,
+            on_batch_done=self.get_callback("on_batch_done"),
+            progress=True,
+        )
 
-    @deprecated(reason="The `transform` method is deprecated in favor of `transform_items`.")
+    @deprecated(reason="Legacy transform(df) is no longer supported; implement transform_items.")
     async def transform(self, df: pd.DataFrame):
-        """
-        Subclasses must implement this to process a DataFrame slice.
-        It should invoke `self.batched(...)` internally.
-        """
-        raise NotImplementedError(
-            "Sub-classes must implement `transform(df)`."
-            "Note: the `transform_items` method is preferred."
+        raise RuntimeError(
+            "transform(df) is no longer supported. Implement transform_items(items) instead."
         )
 
     def to_kwargs(self) -> dict:
@@ -356,4 +362,5 @@ class SwarmJob(abc.ABC):
             items,
             self._call_unit,
             on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+            progress=True,
         )

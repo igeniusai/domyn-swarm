@@ -115,6 +115,10 @@ class WatchdogConfig:
         return f"http://{self.host}:{self.port}{self.http_path}"
 
 
+def _ensure_leading_slash(path: str) -> str:
+    return path if path.startswith("/") else f"/{path}"
+
+
 def _send_status_once(collector_address: str, payload: dict) -> bool:
     """
     Try to send a single status update.
@@ -849,8 +853,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--probe-interval",
         type=float,
-        default=5.0,
-        help="Probe interval in seconds (default: 5).",
+        default=30.0,
+        help="Probe interval in seconds (default: 30).",
     )
     parser.add_argument(
         "--http-timeout",
@@ -861,8 +865,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--readiness-timeout",
         type=float,
-        default=60.0,
-        help="Seconds to wait for initial readiness (default: 60).",
+        default=600.0,
+        help="Seconds to wait for initial readiness (default: 600).",
     )
     parser.add_argument(
         "--restart-policy",
@@ -873,14 +877,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--restart-backoff",
         type=float,
-        default=10.0,
-        help="Seconds to sleep before restarting the child (default: 10).",
+        default=5.0,
+        help="Seconds to sleep before restarting the child (default: 5).",
     )
     parser.add_argument(
         "--max-restarts",
         type=int,
-        default=None,
-        help="Maximum number of restarts (default: unlimited).",
+        default=3,
+        help="Maximum number of restarts (default: 3).",
     )
     parser.add_argument(
         "--unhealthy-http-failures",
@@ -891,7 +895,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--unhealthy-restart-after",
         type=float,
-        default=300.0,
+        default=120.0,
         help="Seconds in UNHEALTHY state before considering restart.",
     )
 
@@ -929,7 +933,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--ray-probe-interval",
         type=float,
-        default=10.0,
+        default=30.0,
         help="How often to probe Ray once child is running.",
     )
     parser.add_argument(
@@ -1001,7 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = WatchdogConfig(
         host="127.0.0.1",  # typically localhost inside the replica node
         port=args.port,
-        http_path=args.http_path,
+        http_path=_ensure_leading_slash(args.http_path),
         http_timeout_s=args.http_timeout,
         probe_interval_s=args.probe_interval,
         unhealthy_http_failures=args.unhealthy_http_failures,

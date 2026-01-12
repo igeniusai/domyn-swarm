@@ -15,7 +15,6 @@
 import asyncio
 from collections.abc import Callable
 from typing import Any
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -27,10 +26,6 @@ from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
 
 def _has_new_api(job: SwarmJob) -> bool:
     return resolve_job_api(job) == "new"
-
-
-def _has_old_api(job: SwarmJob) -> bool:
-    return resolve_job_api(job) == "old"
 
 
 def _is_overridden(obj: object, method: str, base: type) -> bool:
@@ -72,59 +67,36 @@ async def run_job_unified(
 ) -> pd.DataFrame:
     job_probe = job_factory()
 
-    # New-style path (store-agnostic, streaming flush)
-    if _has_new_api(job_probe):
-        if store_uri is None:
-            raise ValueError("store_uri is required for new-style jobs.")
-        cfg = RunnerConfig(id_col="_row_id", checkpoint_every=checkpoint_every)
-        if nshards <= 1:
-            store = ParquetShardStore(store_uri)
-            return await JobRunner(store, cfg).run(
-                job_probe,
-                df,
-                input_col=input_col,
-                output_cols=output_cols or job_probe.default_output_cols,
-                output_mode=job_probe.output_mode,
-            )
-        indices = np.array_split(df.index, nshards)
-
-        async def _one(i, idx):
-            sub = df.loc[idx].copy()
-            su = store_uri.replace(".parquet", f"_shard{i}.parquet")
-            store = ParquetShardStore(su)
-            return await JobRunner(store, cfg).run(
-                job_factory(),
-                sub,
-                input_col=input_col,
-                output_cols=output_cols or job_probe.default_output_cols,
-                output_mode=job_probe.output_mode,
-            )
-
-        parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
-        return pd.concat(parts).sort_index()
-
-    # Old-style path (full BC)
-    if not _has_old_api(job_probe):
+    if not _has_new_api(job_probe):
         raise TypeError(
-            "Job must implement either the new streaming API or legacy run(df, ...) API"
+            "Job must implement the streaming API (transform_items/transform_streaming)."
         )
 
-    warnings.warn(
-        "Using legacy job API (run/transform). Consider upgrading to "
-        "the new streaming API (transform_items/transform_streaming).",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
+    if store_uri is None:
+        raise ValueError("store_uri is required for streaming jobs.")
+    cfg = RunnerConfig(id_col="_row_id", checkpoint_every=checkpoint_every)
     if nshards <= 1:
-        return await job_probe.run(df, tag=tag or "run", checkpoint_dir=checkpoint_dir)
+        store = ParquetShardStore(store_uri)
+        return await JobRunner(store, cfg).run(
+            job_probe,
+            df,
+            input_col=input_col,
+            output_cols=output_cols or job_probe.default_output_cols,
+            output_mode=job_probe.output_mode,
+        )
     indices = np.array_split(df.index, nshards)
 
-    async def _old_one(i, idx):
+    async def _one(i, idx):
         sub = df.loc[idx].copy()
-        return await job_factory().run(
-            sub, tag=f"{tag or 'run'}_shard{i}", checkpoint_dir=checkpoint_dir
+        su = store_uri.replace(".parquet", f"_shard{i}.parquet")
+        store = ParquetShardStore(su)
+        return await JobRunner(store, cfg).run(
+            job_factory(),
+            sub,
+            input_col=input_col,
+            output_cols=output_cols or job_probe.default_output_cols,
+            output_mode=job_probe.output_mode,
         )
 
-    parts = await asyncio.gather(*[_old_one(i, idx) for i, idx in enumerate(indices)])
+    parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
     return pd.concat(parts).sort_index()

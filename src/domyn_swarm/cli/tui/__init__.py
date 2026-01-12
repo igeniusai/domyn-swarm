@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from typing import cast
 
 from rich.console import Console
 
@@ -13,6 +14,7 @@ def render_status(
     items: Iterable[tuple[str, str, ServingStatus]] | tuple[str, str, ServingStatus],
     *,
     replica_summary: SwarmReplicaSummary | None = None,
+    replica_rows: list | None = None,
     console: Console | None = None,
 ) -> None:
     """
@@ -21,14 +23,28 @@ def render_status(
       - If you pass an iterable of tuples, render compact multi view.
     """
     if isinstance(items, tuple) and len(items) == 3:
-        name, backend, st = items
-        render_swarm_status(name, backend, st, replica_summary=replica_summary, console=console)  # type: ignore[arg-type]
+        name, backend, st = cast(tuple[str, str, ServingStatus], items)
+        render_swarm_status(
+            name,
+            backend,
+            st,
+            replica_summary=replica_summary,
+            replica_rows=replica_rows,
+            console=console,
+        )
         return
 
     items_list = list(items)  # type: ignore[arg-type]
     if len(items_list) == 1:
         name, backend, st = items_list[0]
-        render_swarm_status(name, backend, st, replica_summary=replica_summary, console=console)
+        render_swarm_status(
+            name,
+            backend,
+            st,
+            replica_summary=replica_summary,
+            replica_rows=replica_rows,
+            console=console,
+        )
     else:
         render_multi_status(items_list, console=console)
 

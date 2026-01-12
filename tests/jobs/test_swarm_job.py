@@ -23,11 +23,8 @@ class DummyJob(SwarmJob):
         super().__init__(**kwargs)
         self.calls = []
 
-    async def transform(self, df: pd.DataFrame):
-        await self.batched(df[self.input_column_name].tolist(), self.fake_fn)
-
     async def transform_items(self, items):
-        return await super().transform_items(items)
+        return [await self.fake_fn(item) for item in items]
 
     async def fake_fn(self, x):
         self.calls.append(x)

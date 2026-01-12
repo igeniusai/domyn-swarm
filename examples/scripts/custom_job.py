@@ -16,9 +16,9 @@
 This script is an example on how you can use the domyn-swarm API to
 implement your own custom job, which is totally free in terms of implementation.
 
-Your custom job must implement an async transform method, with the signature
+Your custom job must implement an async transform_items method, with the signature
 
-async def transform(df: pd.DataFrame):
+async def transform_items(items: list[Any]) -> list[Any]:
     pass
 
 you can either run this job using the CLI

@@ -22,6 +22,7 @@ import typer
 
 from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
 from domyn_swarm.core.state.watchdog import SwarmReplicaSummary, read_swarm_summary
+from domyn_swarm.runtime.status import read_replica_statuses
 from domyn_swarm.utils.cli import _pick_one
 
 from ..cli.init import init_app
@@ -164,14 +165,23 @@ def check_status(
 
     serving_status = swarm.status()
     replica_summary: SwarmReplicaSummary | None = None
+    replica_rows = []
 
     try:
         replica_summary = read_swarm_summary(swarm.watchdog_db_path, swarm_id=name)
     except Exception as e:
         logger.debug(f"Could not read swarm replica summary: {e}")
 
+    try:
+        replica_rows = read_replica_statuses(swarm.watchdog_db_path, swarm_id=name)
+    except Exception as e:
+        logger.debug(f"Could not read swarm replica rows: {e}")
+
     render_status(
-        (name, swarm._platform, serving_status), replica_summary=replica_summary, console=console
+        (name, swarm._platform, serving_status),
+        replica_summary=replica_summary,
+        replica_rows=replica_rows,
+        console=console,
     )
 
 

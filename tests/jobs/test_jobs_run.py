@@ -39,11 +39,13 @@ class DummySwarmJob(SwarmJob):
     output_mode = OutputJoinMode.APPEND
 
     def __init__(self, **kwargs):
+        kwargs.setdefault("endpoint", "http://dummy-endpoint")
+        kwargs.setdefault("model", "dummy-model")
+        kwargs.setdefault("input_column_name", "messages")
+        kwargs.setdefault("output_cols", "output")
+        super().__init__(**kwargs)
         self.params = kwargs
         self.output_mode = kwargs.get("output_mode", OutputJoinMode.APPEND)
-
-    async def transform(self, df):
-        raise NotImplementedError()
 
     async def transform_items(self, items: list):
         return [f"test_shard_{i}" for i in items]
@@ -83,7 +85,7 @@ def test_build_job_from_args(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_swarm_in_threads():
+async def test_run_job_unified_streaming():
     df = pd.DataFrame({"messages": [1, 2, 3, 4]})
     out_df = await run_job_unified(
         DummySwarmJob,
@@ -117,6 +119,13 @@ def test_parse_args_minimal():
     )
     assert args.model == "gpt-4"
     assert args.input_parquet.name == "in.parquet"
+
+
+@pytest.mark.asyncio
+async def test_transform_is_not_supported():
+    job = DummySwarmJob()
+    with pytest.raises(RuntimeError, match="transform\\(df\\) is no longer supported"):
+        await job.transform(pd.DataFrame({"messages": ["hi"]}))
 
 
 @pytest.mark.asyncio

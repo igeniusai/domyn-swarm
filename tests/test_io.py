@@ -51,6 +51,15 @@ def test_load_and_save_jsonl(tmp_path, sample_df):
     pd.testing.assert_frame_equal(loaded, sample_df)
 
 
+def test_save_dataframe_dir_sharded(tmp_path, sample_df):
+    out_dir = tmp_path / "out"
+    save_dataframe(sample_df, out_dir, nshards=2)
+    files = sorted(out_dir.glob("*.parquet"))
+    assert [f.name for f in files] == ["data-0.parquet", "data-1.parquet"]
+    loaded = load_dataframe(out_dir)
+    pd.testing.assert_frame_equal(loaded, sample_df)
+
+
 def test_load_dataframe_unsupported(tmp_path):
     with pytest.raises(ValueError):
         load_dataframe(tmp_path / "data.txt")
