@@ -124,7 +124,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         checkpoint_dir=args.checkpoint_dir,  # used by old-style
     )
 
-    save_dataframe(df_out, out_path)
+    save_dataframe(df_out, out_path, nshards=nshards)
 
 
 def main(cli_args: list[str] | None = None):

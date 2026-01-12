@@ -14,6 +14,7 @@
 
 # helpers/io.py
 import glob
+import math
 import os
 from pathlib import Path
 
@@ -76,12 +77,52 @@ def load_dataframe(path: Path, limit: int | None = None) -> pd.DataFrame:
     return df.head(limit) if limit else df
 
 
-def save_dataframe(df: pd.DataFrame, path: Path):
+def _coerce_nshards(df: pd.DataFrame, nshards: int | None) -> int:
+    if nshards is None:
+        nshards = df.attrs.get("nshards")
+    if nshards is None:
+        nshards = df.attrs.get("n_shards")
+    if nshards is None:
+        return 1
+    try:
+        return max(1, int(nshards))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _shard_filename(shard_id: int, nshards: int) -> str:
+    width = max(1, len(str(nshards - 1)))
+    return f"data-{shard_id:0{width}d}.parquet"
+
+
+def _save_parquet_shards(df: pd.DataFrame, dest_dir: Path, nshards: int | None) -> None:
+    resolved = _coerce_nshards(df, nshards)
+    total_rows = len(df)
+    if total_rows == 0:
+        df.to_parquet(dest_dir / _shard_filename(0, resolved), index=False)
+        return
+    if resolved == 1:
+        df.to_parquet(dest_dir / "data.parquet", index=False)
+        return
+    chunk_size = math.ceil(total_rows / resolved)
+    for shard_id in range(resolved):
+        start = shard_id * chunk_size
+        if start >= total_rows:
+            break
+        end = min(start + chunk_size, total_rows)
+        df.iloc[start:end].to_parquet(
+            dest_dir / _shard_filename(shard_id, resolved),
+            index=False,
+        )
+
+
+def save_dataframe(df: pd.DataFrame, path: Path, nshards: int | None = None):
     path = Path(path)
     is_dir_target = path.is_dir()
     has_suffix = path.suffix != ""
+    is_dir_output = is_dir_target or not has_suffix
 
-    if is_dir_target or not has_suffix:
+    if is_dir_output:
         # Allow parquet datasets to be written to a directory (or suffix-less path).
         dest_dir = path
         os.makedirs(dest_dir, exist_ok=True)
@@ -94,7 +135,10 @@ def save_dataframe(df: pd.DataFrame, path: Path):
 
     match suffix:
         case ".parquet":
-            df.to_parquet(target, index=False)
+            if is_dir_output:
+                _save_parquet_shards(df, target, nshards)
+            else:
+                df.to_parquet(target, index=False)
         case ".csv":
             df.to_csv(target, index=False)
         case ".jsonl":
