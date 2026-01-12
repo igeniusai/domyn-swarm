@@ -306,6 +306,37 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     assert env["A"] == "B"  # from compute.default_env
 
 
+def test_submit_job_merges_resources_from_defaults_plan_and_overrides(cfg_stub):
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class DummyJob:
+        name = "job"
+        checkpoint_interval = 15
+
+        def to_kwargs(self):
+            return {}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    compute = FakeComputeBackend()
+    compute.default_resources = lambda cfg: {"shape": "gpu.1x", "cpu": 2}
+    dep.compute = compute
+
+    swarm._plan.job_resources = {"shape": "gpu.2x", "mem": "10G"}  # type: ignore[attr-defined]
+
+    swarm.submit_job(
+        DummyJob(),
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        detach=False,
+        job_resources={"cpu": 8},
+    )
+
+    call = dep.run_calls[-1]
+    assert call["resources"] == {"shape": "gpu.2x", "cpu": 8, "mem": "10G"}
+
+
 def test_submit_job_returns_none_when_not_detached(cfg_stub):
     swarm = make_swarm(cfg_stub)
     with swarm:

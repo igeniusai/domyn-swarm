@@ -66,6 +66,42 @@ def test_plan_builder_merges_cfg_env():
     assert out.shared_env == {"A": "B", "C": "D"}
 
 
+def test_plan_builder_defaults_image_from_backend_job():
+    plan = DeploymentPlan(
+        name_hint="stub",
+        serving=object(),
+        compute=object(),
+        serving_spec={},
+        job_resources={},
+        extras={},
+        platform="slurm",
+    )
+    backend = BackendStub(plan)
+    backend.job = SimpleNamespace(image="repo/image:tag")
+    cfg = SimpleNamespace(backend=backend)
+
+    out = PlanBuilder(cfg).build()
+
+    assert out.image == "repo/image:tag"
+
+
+def test_plan_builder_preserves_job_resources():
+    plan = DeploymentPlan(
+        name_hint="stub",
+        serving=object(),
+        compute=object(),
+        serving_spec={},
+        job_resources={"cpu": 4},
+        extras={},
+        platform="slurm",
+    )
+    cfg = SimpleNamespace(backend=BackendStub(plan))
+
+    out = PlanBuilder(cfg).build()
+
+    assert out.job_resources == {"cpu": 4}
+
+
 def test_plan_builder_requires_backend():
     cfg = SimpleNamespace(backend=None)
 

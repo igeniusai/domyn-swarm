@@ -434,10 +434,16 @@ class DomynLLMSwarm(BaseModel):
         compute = self._deployment.compute
         assert compute is not None, "Compute backend not initialized"
         python_interpreter = compute.default_python(self.cfg)
-        image = compute.default_image(self.cfg.backend)
+        image = (
+            self._plan.image
+            if self._plan and self._plan.image
+            else compute.default_image(self.cfg.backend)
+        )
 
-        resources = (
-            job_resources or self._plan.job_resources or compute.default_resources(self.cfg.backend)
+        resources = self._merge_resources(
+            compute.default_resources(self.cfg.backend),
+            self._plan.job_resources if self._plan else None,
+            job_resources,
         )
         env_overrides = compute.default_env(self.cfg)
 
@@ -507,8 +513,16 @@ class DomynLLMSwarm(BaseModel):
 
         compute = self._deployment.compute
         python_interpreter = compute.default_python(self.cfg)
-        image = compute.default_image(self.cfg.backend)
-        resources = compute.default_resources(self.cfg.backend)
+        image = (
+            self._plan.image
+            if self._plan and self._plan.image
+            else compute.default_image(self.cfg.backend)
+        )
+        resources = self._merge_resources(
+            compute.default_resources(self.cfg.backend),
+            self._plan.job_resources if self._plan else None,
+            None,
+        )
 
         env = {
             "ENDPOINT": self.endpoint,
@@ -528,6 +542,23 @@ class DomynLLMSwarm(BaseModel):
             env.update(extra_env)
 
         return str(python_interpreter), image, resources, env
+
+    @staticmethod
+    def _merge_resources(
+        base: dict | None,
+        plan_resources: dict | None,
+        overrides: dict | None,
+    ) -> dict | None:
+        if not base and not plan_resources and not overrides:
+            return None
+        merged: dict = {}
+        if base:
+            merged.update(base)
+        if plan_resources:
+            merged.update(plan_resources)
+        if overrides:
+            merged.update(overrides)
+        return merged
 
     def submit_script(
         self,

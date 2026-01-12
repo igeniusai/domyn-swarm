@@ -67,6 +67,8 @@ class PlanBuilder:
         cfg_env = getattr(self.cfg_ctx, "env", None)
         if cfg_env:
             plan.shared_env.update(cfg_env)
+        if plan.image is None:
+            plan.image = self._default_job_image()
         return plan
 
     @staticmethod
@@ -80,3 +82,8 @@ class PlanBuilder:
         if plan.shared_env is None:
             plan.shared_env = {}
         return plan
+
+    def _default_job_image(self) -> str | None:
+        backend = getattr(self.cfg_ctx, "backend", None)
+        job_cfg = getattr(backend, "job", None)
+        return getattr(job_cfg, "image", None)
