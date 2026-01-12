@@ -454,7 +454,6 @@ class DomynLLMSwarm(BaseModel):
             "ENDPOINT": self.endpoint,
             "MODEL": self.model,
             "JOB_CLASS": job_class,
-            "JOB_KWARGS": f"'{job_kwargs}'",
         }
 
         if self.cfg.backend and self.cfg.backend.env:
