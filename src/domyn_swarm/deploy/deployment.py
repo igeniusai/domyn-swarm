@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass, field
 
+from domyn_swarm.config.plan import DeploymentContext
 from domyn_swarm.platform.protocols import (
     ComputeBackend,
     JobHandle,
@@ -29,7 +30,8 @@ class Deployment:
 
     Typical flow:
     >>> dep = Deployment(serving=..., compute=...)
-    >>> eph = dep.up("my-endpoint", serving_spec={"model": "..."}, timeout_s=1800)
+    >>> ctx = DeploymentContext(serving_spec={"model": "..."}, timeout_s=1800)
+    >>> eph = dep.up("my-endpoint", ctx)
     >>> env = {"ENDPOINT": eph.url, "MODEL": "mymodel"}
     >>> jh = dep.run(name="my-job", image="...", command=["python", "-m", "..."], env=env)
     >>> dep.down(eph)
@@ -44,17 +46,23 @@ class Deployment:
     extras: dict = field(default_factory=dict)
     _handle: ServingHandle | None = None
 
-    def up(self, name: str, serving_spec: dict, timeout_s: int) -> ServingHandle:
+    def up(self, name: str, ctx: DeploymentContext) -> ServingHandle:
         """Create and wait for a serving endpoint to be ready."""
-        handle = self.serving.create_or_update(name, serving_spec, extras=self.extras)
+        merged_extras = self.extras | ctx.extras
+        handle = self.serving.create_or_update(name, ctx.serving_spec, extras=merged_extras)
         self._handle = handle
+        self.extras = merged_extras
         return handle
 
-    def wait_ready(self, timeout_s: int) -> ServingHandle:
+    def wait_ready(self, timeout_s: int, *, extras: dict | None = None) -> ServingHandle:
         """Wait for the current serving endpoint to be ready."""
         if self._handle is None:
             raise RuntimeError("No serving handle to wait for readiness")
-        handle = self.serving.wait_ready(self._handle, timeout_s, extras=self.extras)
+        handle = self.serving.wait_ready(
+            self._handle,
+            timeout_s,
+            extras=extras or self.extras,
+        )
         self._handle = handle
         return handle
 

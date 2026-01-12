@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from domyn_swarm.config.plan import DeploymentContext
 from domyn_swarm.deploy.deployment import Deployment
 
 
@@ -75,6 +76,26 @@ def test_run_forwards_all_arguments_to_compute_with_extras(mocker):
     )
     assert out.id == "job-1"
     assert out.status == "PENDING"
+
+
+def test_up_merges_context_extras_and_updates_deployment(mocker):
+    serving = mocker.Mock()
+    compute = mocker.Mock()
+    handle = SimpleNamespace(id="ep1", url="http://x", meta={})
+    serving.create_or_update.return_value = handle
+
+    dep = Deployment(serving=serving, compute=compute, extras={"note": "hi"})
+    ctx = DeploymentContext(serving_spec={"model": "m"}, extras={"swarm_directory": "/tmp/s"})
+
+    out = dep.up("my-endpoint", ctx)
+
+    serving.create_or_update.assert_called_once_with(
+        "my-endpoint",
+        {"model": "m"},
+        extras={"note": "hi", "swarm_directory": "/tmp/s"},
+    )
+    assert dep.extras == {"note": "hi", "swarm_directory": "/tmp/s"}
+    assert out is handle
 
 
 def test_down_delegates_to_serving_delete(mocker):

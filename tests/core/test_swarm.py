@@ -53,9 +53,9 @@ class FakeDeployment:
         self.run_calls = []
         self.ensure_ready_calls = 0
 
-    def up(self, name, spec, timeout_s):
-        spec = {k: str(v) for k, v in spec.items()}  # make a copy
-        self.up_calls.append((name, json.loads(json.dumps(spec)), timeout_s))
+    def up(self, name, ctx):
+        spec = {k: str(v) for k, v in ctx.serving_spec.items()}  # make a copy
+        self.up_calls.append((name, json.loads(json.dumps(spec)), ctx))
         # Return a ServingHandle-like object (the code only needs .id, .url, .meta)
         return SimpleNamespace(id=name, url="http://host:9000", meta={"name": name})
 
@@ -91,7 +91,7 @@ class FakeDeployment:
     def ensure_ready(self):
         self.ensure_ready_calls += 1
 
-    def wait_ready(self, timeout_s):
+    def wait_ready(self, timeout_s, *, extras=None):
         self.ensure_ready_calls += 1
         return SimpleNamespace(id="ready", url="http://ready:9000", meta={"name": "ready"})
 
@@ -129,6 +129,9 @@ class FakePlan:
         self.name_hint = platform
         self.extras = {}
         self.job_resources = {}
+        self.shared_env = {}
+        self.image = None
+        self.timeout_s = None
 
 
 # ---------------------------
@@ -207,8 +210,8 @@ def test_enter_sets_endpoint_persists_and_sets_compute(cfg_stub):
         assert s.endpoint == "http://ready:9000"
         assert isinstance(s.serving_handle, SimpleNamespace)
         # Deployment was called with a sanitized name
-        _, spec, timeout_s = swarm._deployment.up_calls[-1]  # type: ignore[attr-defined]
-        assert timeout_s == cfg_stub.wait_endpoint_s
+        _, spec, ctx = swarm._deployment.up_calls[-1]  # type: ignore[attr-defined]
+        assert ctx.timeout_s == cfg_stub.wait_endpoint_s
         assert spec["replicas"] == "1"
         assert spec["resource_shape"] == "gpu.4xh200"
         assert "swarm_directory" in spec
@@ -301,6 +304,37 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     assert env["MODEL"] == cfg_stub.model
     assert env["X"] == "Y"  # from cfg.backend.env
     assert env["A"] == "B"  # from compute.default_env
+
+
+def test_submit_job_merges_resources_from_defaults_plan_and_overrides(cfg_stub):
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class DummyJob:
+        name = "job"
+        checkpoint_interval = 15
+
+        def to_kwargs(self):
+            return {}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    compute = FakeComputeBackend()
+    compute.default_resources = lambda cfg: {"shape": "gpu.1x", "cpu": 2}
+    dep.compute = compute
+
+    swarm._plan.job_resources = {"shape": "gpu.2x", "mem": "10G"}  # type: ignore[attr-defined]
+
+    swarm.submit_job(
+        DummyJob(),
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        detach=False,
+        job_resources={"cpu": 8},
+    )
+
+    call = dep.run_calls[-1]
+    assert call["resources"] == {"shape": "gpu.2x", "cpu": 8, "mem": "10G"}
 
 
 def test_submit_job_returns_none_when_not_detached(cfg_stub):
