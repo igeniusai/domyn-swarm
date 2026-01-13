@@ -67,9 +67,10 @@ class CompletionJob(SwarmJob):
         Returns a list of completion strings.
         """
         outs = []
+        extra_body = self._request_kwargs()
         for prompt in items:
             resp = await self.client.completions.create(
-                model=self.model, prompt=prompt, extra_body=self.kwargs
+                model=self.model, prompt=prompt, extra_body=extra_body
             )
             outs.append(resp.choices[0].text)
         return outs
@@ -92,9 +93,10 @@ class ChatCompletionJob(SwarmJob):
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
+        extra_body = self._request_kwargs()
         for msgs in items:
             resp = await self.client.chat.completions.create(
-                model=self.model, messages=msgs, extra_body=self.kwargs
+                model=self.model, messages=msgs, extra_body=extra_body
             )
             choice = resp.choices[0]
             if self.parse_reasoning:
@@ -131,12 +133,13 @@ class MultiChatCompletionJob(SwarmJob):
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
+        extra_body = self._request_kwargs()
         for msgs in items:
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=msgs,
                 n=self.n,  # ask the API for n choices at once
-                extra_body=self.kwargs,
+                extra_body=extra_body,
             )
             outs.append([choice.message.content for choice in resp.choices])
         return outs
@@ -186,12 +189,13 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
+        extra_body = self._request_kwargs()
         for msgs in items:
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=msgs,
                 logprobs=True,
-                extra_body=self.kwargs,
+                extra_body=extra_body,
             )
             choice = resp.choices[0]
             text = choice.message.content
@@ -235,6 +239,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
     async def _run_multi_turn(
         self, messages: list[ChatCompletionMessageParam]
     ) -> list[dict[str, Any]]:
+        extra_body = self._request_kwargs()
         # Find indices of user or tool messages
         user_idxs = [i for i, m in enumerate(messages) if m["role"] in {"user", "tool"}]
         if not user_idxs:
@@ -250,7 +255,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
             running.extend(messages[idx : i + 1])
 
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=running, extra_body=self.kwargs
+                model=self.model, messages=running, extra_body=extra_body
             )
             choice = resp.choices[0]
 
@@ -269,6 +274,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
+        extra_body = self._request_kwargs()
         for msgs in items:
             # Find indices of user or tool messages
             user_idxs = [i for i, m in enumerate(msgs) if m["role"] in {"user", "tool"}]
@@ -285,7 +291,7 @@ class MultiTurnChatCompletionJob(SwarmJob):
                 running.extend(msgs[idx : i + 1])
 
                 resp: ChatCompletion = await self.client.chat.completions.create(
-                    model=self.model, messages=running, extra_body=self.kwargs
+                    model=self.model, messages=running, extra_body=extra_body
                 )
                 choice = resp.choices[0]
 
@@ -339,6 +345,7 @@ class MultiTurnTranslationJob(SwarmJob):
         )
 
     async def _run_translation(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        extra_body = self._request_kwargs()
         running: list[dict[str, Any]] = []
 
         for i in range(1, len(messages)):
@@ -355,7 +362,7 @@ class MultiTurnTranslationJob(SwarmJob):
             ]
 
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=query, extra_body=self.kwargs
+                model=self.model, messages=query, extra_body=extra_body
             )
             choice = resp.choices[0]
 
@@ -372,6 +379,7 @@ class MultiTurnTranslationJob(SwarmJob):
 
     async def transform_items(self, items: list[list[dict[str, Any]]]) -> list[Any]:
         outs = []
+        extra_body = self._request_kwargs()
         for msgs in items:
             running: list[dict[str, Any]] = []
 
@@ -389,7 +397,7 @@ class MultiTurnTranslationJob(SwarmJob):
                 ]
 
                 resp: ChatCompletion = await self.client.chat.completions.create(
-                    model=self.model, messages=query, extra_body=self.kwargs
+                    model=self.model, messages=query, extra_body=extra_body
                 )
                 choice = resp.choices[0]
 

@@ -41,7 +41,7 @@ import logging
 import os
 from pathlib import Path
 import threading
-from typing import Any
+from typing import Any, ClassVar
 import warnings
 
 from deprecated import deprecated
@@ -134,6 +134,26 @@ class SwarmJob(abc.ABC):
     """
 
     api_version: int = 2
+    _REQUEST_KWARG_BLOCKLIST: ClassVar = {
+        "api_version",
+        "checkpoint_interval",
+        "client",
+        "client_kwargs",
+        "default_output_cols",
+        "endpoint",
+        "input_column_name",
+        "max_concurrency",
+        "model",
+        "name",
+        "output_cols",
+        "output_column_name",
+        "output_mode",
+        "provider",
+        "retries",
+        "results",
+        "system_prompt",
+        "timeout",
+    }
 
     def __init__(
         self,
@@ -328,6 +348,15 @@ class SwarmJob(abc.ABC):
             for k, v in self.__dict__.items()
             if isinstance(v, str | int | float | bool | list | dict | type(None))
             and k not in {"endpoint", "model", "client", "_callbacks", "results"}
+        }
+
+    def _request_kwargs(self) -> dict:
+        if not self.kwargs:
+            return {}
+        return {
+            k: v
+            for k, v in self.kwargs.items()
+            if not k.startswith("_") and k not in self._REQUEST_KWARG_BLOCKLIST
         }
 
     async def _call_unit(self, item: Any) -> Any:
