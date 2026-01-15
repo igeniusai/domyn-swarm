@@ -670,7 +670,6 @@ dependencies = [
     { name = "jinja2" },
     { name = "openai" },
     { name = "pandas" },
-    { name = "polars" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -685,8 +684,19 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "leptonai" },
+    { name = "polars" },
+    { name = "ray", extra = ["data"] },
+]
 lepton = [
     { name = "leptonai" },
+]
+polars = [
+    { name = "polars" },
+]
+ray = [
+    { name = "ray", extra = ["data"] },
 ]
 
 [package.dev-dependencies]
@@ -721,15 +731,19 @@ requires-dist = [
     { name = "fsspec", specifier = ">=2025.3.0" },
     { name = "huggingface-hub", specifier = ">=0.32.6" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "leptonai", marker = "extra == 'all'", specifier = ">=0.26.2" },
     { name = "leptonai", marker = "extra == 'lepton'", specifier = ">=0.26.2" },
     { name = "openai", specifier = ">=1.88.0" },
     { name = "pandas", specifier = ">=1.5.3" },
-    { name = "polars", specifier = ">=1.31.0" },
+    { name = "polars", marker = "extra == 'all'", specifier = ">=1.31.0" },
+    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.31.0" },
     { name = "pyarrow", specifier = ">=20.0.0" },
     { name = "pydantic", specifier = ">=2.11.7,<3" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "python-ulid", extras = ["pydantic"], specifier = ">=3.1.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "ray", extras = ["data"], marker = "extra == 'all'", specifier = ">=2.0.0" },
+    { name = "ray", extras = ["data"], marker = "extra == 'ray'", specifier = ">=2.0.0" },
     { name = "requests", specifier = ">=2.32.4" },
     { name = "rich", specifier = ">=14.0.0,<15" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
@@ -737,7 +751,7 @@ requires-dist = [
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.1" },
     { name = "typer", specifier = ">=0.16.0" },
 ]
-provides-extras = ["lepton"]
+provides-extras = ["lepton", "polars", "ray", "all"]
 
 [package.metadata.requires-dev]
 bench = [
@@ -2969,6 +2983,12 @@ wheels = [
 [package.optional-dependencies]
 cgraph = [
     { name = "cupy-cuda12x", marker = "sys_platform != 'darwin'" },
+]
+data = [
+    { name = "fsspec" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyarrow" },
 ]
 
 [[package]]
