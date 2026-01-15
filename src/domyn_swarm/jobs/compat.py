@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from domyn_swarm.checkpoint.store import ParquetShardStore
+from domyn_swarm.checkpoint.store import InMemoryStore, ParquetShardStore
 from domyn_swarm.data import BackendError, get_backend
 from domyn_swarm.jobs.base import SwarmJob
 from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
@@ -68,6 +68,7 @@ async def run_job_unified(
     checkpoint_dir: str | None = None,
     data_backend: str | None = None,
     native_backend: bool | None = None,
+    checkpointing: bool = True,
 ) -> Any:
     job_probe = job_factory()
 
@@ -98,11 +99,14 @@ async def run_job_unified(
     # Non-ray: compatibility path expects a pandas DataFrame.
     df = data if isinstance(data, pd.DataFrame) else backend.to_pandas(data)
 
-    if store_uri is None:
-        raise ValueError("store_uri is required for streaming jobs.")
+    if checkpointing:
+        if store_uri is None:
+            raise ValueError("store_uri is required when checkpointing is enabled.")
+        store: Any = ParquetShardStore(store_uri)
+    else:
+        store = InMemoryStore()
     cfg = RunnerConfig(id_col="_row_id", checkpoint_every=checkpoint_every)
     if nshards <= 1:
-        store = ParquetShardStore(store_uri)
         return await JobRunner(store, cfg).run(
             job_probe,
             df,
@@ -110,10 +114,13 @@ async def run_job_unified(
             output_cols=output_cols or job_probe.default_output_cols,
             output_mode=job_probe.output_mode,
         )
+    if not checkpointing:
+        raise ValueError("Sharded execution requires checkpointing to be enabled.")
     indices = np.array_split(df.index, nshards)
 
     async def _one(i, idx):
         sub = df.loc[idx].copy()
+        assert store_uri is not None
         su = store_uri.replace(".parquet", f"_shard{i}.parquet")
         store = ParquetShardStore(su)
         return await JobRunner(store, cfg).run(

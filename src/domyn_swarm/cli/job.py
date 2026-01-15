@@ -85,6 +85,8 @@ def _submit_loaded_job(
     input_column: str,
     output_column: str,
     checkpoint_dir: Path | None,
+    no_resume: bool,
+    no_checkpointing: bool,
     checkpoint_interval: int,
     max_concurrency: int,
     retries: int,
@@ -119,6 +121,9 @@ def _submit_loaded_job(
         detach=detach,
         mail_user=mail_user,
         checkpoint_dir=resolved_checkpoint_dir,
+        checkpoint_interval=checkpoint_interval,
+        no_resume=no_resume,
+        no_checkpointing=no_checkpointing,
     )
 
 
@@ -214,6 +219,17 @@ def submit_job(
         "-cd",
         help="Directory to store checkpoints (default: .checkpoint/, no checkpoints)",
     ),
+    no_resume: bool = typer.Option(
+        False,
+        "--no-resume",
+        "--ignore-checkpoints",
+        help="Ignore existing checkpoints for this run (forces recompute).",
+    ),
+    no_checkpointing: bool = typer.Option(
+        False,
+        "--no-checkpointing",
+        help="Disable checkpointing entirely (no read/write checkpoint state).",
+    ),
     checkpoint_interval: int = typer.Option(
         32,
         "--checkpoint-interval",
@@ -302,6 +318,8 @@ def submit_job(
                     input_column=input_column,
                     output_column=output_column,
                     checkpoint_dir=checkpoint_dir,
+                    no_resume=no_resume,
+                    no_checkpointing=no_checkpointing,
                     checkpoint_interval=checkpoint_interval,
                     max_concurrency=max_concurrency,
                     retries=retries,
@@ -328,6 +346,8 @@ def submit_job(
             input_column=input_column,
             output_column=output_column,
             checkpoint_dir=checkpoint_dir,
+            no_resume=no_resume,
+            no_checkpointing=no_checkpointing,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,

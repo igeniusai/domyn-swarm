@@ -358,6 +358,8 @@ class DomynLLMSwarm(BaseModel):
         mail_user: str | None = None,
         checkpoint_dir: str | Path | None = None,
         checkpoint_interval: int | None = None,
+        no_resume: bool = False,
+        no_checkpointing: bool = False,
         job_resources: dict | None = None,
     ) -> int | None:
         """
@@ -462,6 +464,11 @@ class DomynLLMSwarm(BaseModel):
             "--job-kwargs",
             job_kwargs,
         ]
+
+        if no_resume:
+            exe.append("--no-resume")
+        if no_checkpointing:
+            exe.append("--no-checkpointing")
 
         if limit:
             exe.append(f"--limit={limit}")

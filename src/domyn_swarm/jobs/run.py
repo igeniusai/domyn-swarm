@@ -23,6 +23,7 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+from ulid import ULID
 
 from domyn_swarm.data import BackendError, get_backend
 from domyn_swarm.helpers.data import compute_hash, parquet_hash
@@ -68,6 +69,17 @@ def parse_args(cli_args=None):
         type=int,
         default=16,
         help="How often to checkpoint progress (in records)",
+    )
+    parser.add_argument(
+        "--no-resume",
+        "--ignore-checkpoints",
+        action="store_true",
+        help="Ignore existing checkpoints for this run (forces recompute).",
+    )
+    parser.add_argument(
+        "--no-checkpointing",
+        action="store_true",
+        help="Disable checkpointing entirely (no read/write checkpoint state).",
     )
 
     if not cli_args:
@@ -128,9 +140,20 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     # Map legacy --nthreads to shards
     nshards = getattr(args, "nthreads", 1)
 
-    # Derive a default store URI from checkpoint dir (local file://); keeps legacy alive
-    ckp_base = Path(args.checkpoint_dir) / f"{job_cls.__name__}_{tag}.parquet"
-    store_uri = f"file://{ckp_base}"
+    checkpointing = not bool(getattr(args, "no_checkpointing", False))
+    no_resume = bool(getattr(args, "no_resume", False))
+    if not checkpointing and no_resume:
+        raise ValueError("--no-resume cannot be combined with --no-checkpointing.")
+
+    # Derive a default store URI from checkpoint dir (local file://); keeps legacy alive.
+    # If --no-resume is set, generate a fresh store name to avoid mixing with older runs.
+    store_uri = None
+    if checkpointing:
+        store_name = f"{job_cls.__name__}_{tag}"
+        if no_resume:
+            store_name = f"{store_name}_{str(ULID()).lower()}"
+        ckp_base = Path(args.checkpoint_dir) / f"{store_name}.parquet"
+        store_uri = f"file://{ckp_base}"
 
     result = await run_job_unified(
         make_job,
@@ -144,6 +167,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         checkpoint_dir=args.checkpoint_dir,  # used by old-style
         data_backend=backend.name,
         native_backend=native_backend,
+        checkpointing=checkpointing,
     )
 
     if backend.name == "ray" and not isinstance(result, pd.DataFrame):

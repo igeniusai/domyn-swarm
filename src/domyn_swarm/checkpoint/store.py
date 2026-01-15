@@ -220,3 +220,50 @@ class ParquetShardStore(CheckpointStore):
 
         df = table.to_pandas(ignore_metadata=True).set_index(self.id_col, drop=True)
         return df
+
+
+class InMemoryStore(CheckpointStore):
+    """In-memory checkpoint store (no read/write to disk).
+
+    Intended for debugging and short runs where checkpointing I/O should be bypassed.
+    Semantics: "last write wins" per id.
+    """
+
+    def __init__(self):
+        self.id_col = "_row_id"
+        self._rows_by_id: dict[Any, dict[str, Any]] = {}
+
+    def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame:
+        self.id_col = id_col
+        return df
+
+    async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
+        if output_cols is None:
+            for item_id, row in zip(batch.ids, batch.rows):
+                if not isinstance(row, dict):
+                    raise ValueError("output_cols=None requires dict outputs per row")
+                self._rows_by_id[item_id] = dict(row)
+            return
+
+        if len(output_cols) == 1:
+            col = output_cols[0]
+            for item_id, row in zip(batch.ids, batch.rows):
+                self._rows_by_id[item_id] = {col: row}
+            return
+
+        for item_id, row in zip(batch.ids, batch.rows):
+            if isinstance(row, list | tuple):
+                self._rows_by_id[item_id] = {c: row[i] for i, c in enumerate(output_cols)}
+            elif isinstance(row, dict):
+                self._rows_by_id[item_id] = {c: row.get(c) for c in output_cols}
+            else:
+                raise ValueError(
+                    "When multiple output columns are specified, each row must be a tuple or dict"
+                )
+
+    def finalize(self) -> pd.DataFrame:
+        if not self._rows_by_id:
+            return pd.DataFrame().set_index(self.id_col)
+
+        rows = [{self.id_col: item_id, **payload} for item_id, payload in self._rows_by_id.items()]
+        return pd.DataFrame(rows).set_index(self.id_col, drop=True)

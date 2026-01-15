@@ -202,6 +202,113 @@ async def test_amain_end_to_end_polars_backend(monkeypatch, tmp_path):
     assert df_out.shape[0] == 2
 
 
+@pytest.mark.asyncio
+async def test_amain_no_resume_forces_recompute(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+    checkpoint_dir = tmp_path / "checkpoints"
+
+    df_in = pd.DataFrame({"text": ["hello", "world"]})
+    df_in.to_parquet(input_path)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
+    monkeypatch.setenv("JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}')
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    # First run creates checkpoints
+    await _amain(
+        [
+            "--nthreads",
+            "1",
+            "--checkpoint-dir",
+            str(checkpoint_dir),
+            "--job-kwargs",
+            '{"input_column_name": "text", "output_cols": "output"}',
+        ]
+    )
+
+    # Second run should resume and skip work even if transform_items would raise.
+    async def _raise_transform_items(self, items: list):
+        raise RuntimeError("should not be called when resuming")
+
+    monkeypatch.setattr(DummySwarmJob, "transform_items", _raise_transform_items)
+    await _amain(
+        [
+            "--nthreads",
+            "1",
+            "--checkpoint-dir",
+            str(checkpoint_dir),
+            "--job-kwargs",
+            '{"input_column_name": "text", "output_cols": "output"}',
+        ]
+    )
+
+    # With --no-resume, we should recompute and therefore hit the raising transform_items.
+    with pytest.raises(RuntimeError, match="should not be called"):
+        await _amain(
+            [
+                "--nthreads",
+                "1",
+                "--checkpoint-dir",
+                str(checkpoint_dir),
+                "--no-resume",
+                "--job-kwargs",
+                '{"input_column_name": "text", "output_cols": "output"}',
+            ]
+        )
+
+
+@pytest.mark.asyncio
+async def test_amain_no_checkpointing_forces_recompute(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+    checkpoint_dir = tmp_path / "checkpoints"
+
+    df_in = pd.DataFrame({"text": ["hello", "world"]})
+    df_in.to_parquet(input_path)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
+    monkeypatch.setenv("JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}')
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    # First run creates checkpoints
+    await _amain(
+        [
+            "--nthreads",
+            "1",
+            "--checkpoint-dir",
+            str(checkpoint_dir),
+            "--job-kwargs",
+            '{"input_column_name": "text", "output_cols": "output"}',
+        ]
+    )
+
+    async def _raise_transform_items(self, items: list):
+        raise RuntimeError("must be called when checkpointing is disabled")
+
+    monkeypatch.setattr(DummySwarmJob, "transform_items", _raise_transform_items)
+    with pytest.raises(RuntimeError, match="checkpointing is disabled"):
+        await _amain(
+            [
+                "--nthreads",
+                "1",
+                "--checkpoint-dir",
+                str(checkpoint_dir),
+                "--no-checkpointing",
+                "--job-kwargs",
+                '{"input_column_name": "text", "output_cols": "output"}',
+            ]
+        )
+
+
 def test_main_wrapper(monkeypatch):
     # Use parse_args via monkeypatch to avoid invoking asyncio in this test
     with patch("domyn_swarm.jobs.run._amain") as mock_amain:
