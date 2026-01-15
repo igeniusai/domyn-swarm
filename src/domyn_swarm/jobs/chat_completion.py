@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping
 from typing import Any
 
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionAssistantMessageParam, ChatCompletionMessageParam
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 
 from domyn_swarm.helpers.data import (
@@ -22,6 +23,22 @@ from domyn_swarm.helpers.data import (
     extract_token_logprobs,
 )
 from domyn_swarm.jobs.base import SwarmJob
+
+
+def _extract_reasoning_content(message: Any) -> Any | None:
+    if message is None:
+        return None
+    if isinstance(message, Mapping):
+        return message.get("reasoning_content")
+    return getattr(message, "reasoning_content", None)
+
+
+def _assistant_message_dict(*, role: str, content: Any, message: Any) -> dict[str, Any]:
+    response_dict: dict[str, Any] = {"role": role, "content": content}
+    reasoning_content = _extract_reasoning_content(message)
+    if reasoning_content is not None:
+        response_dict["reasoning_content"] = reasoning_content
+    return response_dict
 
 
 class CompletionJob(SwarmJob):
@@ -103,7 +120,7 @@ class ChatCompletionJob(SwarmJob):
                 outs.append(
                     (
                         choice.message.content,
-                        getattr(choice.message, "reasoning_content", None),
+                        _extract_reasoning_content(choice.message),
                     )
                 )
             else:
@@ -237,76 +254,57 @@ class MultiTurnChatCompletionJob(SwarmJob):
         )
 
     async def _run_multi_turn(
-        self, messages: list[ChatCompletionMessageParam]
+        self,
+        messages: list[ChatCompletionMessageParam],
+        *,
+        extra_body: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        extra_body = self._request_kwargs()
+        if extra_body is None:
+            extra_body = self._request_kwargs()
         # Find indices of user or tool messages
         user_idxs = [i for i, m in enumerate(messages) if m["role"] in {"user", "tool"}]
         if not user_idxs:
             raise ValueError("Input must contain at least one 'user' or 'tool' message")
 
-        running: list[ChatCompletionMessageParam] = []
+        running_request: list[ChatCompletionMessageParam] = []
+        reasoning_by_index: list[Any | None] = []
 
         # Zip together slice starts and ends
         idx = 0
 
         for i in user_idxs:
             # append all the messages until the next user message (including system, etc.)
-            running.extend(messages[idx : i + 1])
+            running_request.extend(messages[idx : i + 1])
+            reasoning_by_index.extend([None] * len(messages[idx : i + 1]))
 
             resp: ChatCompletion = await self.client.chat.completions.create(
-                model=self.model, messages=running, extra_body=extra_body
+                model=self.model, messages=running_request, extra_body=extra_body
             )
             choice = resp.choices[0]
 
             # append the assistant's response to the messages
-            response_dict = {
-                "role": "assistant",
-                "content": choice.message.content,
-            }
-            if hasattr(choice.message, "reasoning_content"):
-                response_dict["reasoning_content"] = choice.message.reasoning_content
-            running.append(response_dict)
+            running_request.append(
+                ChatCompletionAssistantMessageParam(
+                    {"role": "assistant", "content": choice.message.content}
+                )
+            )
+            reasoning_by_index.append(_extract_reasoning_content(choice.message))
 
             # update the index skipping assistant message
             idx = i + 2
-        return running
+        output: list[dict[str, Any]] = []
+        for msg, reasoning in zip(running_request, reasoning_by_index, strict=True):
+            msg_dict = dict(msg)
+            if reasoning is not None and msg_dict.get("role") == "assistant":
+                msg_dict["reasoning_content"] = reasoning
+            output.append(msg_dict)
+        return output
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
         extra_body = self._request_kwargs()
-        for msgs in items:
-            # Find indices of user or tool messages
-            user_idxs = [i for i, m in enumerate(msgs) if m["role"] in {"user", "tool"}]
-            if not user_idxs:
-                raise ValueError("Input must contain at least one 'user' or 'tool' message")
 
-            running: list[ChatCompletionMessageParam] = []
-
-            # Zip together slice starts and ends
-            idx = 0
-
-            for i in user_idxs:
-                # append all the messages until the next user message (including system, etc.)
-                running.extend(msgs[idx : i + 1])
-
-                resp: ChatCompletion = await self.client.chat.completions.create(
-                    model=self.model, messages=running, extra_body=extra_body
-                )
-                choice = resp.choices[0]
-
-                # append the assistant's response to the messages
-                response_dict = {
-                    "role": "assistant",
-                    "content": choice.message.content,
-                }
-                if hasattr(choice.message, "reasoning_content"):
-                    response_dict["reasoning_content"] = choice.message.reasoning_content
-                running.append(response_dict)
-
-                # update the index skipping assistant message
-                idx = i + 2
-            outs.append(running)
+        outs = [await self._run_multi_turn(msgs, extra_body=extra_body) for msgs in items]
         return outs
 
 
@@ -367,13 +365,11 @@ class MultiTurnTranslationJob(SwarmJob):
             choice = resp.choices[0]
 
             # append the assistant's translation to the messages
-            response_dict = {
-                "role": messages[i]["role"],
-                "content": choice.message.content,
-            }
-            if hasattr(choice.message, "reasoning_content"):
-                response_dict["reasoning_content"] = choice.message.reasoning_content
-            running.append(response_dict)
+            running.append(
+                _assistant_message_dict(
+                    role=messages[i]["role"], content=choice.message.content, message=choice.message
+                )
+            )
 
         return running
 
@@ -402,13 +398,11 @@ class MultiTurnTranslationJob(SwarmJob):
                 choice = resp.choices[0]
 
                 # append the assistant's translation to the messages
-                response_dict = {
-                    "role": msgs[i]["role"],
-                    "content": choice.message.content,
-                }
-                if hasattr(choice.message, "reasoning_content"):
-                    response_dict["reasoning_content"] = choice.message.reasoning_content
-                running.append(response_dict)
+                running.append(
+                    _assistant_message_dict(
+                        role=msgs[i]["role"], content=choice.message.content, message=choice.message
+                    )
+                )
 
             outs.append(running)
         return outs

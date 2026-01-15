@@ -23,7 +23,9 @@ from domyn_swarm.jobs import (
     CompletionJob,
     MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
+    MultiTurnTranslationJob,
 )
+from domyn_swarm.jobs.chat_completion import _assistant_message_dict, _extract_reasoning_content
 
 
 @pytest.mark.asyncio
@@ -91,6 +93,26 @@ async def test_chat_completion_job_parse_reasoning(monkeypatch, tmp_path):
     assert len(results_reasoning) == 1
     assert results_reasoning["result"][0] == "Mocked answer"
     assert results_reasoning["reasoning_content"][0] == "Because I am a bot"
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_job_parse_reasoning_missing_reasoning_content(monkeypatch, tmp_path):
+    df = pd.DataFrame({"messages": [[{"role": "user", "content": "Hi"}]]})
+    mock_choice = type("Choice", (), {"message": type("Msg", (), {"content": "Mocked answer"})()})
+    mock_resp = AsyncMock()
+    mock_resp.choices = [mock_choice]
+
+    job = ChatCompletionJob(model="gpt-4", parse_reasoning=True)
+    job.client = AsyncMock()
+    job.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+    results = await job.run(
+        df, tag="test-reasoning-missing", checkpoint_dir=tmp_path / "checkpoints"
+    )
+
+    assert len(results) == 1
+    assert results["result"][0] == "Mocked answer"
+    assert results["reasoning_content"][0] is None
 
 
 @pytest.mark.asyncio
@@ -181,3 +203,114 @@ async def test_multi_turn_chat_completion_job(monkeypatch, tmp_path):
     assert len(results) == 5
     assert results[-1]["role"] == "assistant"
     assert results[-1]["content"] == "Mocked reply"
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_chat_completion_job_includes_reasoning_content(monkeypatch, tmp_path):
+    df = pd.DataFrame(
+        {
+            "messages": [
+                [
+                    {"role": "system", "content": "You are helpful"},
+                    {"role": "user", "content": "Why?"},
+                ]
+            ]
+        }
+    )
+
+    mock_msg = type("M", (), {"content": "Mocked reply", "reasoning_content": "Because."})()
+    mock_resp = AsyncMock()
+    mock_resp.choices = [type("C", (), {"message": mock_msg})]
+
+    job = MultiTurnChatCompletionJob(model="gpt-4")
+    job.client = AsyncMock()
+    job.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+    _ = await job.run(df, tag="test", checkpoint_dir=tmp_path / "checkpoints")
+
+    results = list(job.results["results"][0])
+    assert results[-1]["role"] == "assistant"
+    assert results[-1]["content"] == "Mocked reply"
+    assert results[-1]["reasoning_content"] == "Because."
+    assert all(m.get("reasoning_content") is None for m in results[:-1])
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_chat_completion_job_requires_user_or_tool_message(monkeypatch):
+    job = MultiTurnChatCompletionJob(model="gpt-4")
+    job.client = AsyncMock()
+
+    with pytest.raises(ValueError, match="at least one 'user' or 'tool' message"):
+        await job._run_multi_turn([{"role": "system", "content": "Only system"}])
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_translation_job(monkeypatch, tmp_path):
+    df = pd.DataFrame(
+        {
+            "messages": [
+                [
+                    {"role": "system", "content": "Translate to Italian"},
+                    {"role": "user", "content": "Hello"},
+                    {"role": "assistant", "content": "How are you?"},
+                ]
+            ]
+        }
+    )
+
+    mock_resps = [
+        AsyncMock(choices=[type("C1", (), {"message": type("M1", (), {"content": "Ciao"})()})]),
+        AsyncMock(
+            choices=[
+                type(
+                    "C2",
+                    (),
+                    {
+                        "message": type(
+                            "M2", (), {"content": "Come stai?", "reasoning_content": "Direct."}
+                        )()
+                    },
+                )
+            ]
+        ),
+    ]
+
+    job = MultiTurnTranslationJob(model="gpt-4")
+    job.client = AsyncMock()
+    job.client.chat.completions.create = AsyncMock(side_effect=mock_resps)
+
+    _ = await job.run(df, tag="test", checkpoint_dir=tmp_path / "checkpoints")
+    results = list(job.results["results"][0])
+
+    assert results[0]["role"] == "user"
+    assert results[0]["content"] == "Ciao"
+    assert results[0].get("reasoning_content") is None
+    assert results[1]["role"] == "assistant"
+    assert results[1]["content"] == "Come stai?"
+    assert results[1]["reasoning_content"] == "Direct."
+
+    job.client.chat.completions.create.reset_mock()
+    job.client.chat.completions.create.side_effect = list(mock_resps)
+    out = await job._run_translation(df.loc[0, "messages"])
+    assert out[0]["role"] == results[0]["role"]
+    assert out[0]["content"] == results[0]["content"]
+    assert out[0].get("reasoning_content") is None
+    assert out[1] == {"role": "assistant", "content": "Come stai?", "reasoning_content": "Direct."}
+
+
+def test_extract_reasoning_content_helpers():
+    assert _extract_reasoning_content({"reasoning_content": "x"}) == "x"
+    assert _extract_reasoning_content({"other": 1}) is None
+
+    msg = type("Msg", (), {"reasoning_content": "y"})()
+    assert _extract_reasoning_content(msg) == "y"
+
+    assert _assistant_message_dict(role="assistant", content="a", message=msg) == {
+        "role": "assistant",
+        "content": "a",
+        "reasoning_content": "y",
+    }
+    assert _assistant_message_dict(role="assistant", content="a", message=None) == {
+        "role": "assistant",
+        "content": "a",
+    }
