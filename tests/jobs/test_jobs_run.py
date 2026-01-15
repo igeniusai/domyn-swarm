@@ -203,6 +203,82 @@ async def test_amain_end_to_end_polars_backend(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_amain_arrow_runner_pandas_backend(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+    checkpoint_dir = tmp_path / "checkpoints"
+
+    df_in = pd.DataFrame({"text": ["hello", "world"]})
+    df_in.to_parquet(input_path)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
+    monkeypatch.setenv(
+        "JOB_KWARGS",
+        '{"input_column_name":"text","output_cols":"output","data_backend":"pandas"}',
+    )
+
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    args = [
+        "--nthreads",
+        "1",
+        "--runner",
+        "arrow",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--job-kwargs",
+        '{"input_column_name":"text","output_cols":"output","data_backend":"pandas"}',
+    ]
+    await _amain(args)
+
+    df_out = pd.read_parquet(output_path)
+    assert "output" in df_out.columns
+    assert df_out.shape[0] == 2
+
+
+@pytest.mark.asyncio
+async def test_amain_arrow_runner_sharded(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+    checkpoint_dir = tmp_path / "checkpoints"
+
+    df_in = pd.DataFrame({"text": ["hello", "world"]})
+    df_in.to_parquet(input_path)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_path))
+    monkeypatch.setenv(
+        "JOB_KWARGS",
+        '{"input_column_name":"text","output_cols":"output","data_backend":"pandas"}',
+    )
+
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    args = [
+        "--nthreads",
+        "2",
+        "--runner",
+        "arrow",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--job-kwargs",
+        '{"input_column_name":"text","output_cols":"output","data_backend":"pandas"}',
+    ]
+    await _amain(args)
+
+    df_out = pd.read_parquet(output_path)
+    assert "output" in df_out.columns
+    assert df_out.shape[0] == 2
+
+
+@pytest.mark.asyncio
 async def test_amain_no_resume_forces_recompute(monkeypatch, tmp_path):
     input_path = tmp_path / "input.parquet"
     output_path = tmp_path / "output.parquet"
