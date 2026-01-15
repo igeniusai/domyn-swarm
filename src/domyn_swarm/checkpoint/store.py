@@ -15,9 +15,11 @@
 from dataclasses import dataclass
 import logging
 from typing import Any, Protocol
-import uuid
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+from ulid import ULID
 
 from domyn_swarm.helpers.logger import setup_logger
 
@@ -72,8 +74,12 @@ class ParquetShardStore(CheckpointStore):
                 "Install fsspec and relevant filesystem extras "
                 "(s3fs, gcsfs, adlfs, ...) to use ParquetShardStore"
             )
-        self.fs, _ = fsspec.core.url_to_fs(self.dir_uri)
-        self.fs.mkdirs(self.dir_uri, exist_ok=True)
+        self.fs, self.dir_path = fsspec.core.url_to_fs(self.dir_uri)
+        # Normalize to a path understood by the FS implementation (no scheme).
+        if not self.dir_path.endswith("/"):
+            self.dir_path = self.dir_path + "/"
+        self.base_path = self.dir_path.rstrip("/") + ".parquet"
+        self.fs.mkdirs(self.dir_path, exist_ok=True)
         self.id_col = "_row_id"
         self.done_ids: set[Any] = set()
 
@@ -82,25 +88,12 @@ class ParquetShardStore(CheckpointStore):
         self.id_col = id_col
         done_ids: set[Any] = set()
 
-        if self.fs.exists(self.base_uri):
-            done = pd.read_parquet(self.base_uri, storage_options=self.fs.storage_options)
-            ids = (
-                done.index.tolist()
-                if self.id_col in (done.index.names or [])
-                else done[self.id_col].tolist()
-            )
-            done_ids.update(ids)
+        if self.fs.exists(self.base_path):
+            done_ids.update(self._read_done_ids(self.base_path))
 
-        if self.fs.exists(self.dir_uri):
-            pattern = self.dir_uri.rstrip("/") + "/part-*.parquet"
-            for path in self.fs.glob(pattern):
-                part = pd.read_parquet(path, storage_options=self.fs.storage_options)
-                ids = (
-                    part.index.tolist()
-                    if self.id_col in (part.index.names or [])
-                    else part[self.id_col].tolist()
-                )
-                done_ids.update(ids)
+        if self.fs.exists(self.dir_path):
+            for path in self.fs.glob(self.dir_path + "part-*.parquet"):
+                done_ids.update(self._read_done_ids(path))
 
         self.done_ids = done_ids
 
@@ -110,6 +103,23 @@ class ParquetShardStore(CheckpointStore):
 
         mask = ~df[id_col].isin(list(done_ids))
         return df.loc[mask]
+
+    def _read_done_ids(self, path: str) -> set[Any]:
+        with self.fs.open(path, "rb") as f:
+            pf = pq.ParquetFile(f)
+            cols = pf.schema_arrow.names
+            col = self.id_col if self.id_col in cols else None
+            if col is None:
+                # Best-effort compatibility with pandas-written index columns.
+                for candidate in ("__index_level_0__", "index", "level_0"):
+                    if candidate in cols:
+                        col = candidate
+                        break
+            if col is None:
+                raise ValueError(f"Parquet file missing id column {self.id_col!r}: {path}")
+            table = pf.read(columns=[col])
+        arr = table.column(0).combine_chunks()
+        return set(arr.to_pylist())
 
     async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
         """Flush a batch of data to a parquet file.
@@ -133,28 +143,36 @@ class ParquetShardStore(CheckpointStore):
             The resulting parquet file is saved with a UUID-based filename to avoid
             conflicts and uses the configured ID column as the index.
         """
-        tmp = pd.DataFrame({self.id_col: batch.ids})
+        out: dict[str, list[Any]] = {self.id_col: list(batch.ids)}
         if output_cols is None:
-            # assume dict outputs
-            tmp = tmp.join(pd.DataFrame(batch.rows))
-        else:
-            if len(output_cols) == 1:
-                tmp[output_cols[0]] = batch.rows
+            if batch.rows and isinstance(batch.rows[0], dict):
+                keys = set().union(*(r.keys() for r in batch.rows))
+                for k in sorted(keys):
+                    out[k] = [r.get(k) for r in batch.rows]
             else:
-                logger.info(f"Output columns are: {output_cols}")
+                raise ValueError("output_cols=None requires dict outputs per row")
+        elif len(output_cols) == 1:
+            out[output_cols[0]] = list(batch.rows)
+        else:
+            logger.info(f"Output columns are: {output_cols}")
+            first = batch.rows[0] if batch.rows else None
+            if isinstance(first, list | tuple):
                 for i, c in enumerate(output_cols):
-                    if isinstance(batch.rows[0], list | tuple):
-                        tmp[c] = [r[i] for r in batch.rows]
-                    elif isinstance(batch.rows[0], dict):
-                        tmp[c] = [r[c] for r in batch.rows]
-                    else:
-                        raise ValueError(
-                            "When multiple output columns are specified, "
-                            "each row must be a tuple or dict"
-                        )
-        part = self.dir_uri + f"part-{uuid.uuid4().hex}.parquet"
-        tmp = tmp.set_index(self.id_col, drop=True)
-        tmp.to_parquet(part, storage_options=self.fs.storage_options)
+                    out[c] = [r[i] for r in batch.rows]
+            elif isinstance(first, dict):
+                for c in output_cols:
+                    out[c] = [r.get(c) for r in batch.rows]
+            else:
+                raise ValueError(
+                    "When multiple output columns are specified, each row must be a tuple or dict"
+                )
+
+        table = pa.Table.from_pydict(out)
+        # Use a time-sortable filename to ensure deterministic merge semantics.
+        # This allows finalize() to interpret "last write wins" by lexicographic order.
+        part = self.dir_path + f"part-{str(ULID()).lower()}.parquet"
+        with self.fs.open(part, "wb") as f:
+            pq.write_table(table, f, use_dictionary=False)
 
     def finalize(self) -> pd.DataFrame:
         """
@@ -162,16 +180,47 @@ class ParquetShardStore(CheckpointStore):
 
         Returns the final merged DataFrame.
         """
-        parts = sorted(self.fs.glob(self.dir_uri + "part-*.parquet"))
+        parts = sorted(self.fs.glob(self.dir_path + "part-*.parquet"))
         if not parts:
             # Return existing merged file if present
-            if self.fs.exists(self.base_uri):
-                return pd.read_parquet(self.base_uri, storage_options=self.fs.storage_options)
+            if self.fs.exists(self.base_path):
+                with self.fs.open(self.base_path, "rb") as f:
+                    table = pq.read_table(f)
+                df = table.to_pandas()
+                if self.id_col in df.columns:
+                    df = df.set_index(self.id_col, drop=True)
+                return df
             return pd.DataFrame().set_index(self.id_col)
-        dfs: list[pd.DataFrame] = [
-            pd.read_parquet(p, storage_options=self.fs.storage_options) for p in parts
-        ]
-        out: pd.DataFrame = pd.concat(dfs, axis=0)
-        out = out.loc[~out.index.duplicated(keep="last"), :].sort_index()
-        out.to_parquet(self.base_uri, storage_options=self.fs.storage_options)
-        return out
+
+        tables: list[pa.Table] = []
+        for p in parts:
+            with self.fs.open(p, "rb") as f:
+                tables.append(pq.read_table(f))
+
+        table = pa.concat_tables(tables, promote_options="default")
+        # De-dup by id_col (best-effort "last write wins" in the concatenation order).
+        id_name = self.id_col if self.id_col in table.column_names else None
+        if id_name is None:
+            for candidate in ("__index_level_0__", "index", "level_0"):
+                if candidate in table.column_names:
+                    id_name = candidate
+                    break
+        if id_name is None:
+            raise ValueError(f"Merged parquet is missing id column {self.id_col!r}")
+
+        ids = table.column(id_name).combine_chunks().to_pylist()
+        last: dict[Any, int] = {v: i for i, v in enumerate(ids)}
+        keep_indices = sorted(last.values())
+        table = table.take(pa.array(keep_indices, type=pa.int64()))
+        # Normalize id column name
+        if id_name != self.id_col:
+            table = table.rename_columns(
+                [self.id_col if c == id_name else c for c in table.column_names]
+            )
+
+        with self.fs.open(self.base_path, "wb") as f:
+            pq.write_table(table, f, use_dictionary=False)
+
+        df = table.to_pandas()
+        df = df.set_index(self.id_col, drop=True)
+        return df
