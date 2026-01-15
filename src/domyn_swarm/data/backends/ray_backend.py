@@ -33,8 +33,10 @@ class RayBackend(DataBackend):
         return ds.limit(limit) if limit else ds
 
     def write(self, data: Any, path: Path, *, nshards: int | None = None, **kwargs) -> None:
-        if nshards:
-            raise BackendError("Ray backend does not support shard writes yet.")
+        # Ray write_parquet writes a dataset (directory). We currently don't provide
+        # deterministic shard control via `nshards`; treat `None`/`1` as default behavior.
+        if nshards not in (None, 1):
+            raise BackendError("Ray backend does not support controlling shard writes yet.")
         data.write_parquet(str(path), **kwargs)
 
     def schema(self, data: Any) -> dict[str, str]:
