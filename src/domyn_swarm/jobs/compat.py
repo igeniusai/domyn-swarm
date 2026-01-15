@@ -107,13 +107,14 @@ async def run_job_unified(
         store = InMemoryStore()
     cfg = RunnerConfig(id_col="_row_id", checkpoint_every=checkpoint_every)
     if nshards <= 1:
-        return await JobRunner(store, cfg).run(
+        out = await JobRunner(store, cfg).run(
             job_probe,
             df,
             input_col=input_col,
             output_cols=output_cols or job_probe.default_output_cols,
             output_mode=job_probe.output_mode,
         )
+        return out if backend.name == "pandas" else backend.from_pandas(out)
     if not checkpointing:
         raise ValueError("Sharded execution requires checkpointing to be enabled.")
     indices = np.array_split(df.index, nshards)
@@ -132,7 +133,8 @@ async def run_job_unified(
         )
 
     parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
-    return pd.concat(parts).sort_index()
+    out = pd.concat(parts).sort_index()
+    return out if backend.name == "pandas" else backend.from_pandas(out)
 
 
 async def _run_job_ray(

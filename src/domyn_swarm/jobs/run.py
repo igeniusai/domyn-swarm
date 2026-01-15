@@ -174,9 +174,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
         return
 
-    df_out = result if isinstance(result, pd.DataFrame) else backend.to_pandas(result)
-    data_out = backend.from_pandas(df_out)
-    backend.write(data_out, out_path, nshards=nshards, **backend_write_kwargs)
+    backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
 
 
 def main(cli_args: list[str] | None = None):
