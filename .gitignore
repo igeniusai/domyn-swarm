@@ -170,3 +170,4 @@ logs/
 .domyn_swarm/
 .checkpoints/
 *.parquet
+.plans/
