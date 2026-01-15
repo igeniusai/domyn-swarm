@@ -132,6 +132,7 @@ async def test_transform_is_not_supported():
 async def test_amain_end_to_end(monkeypatch, tmp_path):
     input_path = tmp_path / "input.parquet"
     output_path = tmp_path / "output.parquet"
+    checkpoint_dir = tmp_path / "checkpoints"
 
     # Prepare input dataframe
     df_in = pd.DataFrame({"text": ["hello", "world"]})
@@ -150,6 +151,8 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     args = [
         "--nthreads",
         "1",  # Use single-threaded path
+        "--checkpoint-dir",
+        str(checkpoint_dir),
         "--job-kwargs",
         '{"input_column_name": "text", "output_cols": "output"}',
     ]

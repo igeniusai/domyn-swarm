@@ -121,6 +121,17 @@ class ParquetShardStore(CheckpointStore):
         arr = table.column(0).combine_chunks()
         return set(arr.to_pylist())
 
+    def _normalize_id_column(self, table: pa.Table) -> pa.Table:
+        """Ensure the id column is named `self.id_col` (compat with pandas index columns)."""
+        if self.id_col in table.column_names:
+            return table
+        for candidate in ("__index_level_0__", "index", "level_0"):
+            if candidate in table.column_names:
+                return table.rename_columns(
+                    [self.id_col if c == candidate else c for c in table.column_names]
+                )
+        raise ValueError(f"Merged parquet is missing id column {self.id_col!r}")
+
     async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
         """Flush a batch of data to a parquet file.
 
@@ -186,9 +197,8 @@ class ParquetShardStore(CheckpointStore):
             if self.fs.exists(self.base_path):
                 with self.fs.open(self.base_path, "rb") as f:
                     table = pq.read_table(f)
-                df = table.to_pandas()
-                if self.id_col in df.columns:
-                    df = df.set_index(self.id_col, drop=True)
+                table = self._normalize_id_column(table)
+                df = table.to_pandas(ignore_metadata=True).set_index(self.id_col, drop=True)
                 return df
             return pd.DataFrame().set_index(self.id_col)
 
@@ -199,28 +209,14 @@ class ParquetShardStore(CheckpointStore):
 
         table = pa.concat_tables(tables, promote_options="default")
         # De-dup by id_col (best-effort "last write wins" in the concatenation order).
-        id_name = self.id_col if self.id_col in table.column_names else None
-        if id_name is None:
-            for candidate in ("__index_level_0__", "index", "level_0"):
-                if candidate in table.column_names:
-                    id_name = candidate
-                    break
-        if id_name is None:
-            raise ValueError(f"Merged parquet is missing id column {self.id_col!r}")
-
-        ids = table.column(id_name).combine_chunks().to_pylist()
+        table = self._normalize_id_column(table)
+        ids = table.column(self.id_col).combine_chunks().to_pylist()
         last: dict[Any, int] = {v: i for i, v in enumerate(ids)}
         keep_indices = sorted(last.values())
         table = table.take(pa.array(keep_indices, type=pa.int64()))
-        # Normalize id column name
-        if id_name != self.id_col:
-            table = table.rename_columns(
-                [self.id_col if c == id_name else c for c in table.column_names]
-            )
 
         with self.fs.open(self.base_path, "wb") as f:
             pq.write_table(table, f, use_dictionary=False)
 
-        df = table.to_pandas()
-        df = df.set_index(self.id_col, drop=True)
+        df = table.to_pandas(ignore_metadata=True).set_index(self.id_col, drop=True)
         return df
