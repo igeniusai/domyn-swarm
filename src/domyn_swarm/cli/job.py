@@ -87,6 +87,7 @@ def _submit_loaded_job(
     checkpoint_dir: Path | None,
     no_resume: bool,
     no_checkpointing: bool,
+    runner: str,
     checkpoint_interval: int,
     max_concurrency: int,
     retries: int,
@@ -124,6 +125,7 @@ def _submit_loaded_job(
         checkpoint_interval=checkpoint_interval,
         no_resume=no_resume,
         no_checkpointing=no_checkpointing,
+        runner=runner,
     )
 
 
@@ -230,6 +232,11 @@ def submit_job(
         "--no-checkpointing",
         help="Disable checkpointing entirely (no read/write checkpoint state).",
     ),
+    runner: str = typer.Option(
+        "pandas",
+        "--runner",
+        help="Runner implementation for non-ray backends (pandas, arrow).",
+    ),
     checkpoint_interval: int = typer.Option(
         32,
         "--checkpoint-interval",
@@ -320,6 +327,7 @@ def submit_job(
                     checkpoint_dir=checkpoint_dir,
                     no_resume=no_resume,
                     no_checkpointing=no_checkpointing,
+                    runner=runner,
                     checkpoint_interval=checkpoint_interval,
                     max_concurrency=max_concurrency,
                     retries=retries,
@@ -348,6 +356,7 @@ def submit_job(
             checkpoint_dir=checkpoint_dir,
             no_resume=no_resume,
             no_checkpointing=no_checkpointing,
+            runner=runner,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,

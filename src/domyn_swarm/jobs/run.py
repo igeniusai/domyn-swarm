@@ -39,6 +39,34 @@ def _load_cls(path: str) -> type[SwarmJob]:
     return getattr(importlib.import_module(mod), cls)
 
 
+def _write_result(
+    backend,
+    result,
+    out_path: Path,
+    nshards: int,
+    backend_write_kwargs: dict,
+    runner_choice: str,
+):
+    """Write a job result using the selected backend.
+
+    Args:
+        backend: Data backend used for writing.
+        result: Job result in backend-native or Arrow form.
+        out_path: Output path for the result.
+        nshards: Number of shards to write (backend-dependent).
+        backend_write_kwargs: Extra kwargs forwarded to backend write().
+        runner_choice: Runner implementation name (pandas or arrow).
+    """
+    if backend.name == "ray" and not isinstance(result, pd.DataFrame):
+        backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
+        return
+
+    if runner_choice == "arrow":
+        result = backend.from_arrow(result)
+
+    backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
+
+
 def parse_args(cli_args=None):
     if isinstance(cli_args, argparse.Namespace):
         return cli_args
@@ -81,6 +109,12 @@ def parse_args(cli_args=None):
         action="store_true",
         help="Disable checkpointing entirely (no read/write checkpoint state).",
     )
+    parser.add_argument(
+        "--runner",
+        choices=["pandas", "arrow"],
+        default="pandas",
+        help="Runner implementation to use for non-ray backends.",
+    )
 
     if not cli_args:
         return parser.parse_args()
@@ -108,6 +142,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     backend_read_kwargs = job_kwargs.get("backend_read_kwargs") or {}
     backend_write_kwargs = job_kwargs.get("backend_write_kwargs") or {}
     native_backend = job_kwargs.get("native_backend")
+    runner_choice = getattr(args, "runner", "pandas")
 
     if not isinstance(backend_read_kwargs, dict):
         raise ValueError("backend_read_kwargs must be a dict if provided")
@@ -168,13 +203,10 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         data_backend=backend.name,
         native_backend=native_backend,
         checkpointing=checkpointing,
+        runner=runner_choice,
     )
 
-    if backend.name == "ray" and not isinstance(result, pd.DataFrame):
-        backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
-        return
-
-    backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
+    _write_result(backend, result, out_path, nshards, backend_write_kwargs, runner_choice)
 
 
 def main(cli_args: list[str] | None = None):

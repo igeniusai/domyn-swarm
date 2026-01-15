@@ -19,11 +19,94 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 
 from domyn_swarm.checkpoint.store import InMemoryStore, ParquetShardStore
 from domyn_swarm.data import BackendError, get_backend
+from domyn_swarm.jobs.arrow_runner import run_arrow_job
 from domyn_swarm.jobs.base import SwarmJob
 from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
+
+
+def _ensure_arrow_id(table: pa.Table, id_col: str) -> pa.Table:
+    """Ensure an Arrow table contains the id column.
+
+    Args:
+        table: Input Arrow table.
+        id_col: Column name for row ids.
+
+    Returns:
+        Arrow table with the id column present.
+    """
+    if id_col in table.column_names:
+        return table
+    ids = pa.array(range(len(table)))
+    return table.append_column(id_col, ids)
+
+
+async def _run_non_ray_arrow(
+    *,
+    job_factory: Callable[[], Any],
+    backend: Any,
+    data: Any,
+    input_col: str,
+    output_cols: list[str] | None,
+    nshards: int,
+    store_uri: str | None,
+    checkpoint_every: int,
+    checkpointing: bool,
+) -> pa.Table:
+    """Run the Arrow runner path for non-ray backends.
+
+    Args:
+        job_factory: Callable producing a SwarmJob instance.
+        backend: Data backend used for Arrow conversion.
+        data: Backend-native data or Arrow table.
+        input_col: Input column name in the dataset.
+        output_cols: Output columns to produce (None for dict outputs).
+        nshards: Number of shards to split the input into.
+        store_uri: Base checkpoint store URI.
+        checkpoint_every: Flush interval in items.
+        checkpointing: Whether checkpointing is enabled.
+
+    Returns:
+        Arrow table containing job outputs (and inputs depending on output mode).
+    """
+    table = data if isinstance(data, pa.Table) else backend.to_arrow(data)
+    if checkpointing and store_uri is None:
+        raise ValueError("store_uri is required when checkpointing is enabled.")
+    if nshards <= 1:
+        return await run_arrow_job(
+            job_factory,
+            table,
+            input_col=input_col,
+            output_cols=output_cols,
+            store_uri=store_uri,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+        )
+    if not checkpointing:
+        raise ValueError("Sharded execution requires checkpointing to be enabled.")
+
+    table = _ensure_arrow_id(table, "_row_id")
+    indices = np.array_split(np.arange(table.num_rows), nshards)
+
+    async def _one(i, idx):
+        assert store_uri is not None
+        sub = table.take(pa.array(idx, type=pa.int64()))
+        su = store_uri.replace(".parquet", f"_shard{i}.parquet")
+        return await run_arrow_job(
+            job_factory,
+            sub,
+            input_col=input_col,
+            output_cols=output_cols,
+            store_uri=su,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+        )
+
+    parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
+    return pa.concat_tables(parts)
 
 
 def _has_new_api(job: SwarmJob) -> bool:
@@ -69,6 +152,7 @@ async def run_job_unified(
     data_backend: str | None = None,
     native_backend: bool | None = None,
     checkpointing: bool = True,
+    runner: str = "pandas",
 ) -> Any:
     job_probe = job_factory()
 
@@ -96,7 +180,21 @@ async def run_job_unified(
             output_mode=job_probe.output_mode,
         )
 
-    # Non-ray: compatibility path expects a pandas DataFrame.
+    # Non-ray:
+    if runner == "arrow":
+        return await _run_non_ray_arrow(
+            job_factory=job_factory,
+            backend=backend,
+            data=data,
+            input_col=input_col,
+            output_cols=output_cols or job_probe.default_output_cols,
+            nshards=nshards,
+            store_uri=store_uri,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+        )
+
+    # Legacy pandas-internal runner.
     df = data if isinstance(data, pd.DataFrame) else backend.to_pandas(data)
 
     if checkpointing:

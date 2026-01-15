@@ -360,6 +360,7 @@ class DomynLLMSwarm(BaseModel):
         checkpoint_interval: int | None = None,
         no_resume: bool = False,
         no_checkpointing: bool = False,
+        runner: str = "pandas",
         job_resources: dict | None = None,
     ) -> int | None:
         """
@@ -461,6 +462,7 @@ class DomynLLMSwarm(BaseModel):
             f"--nthreads={num_threads}",
             f"--checkpoint-dir={checkpoint_dir}",
             f"--checkpoint-interval={checkpoint_interval or job.checkpoint_interval}",
+            f"--runner={runner}",
             "--job-kwargs",
             job_kwargs,
         ]
