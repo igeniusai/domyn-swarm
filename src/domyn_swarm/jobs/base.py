@@ -173,6 +173,11 @@ class SwarmJob(abc.ABC):
         client_kwargs: dict | None = None,
         output_mode: OutputJoinMode = OutputJoinMode.APPEND,
         default_output_cols: list[str] | None = None,
+        data_backend: str | None = None,
+        native_backend: bool = False,
+        backend_read_kwargs: dict | None = None,
+        backend_write_kwargs: dict | None = None,
+        native_batch_size: int | None = None,
         **extra_kwargs,
     ):
         """Initialize the job with parameters and an optional LLM client.
@@ -248,6 +253,11 @@ class SwarmJob(abc.ABC):
             if default_output_cols is not None
             else ([self.output_cols] if isinstance(self.output_cols, str) else self.output_cols)
         )
+        self.data_backend = data_backend
+        self.native_backend = native_backend
+        self.backend_read_kwargs = backend_read_kwargs
+        self.backend_write_kwargs = backend_write_kwargs
+        self.native_batch_size = native_batch_size
 
         headers = {}
         token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key

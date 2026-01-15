@@ -22,8 +22,10 @@ import os
 from pathlib import Path
 import sys
 
+import pandas as pd
+
+from domyn_swarm.data import BackendError, get_backend
 from domyn_swarm.helpers.data import compute_hash, parquet_hash
-from domyn_swarm.helpers.io import load_dataframe, save_dataframe
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.jobs.compat import run_job_unified  # base class
@@ -90,7 +92,25 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     in_path: Path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
     out_path: Path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
     job_cls, job_kwargs = build_job_from_args(args)
-    df_in = load_dataframe(in_path, limit=args.limit)
+    backend_name = job_kwargs.get("data_backend")
+    backend_read_kwargs = job_kwargs.get("backend_read_kwargs") or {}
+    backend_write_kwargs = job_kwargs.get("backend_write_kwargs") or {}
+    native_backend = job_kwargs.get("native_backend")
+
+    if not isinstance(backend_read_kwargs, dict):
+        raise ValueError("backend_read_kwargs must be a dict if provided")
+    if not isinstance(backend_write_kwargs, dict):
+        raise ValueError("backend_write_kwargs must be a dict if provided")
+
+    try:
+        backend = get_backend(backend_name)
+    except BackendError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    if native_backend is None and backend.name == "ray":
+        native_backend = True
+
+    data_in = backend.read(in_path, limit=args.limit, **backend_read_kwargs)
     tag = parquet_hash(in_path) + compute_hash(str(out_path))
 
     def make_job():
@@ -112,9 +132,9 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     ckp_base = Path(args.checkpoint_dir) / f"{job_cls.__name__}_{tag}.parquet"
     store_uri = f"file://{ckp_base}"
 
-    df_out = await run_job_unified(
+    result = await run_job_unified(
         make_job,
-        df_in,
+        data_in,
         input_col=job_kwargs.get("input_column_name", "messages"),
         output_cols=output_cols,
         nshards=nshards,
@@ -122,9 +142,17 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         checkpoint_every=args.checkpoint_interval,
         tag=tag,  # used by old-style
         checkpoint_dir=args.checkpoint_dir,  # used by old-style
+        data_backend=backend.name,
+        native_backend=native_backend,
     )
 
-    save_dataframe(df_out, out_path, nshards=nshards)
+    if backend.name == "ray" and not isinstance(result, pd.DataFrame):
+        backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
+        return
+
+    df_out = result if isinstance(result, pd.DataFrame) else backend.to_pandas(result)
+    data_out = backend.from_pandas(df_out)
+    backend.write(data_out, out_path, nshards=nshards, **backend_write_kwargs)
 
 
 def main(cli_args: list[str] | None = None):

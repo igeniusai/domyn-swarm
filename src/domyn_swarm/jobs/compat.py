@@ -14,12 +14,14 @@
 
 import asyncio
 from collections.abc import Callable
+import inspect
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from domyn_swarm.checkpoint.store import ParquetShardStore
+from domyn_swarm.data import BackendError, get_backend
 from domyn_swarm.jobs.base import SwarmJob
 from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
 
@@ -55,7 +57,7 @@ def resolve_job_api(job: SwarmJob) -> str:
 
 async def run_job_unified(
     job_factory: Callable[[], Any],
-    df: pd.DataFrame,
+    data: Any,
     *,
     input_col: str,
     output_cols: list[str] | None,
@@ -64,13 +66,37 @@ async def run_job_unified(
     checkpoint_every: int = 16,
     tag: str | None = None,
     checkpoint_dir: str | None = None,
-) -> pd.DataFrame:
+    data_backend: str | None = None,
+    native_backend: bool | None = None,
+) -> Any:
     job_probe = job_factory()
 
     if not _has_new_api(job_probe):
         raise TypeError(
             "Job must implement the streaming API (transform_items/transform_streaming)."
         )
+
+    backend_name = data_backend or getattr(job_probe, "data_backend", None) or "pandas"
+    try:
+        backend = get_backend(backend_name)
+    except BackendError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    if backend.name == "ray":
+        native = bool(native_backend) if native_backend is not None else True
+        if not native:
+            raise ValueError("Ray backend requires native execution (native_backend=True).")
+        return await _run_job_ray(
+            job_factory,
+            data,
+            input_col=input_col,
+            output_cols=output_cols or job_probe.default_output_cols,
+            batch_size=getattr(job_probe, "native_batch_size", None) or checkpoint_every,
+            output_mode=job_probe.output_mode,
+        )
+
+    # Non-ray: compatibility path expects a pandas DataFrame.
+    df = data if isinstance(data, pd.DataFrame) else backend.to_pandas(data)
 
     if store_uri is None:
         raise ValueError("store_uri is required for streaming jobs.")
@@ -100,3 +126,66 @@ async def run_job_unified(
 
     parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
     return pd.concat(parts).sort_index()
+
+
+async def _run_job_ray(
+    job_factory: Callable[[], Any],
+    dataset: Any,
+    *,
+    input_col: str,
+    output_cols: list[str] | None,
+    batch_size: int,
+    output_mode: Any,
+) -> Any:
+    """
+    Native Ray execution path.
+
+    For now, this bypasses ParquetShardStore checkpointing and uses Ray Dataset
+    transforms to distribute LLM calls across workers.
+    """
+    try:
+        import ray.data as rd  # noqa: F401
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("Ray backend requires `ray[data]` to be installed.") from exc
+
+    from domyn_swarm.jobs.base import OutputJoinMode
+    from domyn_swarm.jobs.runner import _normalize_batch_outputs
+
+    mode = output_mode
+    if isinstance(mode, str):
+        mode = OutputJoinMode(mode)
+    if mode not in {OutputJoinMode.APPEND, OutputJoinMode.REPLACE, OutputJoinMode.IO_ONLY}:
+        raise ValueError(f"Unsupported output_mode for ray backend: {mode}")
+
+    ds = dataset
+
+    def _process_batch(batch: pd.DataFrame) -> pd.DataFrame:
+        job = job_factory()
+        items = batch[input_col].tolist()
+        out = job.transform_items(items)
+        if inspect.isawaitable(out):
+            out = asyncio.run(out)  # type: ignore[arg-type]
+        rows, cols = _normalize_batch_outputs(out, output_cols)
+
+        if cols is None:
+            # dict outputs: join columns dynamically
+            out_df = pd.DataFrame(rows)
+        elif len(cols) == 1:
+            out_df = pd.DataFrame({cols[0]: rows})
+        else:
+            # rows may be list/tuple per item, or list[list] per item
+            out_df = pd.DataFrame({c: [r[i] for r in rows] for i, c in enumerate(cols)})
+
+        if mode == OutputJoinMode.REPLACE:
+            return out_df
+        if mode == OutputJoinMode.IO_ONLY:
+            keep = [input_col]
+            return pd.concat([batch.loc[:, keep].reset_index(drop=True), out_df], axis=1)
+        # APPEND
+        return pd.concat([batch.reset_index(drop=True), out_df], axis=1)
+
+    return ds.map_batches(
+        _process_batch,
+        batch_format="pandas",
+        batch_size=batch_size,
+    )
