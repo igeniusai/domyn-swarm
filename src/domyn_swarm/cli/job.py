@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import contextlib
+import json
 import logging
 from pathlib import Path
 
@@ -26,6 +27,109 @@ import domyn_swarm.utils as utils
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
 job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+
+
+def _parse_json_object(value: str, *, param_name: str) -> dict:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"{param_name} must be a valid JSON object.") from exc
+    if not isinstance(parsed, dict):
+        raise typer.BadParameter(f"{param_name} must be a JSON object.")
+    return parsed
+
+
+def _maybe_parse_json_object(value: str | None, *, param_name: str) -> dict | None:
+    if value is None:
+        return None
+    return _parse_json_object(value, param_name=param_name)
+
+
+def _build_job_kwargs_json(
+    *,
+    job_kwargs: str,
+    data_backend: str | None,
+    native_backend: bool | None,
+    native_batch_size: int | None,
+    backend_read_kwargs: str | None,
+    backend_write_kwargs: str | None,
+) -> str:
+    job_kwargs_dict = _parse_json_object(job_kwargs, param_name="job_kwargs")
+
+    if data_backend:
+        job_kwargs_dict["data_backend"] = data_backend
+    if native_backend is not None:
+        job_kwargs_dict["native_backend"] = native_backend
+    if native_batch_size is not None:
+        job_kwargs_dict["native_batch_size"] = native_batch_size
+
+    read_kwargs = _maybe_parse_json_object(backend_read_kwargs, param_name="backend_read_kwargs")
+    if read_kwargs is not None:
+        job_kwargs_dict["backend_read_kwargs"] = read_kwargs
+
+    write_kwargs = _maybe_parse_json_object(backend_write_kwargs, param_name="backend_write_kwargs")
+    if write_kwargs is not None:
+        job_kwargs_dict["backend_write_kwargs"] = write_kwargs
+
+    return json.dumps(job_kwargs_dict)
+
+
+def _submit_loaded_job(
+    *,
+    swarm: DomynLLMSwarm,
+    job_class: str,
+    job_kwargs: str,
+    job_name: str | None,
+    input_path: Path,
+    output_path: Path,
+    input_column: str,
+    output_column: str,
+    checkpoint_dir: Path | None,
+    checkpoint_interval: int,
+    max_concurrency: int,
+    retries: int,
+    timeout: float,
+    num_threads: int,
+    limit: int | None,
+    detach: bool,
+    mail_user: str | None,
+) -> None:
+    resolved_checkpoint_dir = (
+        swarm.swarm_dir / "checkpoints" if checkpoint_dir is None else checkpoint_dir
+    )
+    job = _load_job(
+        job_class,
+        job_kwargs,
+        name=job_name,
+        endpoint=swarm.endpoint,
+        model=swarm.model,
+        checkpoint_interval=checkpoint_interval,
+        max_concurrency=max_concurrency,
+        retries=retries,
+        timeout=timeout,
+        input_column_name=input_column,
+        output_cols=output_column,
+    )
+    swarm.submit_job(
+        job,
+        input_path=input_path,
+        output_path=output_path,
+        num_threads=num_threads,
+        limit=limit,
+        detach=detach,
+        mail_user=mail_user,
+        checkpoint_dir=resolved_checkpoint_dir,
+    )
+
+
+def _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarm) -> None:
+    abort = typer.confirm("KeyboardInterrupt detected. Do you want to cancel the swarm allocation?")
+    if abort:
+        with contextlib.suppress(Exception):
+            swarm_ctx.cleanup()
+        typer.echo("Swarm allocation cancelled by user")
+        raise typer.Abort() from None
+    typer.echo("Continuing to wait for job to complete …")
 
 
 @job_app.command("submit-script")
@@ -73,6 +177,31 @@ def submit_job(
     output_column: str = typer.Option("results", "--output-column"),
     job_kwargs: str = typer.Option(
         "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
+    ),
+    data_backend: str | None = typer.Option(
+        None,
+        "--data-backend",
+        help="Data backend for IO (pandas, polars, ray).",
+    ),
+    native_backend: bool | None = typer.Option(
+        None,
+        "--native-backend/--no-native-backend",
+        help="Use native backend batches when supported.",
+    ),
+    native_batch_size: int | None = typer.Option(
+        None,
+        "--native-batch-size",
+        help="Batch size for native backend mode (optional).",
+    ),
+    backend_read_kwargs: str | None = typer.Option(
+        None,
+        "--backend-read-kwargs",
+        help="JSON dict forwarded to backend read() call.",
+    ),
+    backend_write_kwargs: str | None = typer.Option(
+        None,
+        "--backend-write-kwargs",
+        help="JSON dict forwarded to backend write() call.",
     ),
     job_name: str | None = typer.Option(None, "--job-name", help="Optional job name for logging"),
     config: typer.FileText | None = typer.Option(
@@ -149,75 +278,62 @@ def submit_job(
         logger.error("Either --config or --name must be provided, not both.")
         raise typer.Exit(1)
 
+    job_kwargs = _build_job_kwargs_json(
+        job_kwargs=job_kwargs,
+        data_backend=data_backend,
+        native_backend=native_backend,
+        native_batch_size=native_batch_size,
+        backend_read_kwargs=backend_read_kwargs,
+        backend_write_kwargs=backend_write_kwargs,
+    )
+
     if config:
         cfg = _load_swarm_config(config)
         swarm_ctx = DomynLLMSwarm(cfg=cfg)
         try:
             with swarm_ctx as swarm:
-                checkpoint_dir = (
-                    swarm.swarm_dir / "checkpoints" if checkpoint_dir is None else checkpoint_dir
-                )
-                job = _load_job(
-                    job_class,
-                    job_kwargs,
-                    name=job_name,
-                    endpoint=swarm.endpoint,
-                    model=swarm.model,
+                _submit_loaded_job(
+                    swarm=swarm,
+                    job_class=job_class,
+                    job_kwargs=job_kwargs,
+                    job_name=job_name,
+                    input_path=input,
+                    output_path=output,
+                    input_column=input_column,
+                    output_column=output_column,
+                    checkpoint_dir=checkpoint_dir,
                     checkpoint_interval=checkpoint_interval,
                     max_concurrency=max_concurrency,
                     retries=retries,
                     timeout=timeout,
-                    input_column_name=input_column,
-                    output_cols=output_column,
-                )
-                swarm.submit_job(
-                    job,
-                    input_path=input,
-                    output_path=output,
                     num_threads=num_threads,
                     limit=limit,
                     detach=detach,
                     mail_user=mail_user,
-                    checkpoint_dir=checkpoint_dir,
                 )
         except KeyboardInterrupt:
-            abort = typer.confirm(
-                "KeyboardInterrupt detected. Do you want to cancel the swarm allocation?"
-            )
-            if abort:
-                with contextlib.suppress(Exception):
-                    swarm_ctx.cleanup()
-                typer.echo("Swarm allocation cancelled by user")
-                raise typer.Abort() from None
-            else:
-                typer.echo("Continuing to wait for job to complete …")
+            _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx)
     elif name is None:
         raise RuntimeError("Swarm name is null.")
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
-        checkpoint_dir = (
-            swarm.swarm_dir / "checkpoints" if checkpoint_dir is None else checkpoint_dir
-        )
-        job = _load_job(
-            job_class,
-            job_kwargs,
-            endpoint=swarm.endpoint,
-            model=swarm.model,
+        _submit_loaded_job(
+            swarm=swarm,
+            job_class=job_class,
+            job_kwargs=job_kwargs,
+            job_name=job_name,
+            input_path=input,
+            output_path=output,
+            input_column=input_column,
+            output_column=output_column,
+            checkpoint_dir=checkpoint_dir,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
             timeout=timeout,
-            input_column_name=input_column,
-            output_cols=output_column,
-        )
-        swarm.submit_job(
-            job,
-            input_path=input,
-            output_path=output,
             num_threads=num_threads,
             limit=limit,
             detach=detach,
             mail_user=mail_user,
-            checkpoint_dir=checkpoint_dir,
         )
