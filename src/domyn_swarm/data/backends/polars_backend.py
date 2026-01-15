@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow as pa
 
 from domyn_swarm.data.backends.base import BackendError, DataBackend
 
@@ -79,6 +80,16 @@ class PolarsBackend(DataBackend):
         import polars as pl
 
         return pl.from_pandas(df)
+
+    def to_arrow(self, data: Any) -> pa.Table:
+        """Convert a polars DataFrame to an Arrow table."""
+        return data.to_arrow()
+
+    def from_arrow(self, table: pa.Table) -> Any:
+        """Convert an Arrow table to a polars DataFrame."""
+        import polars as pl
+
+        return pl.from_arrow(table)
 
     def slice(self, data: Any, indices: list[int]) -> Any:
         return data.take(indices)

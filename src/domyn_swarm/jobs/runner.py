@@ -142,7 +142,7 @@ class JobRunner:
         Output columns (None means the job returns dicts that will be normalized).
     """
 
-    def __init__(self, store: CheckpointStore, cfg: RunnerConfig | None = None):
+    def __init__(self, store: CheckpointStore[pd.DataFrame], cfg: RunnerConfig | None = None):
         self.store = store
         self.cfg = cfg or RunnerConfig()
 

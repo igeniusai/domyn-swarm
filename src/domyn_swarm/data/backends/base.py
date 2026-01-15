@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import pandas as pd
+import pyarrow as pa
 
 
 class DataBackend(Protocol):
@@ -34,6 +35,14 @@ class DataBackend(Protocol):
     def to_pandas(self, data: Any) -> pd.DataFrame: ...
 
     def from_pandas(self, df: pd.DataFrame) -> Any: ...
+
+    def to_arrow(self, data: Any) -> pa.Table:
+        """Convert backend-native data into an Arrow table."""
+        ...
+
+    def from_arrow(self, table: pa.Table) -> Any:
+        """Convert an Arrow table into backend-native data."""
+        ...
 
     def slice(self, data: Any, indices: list[int]) -> Any: ...
 

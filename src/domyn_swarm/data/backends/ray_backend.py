@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow as pa
 
 from domyn_swarm.data.backends.base import BackendError, DataBackend
 
@@ -49,6 +50,14 @@ class RayBackend(DataBackend):
         import ray.data as rd
 
         return rd.from_pandas(df)
+
+    def to_arrow(self, data: Any) -> pa.Table:
+        """Ray backend does not support Arrow conversion."""
+        raise BackendError("Arrow conversion is not supported for the ray backend.")
+
+    def from_arrow(self, table: pa.Table) -> Any:
+        """Ray backend does not support Arrow conversion."""
+        raise BackendError("Arrow conversion is not supported for the ray backend.")
 
     def slice(self, data: Any, indices: list[int]) -> Any:
         # Fallback: slice via pandas conversion (native slicing can be added later).

@@ -14,7 +14,7 @@
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 import pandas as pd
 import pyarrow as pa
@@ -43,15 +43,18 @@ class FlushBatch:
     rows: list[Any]
 
 
-class CheckpointStore(Protocol):
-    def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame: ...
+T = TypeVar("T")
+
+
+class CheckpointStore(Protocol[T]):
+    def prepare(self, data: T, id_col: str) -> T: ...
 
     async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None: ...
 
-    def finalize(self) -> pd.DataFrame: ...
+    def finalize(self) -> T: ...
 
 
-class ParquetShardStore(CheckpointStore):
+class ParquetShardStore(CheckpointStore[pd.DataFrame]):
     """Parquet shard-based checkpointing that works with local or cloud URIs.
 
     Examples
@@ -83,8 +86,8 @@ class ParquetShardStore(CheckpointStore):
         self.id_col = "_row_id"
         self.done_ids: set[Any] = set()
 
-    def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame:
-        df = df.copy()
+    def prepare(self, data: pd.DataFrame, id_col: str) -> pd.DataFrame:
+        data = data.copy()
         self.id_col = id_col
         done_ids: set[Any] = set()
 
@@ -99,10 +102,10 @@ class ParquetShardStore(CheckpointStore):
 
         if not done_ids:
             # nothing to skip
-            return df
+            return data
 
-        mask = ~df[id_col].isin(list(done_ids))
-        return df.loc[mask]
+        mask = ~data[id_col].isin(list(done_ids))
+        return data.loc[mask]
 
     def _read_done_ids(self, path: str) -> set[Any]:
         with self.fs.open(path, "rb") as f:
@@ -222,7 +225,7 @@ class ParquetShardStore(CheckpointStore):
         return df
 
 
-class InMemoryStore(CheckpointStore):
+class InMemoryStore(CheckpointStore[pd.DataFrame]):
     """In-memory checkpoint store (no read/write to disk).
 
     Intended for debugging and short runs where checkpointing I/O should be bypassed.
@@ -233,9 +236,9 @@ class InMemoryStore(CheckpointStore):
         self.id_col = "_row_id"
         self._rows_by_id: dict[Any, dict[str, Any]] = {}
 
-    def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame:
+    def prepare(self, data: pd.DataFrame, id_col: str) -> pd.DataFrame:
         self.id_col = id_col
-        return df
+        return data
 
     async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
         if output_cols is None:

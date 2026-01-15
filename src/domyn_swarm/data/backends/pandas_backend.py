@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 
 from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.helpers.io import load_dataframe, save_dataframe
@@ -42,6 +43,14 @@ class PandasBackend(DataBackend):
 
     def from_pandas(self, df: pd.DataFrame) -> pd.DataFrame:
         return df
+
+    def to_arrow(self, data: pd.DataFrame) -> pa.Table:
+        """Convert a pandas DataFrame to an Arrow table."""
+        return pa.Table.from_pandas(data, preserve_index=False)
+
+    def from_arrow(self, table: pa.Table) -> pd.DataFrame:
+        """Convert an Arrow table to a pandas DataFrame."""
+        return table.to_pandas(ignore_metadata=True)
 
     def slice(self, data: pd.DataFrame, indices: list[int]) -> pd.DataFrame:
         return data.iloc[indices]
