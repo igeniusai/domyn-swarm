@@ -22,7 +22,6 @@ import os
 from pathlib import Path
 import sys
 
-import pandas as pd
 from ulid import ULID
 
 from domyn_swarm.data import BackendError, get_backend
@@ -57,9 +56,6 @@ def _write_result(
         backend_write_kwargs: Extra kwargs forwarded to backend write().
         runner_choice: Runner implementation name (pandas or arrow).
     """
-    if backend.name == "ray" and not isinstance(result, pd.DataFrame):
-        backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)
-        return
 
     if runner_choice == "arrow":
         result = backend.from_arrow(result)
@@ -175,8 +171,8 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     # Map legacy --nthreads to shards
     nshards = getattr(args, "nthreads", 1)
 
-    checkpointing = not bool(getattr(args, "no_checkpointing", False))
-    no_resume = bool(getattr(args, "no_resume", False))
+    checkpointing = not args.no_checkpointing
+    no_resume = args.no_resume
     if not checkpointing and no_resume:
         raise ValueError("--no-resume cannot be combined with --no-checkpointing.")
 

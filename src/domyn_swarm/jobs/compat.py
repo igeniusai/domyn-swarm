@@ -23,6 +23,7 @@ import pyarrow as pa
 
 from domyn_swarm.checkpoint.store import InMemoryStore, ParquetShardStore
 from domyn_swarm.data import BackendError, get_backend
+from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.arrow_runner import run_arrow_job
 from domyn_swarm.jobs.base import SwarmJob
 from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
@@ -163,7 +164,7 @@ async def run_job_unified(
 
     backend_name = data_backend or getattr(job_probe, "data_backend", None) or "pandas"
     try:
-        backend = get_backend(backend_name)
+        backend: DataBackend = get_backend(backend_name)
     except BackendError as exc:
         raise RuntimeError(str(exc)) from exc
 
