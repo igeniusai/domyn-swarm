@@ -132,6 +132,12 @@ def submit_job(
         help="Email address to receive job notifications. "
         "If set, email notifications will be enabled.",
     ),
+    checkpoint_tag: str | None = typer.Option(
+        None,
+        "--checkpoint-tag",
+        help="An optional tag to be used when checkpointing is enabled. "
+        "It will be used in place of the default uuid-based tag.",
+    ),
 ):
     """
     Submit a strongly-typed job to the swarm for DataFrame processing.
@@ -179,6 +185,7 @@ def submit_job(
                     detach=detach,
                     mail_user=mail_user,
                     checkpoint_dir=checkpoint_dir,
+                    checkpoint_tag=checkpoint_tag,
                 )
         except KeyboardInterrupt:
             abort = typer.confirm(

@@ -67,6 +67,13 @@ def parse_args(cli_args=None):
         default=16,
         help="How often to checkpoint progress (in records)",
     )
+    parser.add_argument(
+        "--checkpoint-tag",
+        type=str,
+        default=None,
+        help="An optional tag to be used when checkpointing is enabled. "
+        "It will be used in place of the default hash-based tag.",
+    )
 
     if not cli_args:
         return parser.parse_args()
@@ -91,7 +98,8 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     out_path: Path = args.output_parquet or Path(os.environ["OUTPUT_PARQUET"])
     job_cls, job_kwargs = build_job_from_args(args)
     df_in = load_dataframe(in_path, limit=args.limit)
-    tag = parquet_hash(in_path) + compute_hash(str(out_path))
+
+    tag = args.checkpoint_tag or parquet_hash(in_path) + compute_hash(str(out_path))
 
     def make_job():
         return job_cls(**job_kwargs)

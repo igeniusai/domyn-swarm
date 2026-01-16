@@ -359,6 +359,7 @@ class DomynLLMSwarm(BaseModel):
         checkpoint_dir: str | Path | None = None,
         checkpoint_interval: int | None = None,
         job_resources: dict | None = None,
+        checkpoint_tag: str | None = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -462,6 +463,9 @@ class DomynLLMSwarm(BaseModel):
             "--job-kwargs",
             job_kwargs,
         ]
+
+        if checkpoint_tag:
+            exe.append(f"--checkpoint-tag={checkpoint_tag}")
 
         if limit:
             exe.append(f"--limit={limit}")
