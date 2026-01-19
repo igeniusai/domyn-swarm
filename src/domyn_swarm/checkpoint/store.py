@@ -92,7 +92,7 @@ class ParquetShardStore(CheckpointStore):
             done_ids.update(ids)
 
         if self.fs.exists(self.dir_uri):
-            pattern = self.dir_uri.rstrip("/") + "/part-*.parquet"
+            pattern = self.dir_uri.rstrip("/") + "/*.parquet"
             for path in self.fs.glob(pattern):
                 part = pd.read_parquet(path, storage_options=self.fs.storage_options)
                 ids = (
