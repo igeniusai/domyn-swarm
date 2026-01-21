@@ -126,6 +126,12 @@ def parse_args(cli_args=None):
         help="An optional tag to be used when checkpointing is enabled. "
         "It will be used in place of the default hash-based tag.",
     )
+    parser.add_argument(
+        "--ray-address",
+        type=str,
+        default=None,
+        help="Address of the Ray cluster to connect to run the SwarmJob (if using Ray backend).",
+    )
 
     if not cli_args:
         return parser.parse_args()
@@ -169,6 +175,17 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
 
     if native_backend is None and backend.name == "ray":
         native_backend = True
+        ray_address = (
+            args.ray_address
+            or os.environ.get("DOMYN_SWARM_RAY_ADDRESS")
+            or os.environ.get("RAY_ADDRESS")
+        )
+        if not ray_address:
+            raise ValueError(
+                "Ray backend requires an explicit ray address (set --ray-address, "
+                "DOMYN_SWARM_RAY_ADDRESS, or RAY_ADDRESS)."
+            )
+        os.environ["DOMYN_SWARM_RAY_ADDRESS"] = ray_address
 
     data_in = backend.read(in_path, limit=args.limit, **backend_read_kwargs)
     tag = args.checkpoint_tag or parquet_hash(in_path) + compute_hash(str(out_path))
@@ -215,6 +232,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         native_backend=native_backend,
         checkpointing=checkpointing,
         runner=runner_choice,
+        ray_address=args.ray_address,
     )
 
     _write_result(backend, result, out_path, nshards, backend_write_kwargs, runner_choice)

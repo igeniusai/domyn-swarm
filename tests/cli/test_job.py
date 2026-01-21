@@ -377,3 +377,47 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
     assert kwargs["detach"] is True
     assert kwargs["mail_user"] == "me@example.com"
     assert kwargs["checkpoint_dir"] == tmp_path / ".ckpt"
+
+
+def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
+    in_path, out_path = _mk_files(tmp_path)
+    config_path = tmp_path / "cfg.yaml"
+    config_path.write_text("model: my-model\nname: my-swarm")
+
+    cfg_obj = object()
+    mocker.patch.object(mod, "_load_swarm_config", return_value=cfg_obj)
+
+    swarm = mocker.MagicMock()
+    swarm.endpoint = "http://host:9000"
+    swarm.model = "m"
+    cm = mocker.MagicMock()
+    cm.__enter__.return_value = swarm
+    cm.__exit__.return_value = None
+    mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
+
+    job_obj = object()
+    mocker.patch.object(mod, "_load_job", return_value=job_obj)
+
+    res = runner.invoke(
+        mod.job_app,
+        [
+            "submit",
+            "--input",
+            str(in_path),
+            "--output",
+            str(out_path),
+            "-c",
+            str(config_path),
+            "--data-backend",
+            "ray",
+            "--id-column",
+            "doc_id",
+            "--ray-address",
+            "ray://head:10001",
+        ],
+    )
+
+    assert res.exit_code == 0
+    swarm.submit_job.assert_called_once()
+    kwargs = swarm.submit_job.call_args.kwargs
+    assert kwargs["ray_address"] == "ray://head:10001"

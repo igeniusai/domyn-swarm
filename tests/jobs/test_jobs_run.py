@@ -127,6 +127,19 @@ async def test_run_job_unified_missing_id_column_raises(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_ray_requires_user_id_column():
+    """Ray backend requires a user-provided id column for resume semantics."""
+    with pytest.raises(ValueError, match="requires a user-provided id column"):
+        await run_job_unified(
+            DummySwarmJob,
+            data={},
+            input_col="messages",
+            output_cols=["output"],
+            data_backend="ray",
+        )
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_arrow_runner_id_column(tmp_path):
     df = pd.DataFrame({"doc_id": [10, 11], "messages": [1, 2]})
     out_df = await run_job_unified(

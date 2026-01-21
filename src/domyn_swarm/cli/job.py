@@ -76,6 +76,10 @@ def _build_job_kwargs_json(
     if write_kwargs is not None:
         job_kwargs_dict["backend_write_kwargs"] = write_kwargs
 
+    resolved_backend = job_kwargs_dict.get("data_backend")
+    if resolved_backend == "ray" and not job_kwargs_dict.get("id_column_name"):
+        raise typer.BadParameter("--id-column is required when --data-backend=ray.")
+
     return json.dumps(job_kwargs_dict)
 
 
@@ -94,6 +98,7 @@ class JobRunSpec:
         limit: Optional row limit for input reads.
         detach: Whether to detach job execution from the CLI.
         mail_user: Optional email address for job notifications.
+        ray_address: Optional Ray cluster address override.
     """
 
     input_path: Path
@@ -106,6 +111,7 @@ class JobRunSpec:
     limit: int | None
     detach: bool
     mail_user: str | None
+    ray_address: str | None
 
 
 @dataclass(frozen=True)
@@ -184,6 +190,7 @@ def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> No
         no_resume=request.run.no_resume,
         no_checkpointing=request.run.no_checkpointing,
         runner=request.run.runner,
+        ray_address=request.run.ray_address,
     )
 
 
@@ -354,6 +361,11 @@ def submit_job(
         help="An optional tag to be used when checkpointing is enabled. "
         "It will be used in place of the default uuid-based tag.",
     ),
+    ray_address: str | None = typer.Option(
+        None,
+        "--ray-address",
+        help="Ray cluster address to connect to when --data-backend=ray (optional).",
+    ),
 ):
     """
     Submit a strongly-typed job to the swarm for DataFrame processing.
@@ -391,6 +403,7 @@ def submit_job(
         limit=limit,
         detach=detach,
         mail_user=mail_user,
+        ray_address=ray_address,
     )
 
     if config:

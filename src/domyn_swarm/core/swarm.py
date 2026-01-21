@@ -363,6 +363,7 @@ class DomynLLMSwarm(BaseModel):
         runner: str = "pandas",
         job_resources: dict | None = None,
         checkpoint_tag: str | None = None,
+        ray_address: str | None = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -495,6 +496,22 @@ class DomynLLMSwarm(BaseModel):
         if token:
             env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
             env["VLLM_API_KEY"] = token.get_secret_value()
+
+        if getattr(job, "data_backend", None) == "ray":
+            resolved_ray_address = (
+                ray_address
+                or env.get("DOMYN_SWARM_RAY_ADDRESS")
+                or env.get("RAY_ADDRESS")
+                or os.environ.get("DOMYN_SWARM_RAY_ADDRESS")
+                or os.environ.get("RAY_ADDRESS")
+            )
+            if not resolved_ray_address:
+                raise ValueError(
+                    "Ray backend requires an explicit ray address. Provide --ray-address or set "
+                    "DOMYN_SWARM_RAY_ADDRESS/RAY_ADDRESS in the swarm environment."
+                )
+            env["DOMYN_SWARM_RAY_ADDRESS"] = resolved_ray_address
+            exe.append(f"--ray-address={resolved_ray_address}")
 
         job_name = job.name.lower() if job.name else f"{self.name}-job"
         job_name = f"{self.name}-{job_name}"
