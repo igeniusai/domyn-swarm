@@ -192,6 +192,79 @@ def _get_backend(backend_name: str) -> DataBackend:
         raise RuntimeError(str(exc)) from exc
 
 
+def _column_names_from_collect_schema(data: Any) -> list[str] | None:
+    """Try to read column names via a `collect_schema()` method.
+
+    This avoids triggering expensive schema resolution on objects like polars LazyFrame.
+
+    Args:
+        data: Input dataset-like object.
+
+    Returns:
+        List of column names if available, otherwise None.
+    """
+    collect_schema = getattr(data, "collect_schema", None)
+    if not callable(collect_schema):
+        return None
+    try:
+        schema = collect_schema()
+        names = getattr(schema, "names", None)
+        if callable(names):
+            names = names()
+        if names is None:
+            return None
+        if isinstance(names, list):
+            return names
+        if isinstance(names, tuple):
+            return list(names)
+        return None
+    except Exception:
+        return None
+
+
+def _column_names_from_columns_attr(data: Any) -> list[str] | None:
+    """Try to read column names from a `.columns` attribute.
+
+    Args:
+        data: Input dataset-like object.
+
+    Returns:
+        List of column names if available, otherwise None.
+    """
+    if not hasattr(data, "columns"):
+        return None
+    try:
+        return list(data.columns)
+    except TypeError:
+        return None
+
+
+def _column_names_from_schema(data: Any) -> list[str] | None:
+    """Try to read column names from a `.schema()` method.
+
+    Args:
+        data: Input dataset-like object.
+
+    Returns:
+        List of column names if available, otherwise None.
+    """
+    if not hasattr(data, "schema"):
+        return None
+    try:
+        schema = data.schema()
+    except Exception:
+        return None
+    names: list[str] | None = getattr(schema, "names", None)
+    if callable(names):
+        names = names()
+    if names is None:
+        try:
+            names = [field.name for field in schema]
+        except TypeError:
+            names = []
+    return names
+
+
 def _validate_required_id(data: Any, id_col: str) -> None:
     """Validate that the input data contains the required id column.
 
@@ -202,35 +275,15 @@ def _validate_required_id(data: Any, id_col: str) -> None:
     Raises:
         ValueError: If the column is missing or cannot be validated.
     """
-    if hasattr(data, "columns"):
-        try:
-            columns = list(data.columns)
-        except TypeError:
-            columns = None
-        if columns is not None:
-            if id_col not in columns:
-                raise ValueError(f"Input data missing required id column '{id_col}'.")
-            return
-    if isinstance(data, pd.DataFrame):
-        if id_col not in data.columns:
-            raise ValueError(f"Input data missing required id column '{id_col}'.")
-        return
-
-    if hasattr(data, "schema"):
-        schema = data.schema()
-        names: list[str] | None = getattr(schema, "names", None)
-        if callable(names):
-            names = names()
-        if names is None:
-            try:
-                names = [field.name for field in schema]
-            except TypeError:
-                names = []
-        if id_col not in names:
-            raise ValueError(f"Input data missing required id column '{id_col}'.")
-        return
-
-    raise ValueError(f"Cannot validate id column on data type: {type(data)!r}")
+    names = (
+        _column_names_from_collect_schema(data)
+        or _column_names_from_columns_attr(data)
+        or _column_names_from_schema(data)
+    )
+    if names is None:
+        raise ValueError(f"Cannot validate id column on data type: {type(data)!r}")
+    if id_col not in names:
+        raise ValueError(f"Input data missing required id column '{id_col}'.")
 
 
 def _resolve_ray_native(native_backend: bool | None) -> bool:
@@ -278,6 +331,7 @@ def _build_checkpoint_store(
 async def _run_non_ray_polars(
     *,
     job_factory: Callable[[], Any],
+    backend: DataBackend,
     data: Any,
     input_col: str,
     output_cols: list[str] | None,
@@ -322,6 +376,7 @@ async def _run_non_ray_polars(
     if nshards <= 1:
         return await run_polars_job(
             job_factory,
+            backend,
             data,
             input_col=input_col,
             output_cols=output_cols,
@@ -343,6 +398,7 @@ async def _run_non_ray_polars(
     if total_rows == 0:
         return await run_polars_job(
             job_factory,
+            backend,
             data,
             input_col=input_col,
             output_cols=output_cols,
@@ -360,6 +416,7 @@ async def _run_non_ray_polars(
         su = store_uri.replace(".parquet", f"_shard{i}.parquet")
         return await run_polars_job(
             job_factory,
+            backend,
             sub,
             input_col=input_col,
             output_cols=output_cols,
@@ -512,6 +569,7 @@ async def run_job_unified(
     if runner == "arrow" and backend.name == "polars":
         return await _run_non_ray_polars(
             job_factory=job_factory,
+            backend=backend,
             data=data,
             input_col=input_col,
             output_cols=output_cols or job_probe.default_output_cols,

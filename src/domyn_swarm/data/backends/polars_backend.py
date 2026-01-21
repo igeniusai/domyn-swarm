@@ -37,7 +37,7 @@ class PolarsBackend(DataBackend):
             lf = pl.scan_parquet(path, **kwargs)
             if limit:
                 lf = lf.limit(limit)
-            return lf.collect()
+            return lf
 
         df = pl.read_parquet(path, **kwargs)
         return df.head(limit) if limit else df
@@ -82,6 +82,10 @@ class PolarsBackend(DataBackend):
         return {k: str(v) for k, v in data.schema.items()}
 
     def to_pandas(self, data: Any) -> pd.DataFrame:
+        import polars as pl
+
+        if isinstance(data, pl.LazyFrame):
+            data = data.collect()
         return data.to_pandas()
 
     def from_pandas(self, df: pd.DataFrame) -> Any:
@@ -90,7 +94,18 @@ class PolarsBackend(DataBackend):
         return pl.from_pandas(df)
 
     def to_arrow(self, data: Any) -> pa.Table:
-        """Convert a polars DataFrame to an Arrow table."""
+        """Convert a polars DataFrame/LazyFrame to an Arrow table.
+
+        Args:
+            data: Polars DataFrame or LazyFrame.
+
+        Returns:
+            Arrow table containing the materialized data.
+        """
+        import polars as pl
+
+        if isinstance(data, pl.LazyFrame):
+            data = data.collect()
         return data.to_arrow()
 
     def from_arrow(self, table: pa.Table) -> Any:
@@ -103,5 +118,26 @@ class PolarsBackend(DataBackend):
         return data.take(indices)
 
     def iter_batches(self, data: Any, *, batch_size: int) -> Iterable[Any]:
+        """Yield batches from a polars DataFrame or LazyFrame.
+
+        For DataFrames, this yields slices of the existing in-memory frame.
+        For LazyFrames (e.g. returned by `scan_parquet`), this executes the query in streaming
+        mode and yields materialized DataFrame chunks without collecting the full dataset up
+        front.
+
+        Args:
+            data: Polars DataFrame or LazyFrame.
+            batch_size: Maximum number of rows per yielded batch.
+
+        Yields:
+            Polars DataFrame batches.
+        """
+        import polars as pl
+
+        if isinstance(data, pl.LazyFrame):
+            # Note: collect_batches is currently marked unstable in polars.
+            yield from data.collect_batches(chunk_size=batch_size, engine="streaming")
+            return
+
         for start in range(0, data.height, batch_size):
             yield data.slice(start, batch_size)

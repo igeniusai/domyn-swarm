@@ -142,13 +142,29 @@ async def test_run_job_unified_arrow_runner_id_column(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_run_job_unified_polars_runner_lazy(tmp_path):
+async def test_run_job_unified_polars_runner_lazy(monkeypatch, tmp_path):
     """Run the Arrow-backed polars path with LazyFrame input.
 
     Args:
+        monkeypatch: Pytest monkeypatch fixture.
         tmp_path: Pytest temporary directory.
     """
     pl = pytest.importorskip("polars")
+    collect_calls: dict[str, int] = {"collect": 0, "collect_batches": 0}
+    orig_collect = pl.LazyFrame.collect
+    orig_collect_batches = pl.LazyFrame.collect_batches
+
+    def _collect_wrapper(self, *args, **kwargs):
+        collect_calls["collect"] += 1
+        return orig_collect(self, *args, **kwargs)
+
+    def _collect_batches_wrapper(self, *args, **kwargs):
+        collect_calls["collect_batches"] += 1
+        return orig_collect_batches(self, *args, **kwargs)
+
+    monkeypatch.setattr(pl.LazyFrame, "collect", _collect_wrapper)
+    monkeypatch.setattr(pl.LazyFrame, "collect_batches", _collect_batches_wrapper)
+
     data = pl.DataFrame({"doc_id": [10, 11], "messages": [1, 2]}).lazy()
     out_df = await run_job_unified(
         lambda: DummySwarmJob(id_column_name="doc_id"),
@@ -162,6 +178,8 @@ async def test_run_job_unified_polars_runner_lazy(tmp_path):
     assert isinstance(out_df, pl.DataFrame)
     assert out_df["doc_id"].to_list() == [10, 11]
     assert out_df["output"].to_list() == ["test_shard_1", "test_shard_2"]
+    assert collect_calls["collect_batches"] >= 1
+    assert collect_calls["collect"] == 1
 
 
 @pytest.mark.asyncio

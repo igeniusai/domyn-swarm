@@ -279,6 +279,9 @@ domyn-swarm job submit \
   --backend-read-kwargs '{"use_scan": true}'
 ```
 
+In this mode, execution stays polars-native (batch iteration) and checkpoints are written as Arrow-backed
+parquet shards (no pandas conversion).
+
 
 ### `domyn-swarm job submit-script`
 

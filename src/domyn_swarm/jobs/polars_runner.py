@@ -17,9 +17,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+import pyarrow as pa
+
 from domyn_swarm.checkpoint.arrow_store import ArrowShardStore, InMemoryArrowStore
-from domyn_swarm.jobs.arrow_runner import ArrowJobRunner, ArrowRunnerConfig
+from domyn_swarm.checkpoint.store import FlushBatch
+from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.base import OutputJoinMode, SwarmJob
+from domyn_swarm.jobs.runner import _normalize_batch_outputs
 
 if TYPE_CHECKING:
     import polars as pl
@@ -31,32 +35,67 @@ class PolarsRunnerConfig:
 
     id_col: str = "_row_id"
     checkpoint_every: int = 16
+    batch_size: int | None = None
 
 
 class PolarsJobRunner:
-    """Polars-native runner that delegates execution to ArrowJobRunner."""
+    """Polars-native runner that processes inputs via backend `iter_batches`.
+
+    This runner avoids pandas conversions by:
+    - keeping the input dataset as a polars DataFrame/LazyFrame
+    - iterating polars DataFrame batches via `DataBackend.iter_batches`
+    - checkpointing outputs via `ArrowShardStore` (parquet shards)
+
+    Notes:
+        For LazyFrame inputs (e.g. created via `polars.scan_parquet`), batching is driven by the
+        backend's `iter_batches`, which may execute the query in streaming mode and yield
+        materialized DataFrame batches. The final output join still requires a full scan/collect.
+    """
 
     def __init__(
-        self, store: ArrowShardStore | InMemoryArrowStore, cfg: PolarsRunnerConfig | None = None
+        self,
+        store: ArrowShardStore | InMemoryArrowStore,
+        backend: DataBackend,
+        cfg: PolarsRunnerConfig | None = None,
     ):
-        """Initialize the runner with a checkpoint store and config."""
+        """Initialize the runner with a checkpoint store and a backend.
+
+        Args:
+            store: Checkpoint store used for resume and flushes.
+            backend: Data backend providing `iter_batches`.
+            cfg: Optional configuration for id column and batch sizing.
+        """
         self.store = store
+        self.backend = backend
         self.cfg = cfg or PolarsRunnerConfig()
 
-    def _materialize(self, data: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame:
-        """Materialize a LazyFrame to a DataFrame when needed.
+    def _column_names(self, data: pl.DataFrame | pl.LazyFrame) -> list[str]:
+        """Return column names without forcing an expensive schema resolution.
 
         Args:
             data: Polars DataFrame or LazyFrame.
 
         Returns:
-            Materialized Polars DataFrame.
+            List of column names.
         """
         import polars as pl
 
         if isinstance(data, pl.LazyFrame):
-            return data.collect()
-        return data
+            return data.collect_schema().names()
+        return list(data.columns)
+
+    def _ensure_id(self, data: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
+        """Ensure `id_col` exists on the dataset, injecting it if needed.
+
+        Args:
+            data: Polars DataFrame or LazyFrame.
+
+        Returns:
+            Data with an `id_col` column.
+        """
+        if self.cfg.id_col in self._column_names(data):
+            return data
+        return data.with_row_index(self.cfg.id_col)
 
     async def run(
         self,
@@ -67,7 +106,7 @@ class PolarsJobRunner:
         output_cols: list[str] | None,
         output_mode: OutputJoinMode | None = None,
     ) -> pl.DataFrame:
-        """Run a SwarmJob against a polars DataFrame or LazyFrame.
+        """Run a SwarmJob against a polars DataFrame/LazyFrame using batch iteration.
 
         Args:
             job: SwarmJob instance to execute.
@@ -77,30 +116,91 @@ class PolarsJobRunner:
             output_mode: Output join mode (APPEND, REPLACE, IO_ONLY).
 
         Returns:
-            Polars DataFrame with job outputs.
+            Polars DataFrame with job outputs (and inputs depending on mode).
         """
         import polars as pl
 
-        df = self._materialize(data)
-        table = df.to_arrow()
-        arrow_cfg = ArrowRunnerConfig(
-            id_col=self.cfg.id_col,
-            checkpoint_every=self.cfg.checkpoint_every,
+        if input_col not in self._column_names(data):
+            raise ValueError(f"input_col '{input_col}' not found in dataset")
+
+        mode = output_mode or getattr(job, "output_mode", OutputJoinMode.APPEND)
+        if isinstance(mode, str):
+            mode = OutputJoinMode(mode)
+
+        data = self._ensure_id(data)
+
+        # Load done ids from existing checkpoint shards. We do this by calling prepare() on an empty
+        # table to populate store.done_ids without requiring full input conversion to Arrow.
+        empty = pa.Table.from_pydict({self.cfg.id_col: []})
+        _ = self.store.prepare(empty, self.cfg.id_col)
+        done_ids: set[Any] = set(getattr(self.store, "done_ids", set()))
+
+        batch_size = (
+            self.cfg.batch_size
+            or getattr(job, "native_batch_size", None)
+            or self.cfg.checkpoint_every
         )
-        runner = ArrowJobRunner(self.store, arrow_cfg)
-        out_table = await runner.run(
-            job,
-            table,
-            input_col=input_col,
-            output_cols=output_cols,
-            output_mode=output_mode,
+
+        for batch in self.backend.iter_batches(data, batch_size=int(batch_size)):
+            if not isinstance(batch, pl.DataFrame):
+                raise ValueError("Polars runner expects iter_batches to yield polars.DataFrame")
+
+            ids = batch.get_column(self.cfg.id_col).to_list()
+            items = batch.get_column(input_col).to_list()
+
+            todo_indices = [i for i, item_id in enumerate(ids) if item_id not in done_ids]
+            if not todo_indices:
+                continue
+
+            todo_ids = [ids[i] for i in todo_indices]
+            todo_items = [items[i] for i in todo_indices]
+
+            async def _on_flush(
+                local_indices: list[int],
+                local_outputs: list[Any],
+                *,
+                _todo_ids: list[Any] = todo_ids,
+            ) -> None:
+                flush_ids = [_todo_ids[i] for i in local_indices]
+                rows, cols = _normalize_batch_outputs(local_outputs, output_cols)
+                await self.store.flush(
+                    FlushBatch(ids=flush_ids, rows=rows),
+                    output_cols=cols,
+                )
+                done_ids.update(flush_ids)
+
+            await job.transform_streaming(
+                todo_items,
+                on_flush=_on_flush,
+                checkpoint_every=self.cfg.checkpoint_every,
+            )
+
+        out_table = self.store.finalize()
+        out_df = cast(pl.DataFrame, pl.from_arrow(out_table))
+
+        if mode == OutputJoinMode.REPLACE:
+            return out_df
+
+        if isinstance(data, pl.LazyFrame):
+            base_lf = (
+                data.select([self.cfg.id_col, input_col])
+                if mode == OutputJoinMode.IO_ONLY
+                else data
+            )
+            return base_lf.join(out_df.lazy(), on=self.cfg.id_col, how="left").collect(
+                engine="streaming"
+            )
+
+        base_df = (
+            data.select([self.cfg.id_col, input_col]) if mode == OutputJoinMode.IO_ONLY else data
         )
-        return cast(pl.DataFrame, pl.from_arrow(out_table))
+        return base_df.join(out_df, on=self.cfg.id_col, how="left")
 
 
 async def run_polars_job(
     job_factory: Any,
-    data: pl.DataFrame | pl.LazyFrame,
+    backend: DataBackend,
+    data: Any,
     *,
     input_col: str,
     output_cols: list[str] | None,
@@ -108,12 +208,13 @@ async def run_polars_job(
     checkpoint_every: int,
     checkpointing: bool,
     id_col: str,
-) -> pl.DataFrame:
-    """Run a job using the polars runner and Arrow checkpointing.
+) -> Any:
+    """Run a job using the polars runner with Arrow-based checkpointing.
 
     Args:
         job_factory: Callable returning a SwarmJob instance.
-        data: Input polars DataFrame or LazyFrame.
+        backend: Data backend (must yield polars batches for iter_batches).
+        data: Input data (polars DataFrame or LazyFrame).
         input_col: Input column name.
         output_cols: Output column names (None for dict outputs).
         store_uri: Base checkpoint store URI (required if checkpointing).
@@ -122,17 +223,19 @@ async def run_polars_job(
         id_col: Column name used for stable row ids.
 
     Returns:
-        Polars DataFrame containing job outputs.
+        Backend-native output (polars DataFrame).
     """
     if checkpointing and store_uri is None:
         raise ValueError("store_uri is required when checkpointing is enabled.")
 
+    try:
+        import polars as pl  # noqa: F401
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("Polars runner requires `polars` to be installed.") from exc
+
     store = ArrowShardStore(store_uri) if checkpointing and store_uri else InMemoryArrowStore()
-    cfg = PolarsRunnerConfig(
-        id_col=id_col,
-        checkpoint_every=checkpoint_every,
-    )
-    runner = PolarsJobRunner(store, cfg)
+    cfg = PolarsRunnerConfig(id_col=id_col, checkpoint_every=checkpoint_every)
+    runner = PolarsJobRunner(store, backend, cfg)
     job = job_factory()
     return await runner.run(
         job,

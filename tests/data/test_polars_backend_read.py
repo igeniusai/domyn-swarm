@@ -33,5 +33,5 @@ def test_polars_read_scan_parquet(tmp_path: Path) -> None:
     backend = PolarsBackend()
     out = backend.read(path, use_scan=True, limit=2)
 
-    assert isinstance(out, pl.DataFrame)
-    assert out.height == 2
+    assert isinstance(out, pl.LazyFrame)
+    assert out.collect().height == 2
