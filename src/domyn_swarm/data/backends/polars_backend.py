@@ -22,7 +22,7 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 
-from domyn_swarm.data.backends.base import BackendError, DataBackend
+from domyn_swarm.data.backends.base import BackendError, DataBackend, JobBatch
 
 
 class PolarsBackend(DataBackend):
@@ -144,7 +144,7 @@ class PolarsBackend(DataBackend):
 
     def iter_job_batches(
         self, data: Any, *, batch_size: int, id_col: str, input_col: str
-    ) -> Iterable[Any]:
+    ) -> Iterable[JobBatch]:
         """Yield normalized batches for SwarmJob execution.
 
         Args:
@@ -157,8 +157,6 @@ class PolarsBackend(DataBackend):
             `JobBatch` objects containing ids, items, and the batch DataFrame.
         """
         import polars as pl
-
-        from domyn_swarm.data.backends.base import JobBatch
 
         for batch in self.iter_batches(data, batch_size=batch_size):
             if not isinstance(batch, pl.DataFrame):

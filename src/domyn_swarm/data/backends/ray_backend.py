@@ -21,7 +21,7 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 
-from domyn_swarm.data.backends.base import BackendError, DataBackend
+from domyn_swarm.data.backends.base import BackendError, DataBackend, JobBatch
 
 
 class RayBackend(DataBackend):
@@ -41,7 +41,25 @@ class RayBackend(DataBackend):
         data.write_parquet(str(path), **kwargs)
 
     def schema(self, data: Any) -> dict[str, str]:
-        return {field.name: str(field.type) for field in data.schema().types}
+        schema = data.schema()
+
+        names = getattr(schema, "names", None)
+        types = getattr(schema, "types", None)
+        if isinstance(names, list) and isinstance(types, list):
+            return {str(n): str(t) for n, t in zip(names, types)}
+        if isinstance(names, tuple) and isinstance(types, tuple):
+            return {str(n): str(t) for n, t in zip(names, types)}
+
+        # Fall back to treating the schema as an iterable of fields (e.g., pyarrow.Schema).
+        try:
+            return {field.name: str(field.type) for field in schema}
+        except TypeError:
+            pass
+
+        if isinstance(schema, dict):
+            return {str(k): str(v) for k, v in schema.items()}
+
+        raise BackendError(f"Unsupported ray schema object: {type(schema)!r}")
 
     def to_pandas(self, data: Any) -> pd.DataFrame:
         return data.to_pandas()
@@ -69,7 +87,7 @@ class RayBackend(DataBackend):
 
     def iter_job_batches(
         self, data: Any, *, batch_size: int, id_col: str, input_col: str
-    ) -> Iterable[Any]:
+    ) -> Iterable[JobBatch]:
         """Yield normalized batches for SwarmJob execution.
 
         Note:
@@ -85,8 +103,6 @@ class RayBackend(DataBackend):
         Yields:
             `JobBatch` objects containing ids, items, and the batch object.
         """
-        from domyn_swarm.data.backends.base import JobBatch
-
         for batch in self.iter_batches(data, batch_size=batch_size):
             if isinstance(batch, pd.DataFrame):
                 ids = batch[id_col].to_list()

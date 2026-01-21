@@ -16,12 +16,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import pyarrow as pa
 
-from domyn_swarm.data.backends.base import DataBackend
+from domyn_swarm.data.backends.base import DataBackend, JobBatch
 from domyn_swarm.helpers.io import load_dataframe, save_dataframe
 
 
@@ -62,7 +61,7 @@ class PandasBackend(DataBackend):
 
     def iter_job_batches(
         self, data: pd.DataFrame, *, batch_size: int, id_col: str, input_col: str
-    ) -> Iterable[Any]:
+    ) -> Iterable[JobBatch]:
         """Yield normalized batches for SwarmJob execution.
 
         Args:
@@ -74,8 +73,6 @@ class PandasBackend(DataBackend):
         Yields:
             `JobBatch` objects containing ids, items, and the batch DataFrame.
         """
-        from domyn_swarm.data.backends.base import JobBatch
-
         for batch in self.iter_batches(data, batch_size=batch_size):
             yield JobBatch(
                 ids=batch[id_col].to_list(),
