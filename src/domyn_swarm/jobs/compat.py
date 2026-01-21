@@ -15,6 +15,7 @@
 import asyncio
 from collections.abc import Callable
 import inspect
+import math
 from typing import Any
 
 import numpy as np
@@ -26,6 +27,7 @@ from domyn_swarm.data import BackendError, get_backend
 from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.arrow_runner import run_arrow_job
 from domyn_swarm.jobs.base import SwarmJob
+from domyn_swarm.jobs.polars_runner import run_polars_job
 from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
 
 
@@ -200,6 +202,15 @@ def _validate_required_id(data: Any, id_col: str) -> None:
     Raises:
         ValueError: If the column is missing or cannot be validated.
     """
+    if hasattr(data, "columns"):
+        try:
+            columns = list(data.columns)
+        except TypeError:
+            columns = None
+        if columns is not None:
+            if id_col not in columns:
+                raise ValueError(f"Input data missing required id column '{id_col}'.")
+            return
     if isinstance(data, pd.DataFrame):
         if id_col not in data.columns:
             raise ValueError(f"Input data missing required id column '{id_col}'.")
@@ -262,6 +273,110 @@ def _build_checkpoint_store(
             raise ValueError("store_uri is required when checkpointing is enabled.")
         return ParquetShardStore(store_uri)
     return InMemoryStore()
+
+
+async def _run_non_ray_polars(
+    *,
+    job_factory: Callable[[], Any],
+    data: Any,
+    input_col: str,
+    output_cols: list[str] | None,
+    id_col: str,
+    require_id: bool,
+    nshards: int,
+    store_uri: str | None,
+    checkpoint_every: int,
+    checkpointing: bool,
+) -> Any:
+    """Run the polars execution path for non-ray backends.
+
+    Args:
+        job_factory: Callable producing a SwarmJob instance.
+        data: Polars DataFrame or LazyFrame.
+        input_col: Input column name in the dataset.
+        output_cols: Output columns to produce (None for dict outputs).
+        id_col: Column name used for stable row ids.
+        require_id: Whether id_col must already exist in the input.
+        nshards: Number of shards to split the input into.
+        store_uri: Base checkpoint store URI.
+        checkpoint_every: Flush interval in items.
+        checkpointing: Whether checkpointing is enabled.
+
+    Returns:
+        Polars DataFrame containing job outputs.
+    """
+    import polars as pl
+
+    if isinstance(data, pd.DataFrame):
+        data = pl.from_pandas(data)
+    elif isinstance(data, pa.Table):
+        data = pl.from_arrow(data)
+
+    if not isinstance(data, pl.DataFrame | pl.LazyFrame):
+        raise ValueError("Polars runner expects a polars DataFrame or LazyFrame.")
+    if require_id:
+        _validate_required_id(data, id_col)
+    if checkpointing and store_uri is None:
+        raise ValueError("store_uri is required when checkpointing is enabled.")
+
+    if nshards <= 1:
+        return await run_polars_job(
+            job_factory,
+            data,
+            input_col=input_col,
+            output_cols=output_cols,
+            store_uri=store_uri,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+            id_col=id_col,
+        )
+    if not checkpointing:
+        raise ValueError("Sharded execution requires checkpointing to be enabled.")
+
+    if id_col not in data.columns:
+        data = data.with_row_index(id_col)
+
+    if isinstance(data, pl.LazyFrame):
+        data = data.collect()
+
+    total_rows = data.height
+    if total_rows == 0:
+        return await run_polars_job(
+            job_factory,
+            data,
+            input_col=input_col,
+            output_cols=output_cols,
+            store_uri=store_uri,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+            id_col=id_col,
+        )
+
+    chunk_size = math.ceil(total_rows / nshards)
+
+    async def _one(i: int, start: int):
+        assert store_uri is not None
+        sub = data.slice(start, chunk_size)
+        su = store_uri.replace(".parquet", f"_shard{i}.parquet")
+        return await run_polars_job(
+            job_factory,
+            sub,
+            input_col=input_col,
+            output_cols=output_cols,
+            store_uri=su,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+            id_col=id_col,
+        )
+
+    tasks = []
+    for shard_id in range(nshards):
+        start = shard_id * chunk_size
+        if start >= total_rows:
+            break
+        tasks.append(_one(shard_id, start))
+    parts = await asyncio.gather(*tasks)
+    return pl.concat(parts, how="vertical")
 
 
 async def _run_non_ray_pandas(
@@ -394,8 +509,22 @@ async def run_job_unified(
             output_mode=job_probe.output_mode,
         )
 
+    if runner == "arrow" and backend.name == "polars":
+        return await _run_non_ray_polars(
+            job_factory=job_factory,
+            data=data,
+            input_col=input_col,
+            output_cols=output_cols or job_probe.default_output_cols,
+            id_col=id_col,
+            require_id=require_id,
+            nshards=nshards,
+            store_uri=store_uri,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+        )
+
     if runner == "arrow":
-        return await _run_non_ray_arrow(
+        result = await _run_non_ray_arrow(
             job_factory=job_factory,
             backend=backend,
             data=data,
@@ -408,6 +537,7 @@ async def run_job_unified(
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
         )
+        return backend.from_arrow(result)
 
     return await _run_non_ray_pandas(
         job_factory=job_factory,

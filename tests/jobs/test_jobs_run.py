@@ -18,7 +18,6 @@ import types
 from unittest.mock import patch
 
 import pandas as pd
-import pyarrow as pa
 import pytest
 
 from domyn_swarm.jobs import OutputJoinMode, SwarmJob
@@ -94,9 +93,7 @@ async def test_run_job_unified_streaming():
         input_col="messages",
         output_cols=["output"],
         store_uri="file://" + tempfile.mkdtemp() + "/out.parquet",
-        tag="test",
         nshards=2,
-        checkpoint_dir=tempfile.mkdtemp(),
     )
     assert "output" in out_df.columns
     assert out_df.shape[0] == 4
@@ -112,8 +109,6 @@ async def test_run_job_unified_requires_id_column(tmp_path):
         input_col="messages",
         output_cols=["output"],
         store_uri=f"file://{tmp_path / 'out.parquet'}",
-        tag="test",
-        checkpoint_dir=tmp_path,
     )
     assert out_df["doc_id"].tolist() == [10, 11]
     assert out_df["output"].str.startswith("test_shard").all()
@@ -129,27 +124,22 @@ async def test_run_job_unified_missing_id_column_raises(tmp_path):
             input_col="messages",
             output_cols=["output"],
             store_uri=f"file://{tmp_path / 'out.parquet'}",
-            tag="test",
-            checkpoint_dir=tmp_path,
         )
 
 
 @pytest.mark.asyncio
 async def test_run_job_unified_arrow_runner_id_column(tmp_path):
     df = pd.DataFrame({"doc_id": [10, 11], "messages": [1, 2]})
-    out_table = await run_job_unified(
+    out_df = await run_job_unified(
         lambda: DummySwarmJob(id_column_name="doc_id"),
         df,
         input_col="messages",
         output_cols=["output"],
         store_uri=f"file://{tmp_path / 'out.parquet'}",
-        tag="test",
-        checkpoint_dir=tmp_path,
         runner="arrow",
     )
-    assert isinstance(out_table, pa.Table)
-    assert out_table.column("doc_id").to_pylist() == [10, 11]
-    assert out_table.column("output").to_pylist() == ["test_shard_1", "test_shard_2"]
+    assert out_df["doc_id"].tolist() == [10, 11]
+    assert out_df["output"].tolist() == ["test_shard_1", "test_shard_2"]
 
 
 def test_parse_args_minimal():

@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 import sys
 
+import pyarrow as pa
 from ulid import ULID
 
 from domyn_swarm.data import BackendError, get_backend
@@ -57,7 +58,7 @@ def _write_result(
         runner_choice: Runner implementation name (pandas or arrow).
     """
 
-    if runner_choice == "arrow":
+    if runner_choice == "arrow" and isinstance(result, pa.Table):
         result = backend.from_arrow(result)
 
     backend.write(result, out_path, nshards=nshards, **backend_write_kwargs)

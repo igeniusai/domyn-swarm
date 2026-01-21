@@ -31,6 +31,14 @@ class PolarsBackend(DataBackend):
     def read(self, path: Path, *, limit: int | None = None, **kwargs) -> Any:
         import polars as pl
 
+        use_scan = bool(kwargs.pop("use_scan", False) or kwargs.pop("lazy", False))
+        kwargs.pop("streaming", None)
+        if use_scan:
+            lf = pl.scan_parquet(path, **kwargs)
+            if limit:
+                lf = lf.limit(limit)
+            return lf.collect()
+
         df = pl.read_parquet(path, **kwargs)
         return df.head(limit) if limit else df
 
