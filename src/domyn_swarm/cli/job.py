@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import contextlib
+from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
@@ -22,6 +23,7 @@ import typer
 from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.core.swarm import DomynLLMSwarm, _load_job
 from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.jobs.base import SwarmJob
 import domyn_swarm.utils as utils
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
@@ -51,6 +53,7 @@ def _build_job_kwargs_json(
     data_backend: str | None,
     native_backend: bool | None,
     native_batch_size: int | None,
+    id_column_name: str | None,
     backend_read_kwargs: str | None,
     backend_write_kwargs: str | None,
 ) -> str:
@@ -62,6 +65,8 @@ def _build_job_kwargs_json(
         job_kwargs_dict["native_backend"] = native_backend
     if native_batch_size is not None:
         job_kwargs_dict["native_batch_size"] = native_batch_size
+    if id_column_name is not None:
+        job_kwargs_dict["id_column_name"] = id_column_name
 
     read_kwargs = _maybe_parse_json_object(backend_read_kwargs, param_name="backend_read_kwargs")
     if read_kwargs is not None:
@@ -74,33 +79,79 @@ def _build_job_kwargs_json(
     return json.dumps(job_kwargs_dict)
 
 
-def _submit_loaded_job(
+@dataclass(frozen=True)
+class JobRunSpec:
+    """Run-time parameters for a job submission.
+
+    Args:
+        input_path: Path to the input parquet file.
+        output_path: Path to the output parquet file.
+        checkpoint_dir: Optional checkpoint directory override.
+        no_resume: Whether to ignore existing checkpoints.
+        no_checkpointing: Whether to disable checkpointing entirely.
+        runner: Runner implementation name for non-ray backends.
+        num_threads: Worker thread count for the job runner.
+        limit: Optional row limit for input reads.
+        detach: Whether to detach job execution from the CLI.
+        mail_user: Optional email address for job notifications.
+    """
+
+    input_path: Path
+    output_path: Path
+    checkpoint_dir: Path | None
+    no_resume: bool
+    no_checkpointing: bool
+    runner: str
+    num_threads: int
+    limit: int | None
+    detach: bool
+    mail_user: str | None
+
+
+@dataclass(frozen=True)
+class JobSubmitRequest:
+    """Job submission parameters for the CLI helper.
+
+    Args:
+        job: Pre-built job instance for submission.
+        run: Run-time parameters for the job execution.
+    """
+
+    job: SwarmJob
+    run: JobRunSpec
+
+
+def _build_job_for_swarm(
     *,
     swarm: DomynLLMSwarm,
     job_class: str,
     job_kwargs: str,
     job_name: str | None,
-    input_path: Path,
-    output_path: Path,
     input_column: str,
     output_column: str,
-    checkpoint_dir: Path | None,
-    no_resume: bool,
-    no_checkpointing: bool,
-    runner: str,
     checkpoint_interval: int,
     max_concurrency: int,
     retries: int,
     timeout: float,
-    num_threads: int,
-    limit: int | None,
-    detach: bool,
-    mail_user: str | None,
-) -> None:
-    resolved_checkpoint_dir = (
-        swarm.swarm_dir / "checkpoints" if checkpoint_dir is None else checkpoint_dir
-    )
-    job = _load_job(
+) -> SwarmJob:
+    """Build a SwarmJob instance using the active swarm context.
+
+    Args:
+        swarm: Active swarm instance providing endpoint and model info.
+        job_class: Job class to instantiate (module:ClassName).
+        job_kwargs: JSON-encoded job kwargs string.
+        job_name: Optional job name for logging.
+        input_column: Input column name in the dataset.
+        output_column: Output column name(s) for job results.
+        checkpoint_interval: Batch size for checkpoint flushes.
+        max_concurrency: Max concurrent in-flight requests.
+        retries: Retry count for failed requests.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        Initialized SwarmJob instance.
+    """
+    return _load_job(
         job_class,
         job_kwargs,
         name=job_name,
@@ -113,19 +164,26 @@ def _submit_loaded_job(
         input_column_name=input_column,
         output_cols=output_column,
     )
+
+
+def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> None:
+    resolved_checkpoint_dir = (
+        swarm.swarm_dir / "checkpoints"
+        if request.run.checkpoint_dir is None
+        else request.run.checkpoint_dir
+    )
     swarm.submit_job(
-        job,
-        input_path=input_path,
-        output_path=output_path,
-        num_threads=num_threads,
-        limit=limit,
-        detach=detach,
-        mail_user=mail_user,
+        request.job,
+        input_path=request.run.input_path,
+        output_path=request.run.output_path,
+        num_threads=request.run.num_threads,
+        limit=request.run.limit,
+        detach=request.run.detach,
+        mail_user=request.run.mail_user,
         checkpoint_dir=resolved_checkpoint_dir,
-        checkpoint_interval=checkpoint_interval,
-        no_resume=no_resume,
-        no_checkpointing=no_checkpointing,
-        runner=runner,
+        no_resume=request.run.no_resume,
+        no_checkpointing=request.run.no_checkpointing,
+        runner=request.run.runner,
     )
 
 
@@ -182,6 +240,12 @@ def submit_job(
     output: Path = typer.Option(..., "--output", click_type=utils.ClickEnvPath()),
     input_column: str = typer.Option("messages", "--input-column"),
     output_column: str = typer.Option("results", "--output-column"),
+    id_column: str | None = typer.Option(
+        None,
+        "--id-column",
+        "--id-col",
+        help="Optional column name used for stable row ids.",
+    ),
     job_kwargs: str = typer.Option(
         "{}", "--job-kwargs", help="JSON dict forwarded to job constructor"
     ),
@@ -306,8 +370,21 @@ def submit_job(
         data_backend=data_backend,
         native_backend=native_backend,
         native_batch_size=native_batch_size,
+        id_column_name=id_column,
         backend_read_kwargs=backend_read_kwargs,
         backend_write_kwargs=backend_write_kwargs,
+    )
+    run_spec = JobRunSpec(
+        input_path=input,
+        output_path=output,
+        checkpoint_dir=checkpoint_dir,
+        no_resume=no_resume,
+        no_checkpointing=no_checkpointing,
+        runner=runner,
+        num_threads=num_threads,
+        limit=limit,
+        detach=detach,
+        mail_user=mail_user,
     )
 
     if config:
@@ -315,27 +392,21 @@ def submit_job(
         swarm_ctx = DomynLLMSwarm(cfg=cfg)
         try:
             with swarm_ctx as swarm:
-                _submit_loaded_job(
+                job = _build_job_for_swarm(
                     swarm=swarm,
                     job_class=job_class,
                     job_kwargs=job_kwargs,
                     job_name=job_name,
-                    input_path=input,
-                    output_path=output,
                     input_column=input_column,
                     output_column=output_column,
-                    checkpoint_dir=checkpoint_dir,
-                    no_resume=no_resume,
-                    no_checkpointing=no_checkpointing,
-                    runner=runner,
                     checkpoint_interval=checkpoint_interval,
                     max_concurrency=max_concurrency,
                     retries=retries,
                     timeout=timeout,
-                    num_threads=num_threads,
-                    limit=limit,
-                    detach=detach,
-                    mail_user=mail_user,
+                )
+                _submit_loaded_job(
+                    swarm=swarm,
+                    request=JobSubmitRequest(job=job, run=run_spec),
                 )
         except KeyboardInterrupt:
             _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx)
@@ -344,25 +415,19 @@ def submit_job(
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
-        _submit_loaded_job(
+        job = _build_job_for_swarm(
             swarm=swarm,
             job_class=job_class,
             job_kwargs=job_kwargs,
             job_name=job_name,
-            input_path=input,
-            output_path=output,
             input_column=input_column,
             output_column=output_column,
-            checkpoint_dir=checkpoint_dir,
-            no_resume=no_resume,
-            no_checkpointing=no_checkpointing,
-            runner=runner,
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
             timeout=timeout,
-            num_threads=num_threads,
-            limit=limit,
-            detach=detach,
-            mail_user=mail_user,
+        )
+        _submit_loaded_job(
+            swarm=swarm,
+            request=JobSubmitRequest(job=job, run=run_spec),
         )

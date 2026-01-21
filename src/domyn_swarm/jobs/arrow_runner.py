@@ -146,6 +146,7 @@ async def run_arrow_job(
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
+    id_col: str,
 ) -> pa.Table:
     """Run a job using the Arrow runner and an Arrow-aware checkpoint store.
 
@@ -157,12 +158,13 @@ async def run_arrow_job(
         store_uri: Base checkpoint store URI (required if checkpointing).
         checkpoint_every: Flush interval in items.
         checkpointing: Whether to read/write checkpoint state.
+        id_col: Column name used for stable row ids.
 
     Returns:
         Arrow table containing job outputs.
     """
     store = ArrowShardStore(store_uri) if checkpointing and store_uri else InMemoryArrowStore()
-    cfg = ArrowRunnerConfig(id_col="_row_id", checkpoint_every=checkpoint_every)
+    cfg = ArrowRunnerConfig(id_col=id_col, checkpoint_every=checkpoint_every)
     runner = ArrowJobRunner(store, cfg)
     job = job_factory()
     return await runner.run(

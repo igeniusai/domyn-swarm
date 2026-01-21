@@ -113,6 +113,7 @@ class SwarmJob(abc.ABC):
         model: Model identifier (e.g., "gpt-4", "claude-3-sonnet")
         provider: LLM provider name ("openai", "anthropic", etc.)
         input_column_name: DataFrame column containing input data
+        id_column_name: Optional column name used for stable row ids
         output_cols: DataFrame column(s) for storing results
         checkpoint_interval: Items processed between automatic checkpoints
         max_concurrency: Maximum concurrent requests allowed
@@ -163,6 +164,7 @@ class SwarmJob(abc.ABC):
         model: str = "",
         provider: str = "openai",
         input_column_name: str = "messages",
+        id_column_name: str | None = None,
         output_column_name: str | list | None = None,
         output_cols: str | list | None = None,
         checkpoint_interval: int = 16,
@@ -188,6 +190,7 @@ class SwarmJob(abc.ABC):
             model: Model name to use (e.g., "gpt-4").
             provider: LLM provider (default: "openai").
             input_column_name: Name of the input column in the DataFrame.
+            id_column_name: Optional column name for stable row identifiers.
             output_column_name: [DEPRECATED] Name of the output column(s) in the DataFrame.
                 Use output_cols instead.
             output_cols: Name of the output column(s) in the DataFrame.
@@ -242,6 +245,7 @@ class SwarmJob(abc.ABC):
         self.model = model
         self.provider = provider
         self.input_column_name = input_column_name
+        self.id_column_name = id_column_name
         self.checkpoint_interval = checkpoint_interval
         self.max_concurrency = max_concurrency
         self.retries = retries

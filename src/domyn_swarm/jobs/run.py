@@ -76,6 +76,13 @@ def parse_args(cli_args=None):
     parser.add_argument("--endpoint", type=str, help="Endpoint URL")
     parser.add_argument("--job-kwargs", type=str, default="{}", help="Extra JSON string kwargs")
     parser.add_argument(
+        "--id-column",
+        "--id-col",
+        type=str,
+        default=None,
+        help="Optional column name used for stable row ids.",
+    )
+    parser.add_argument(
         "--nthreads",
         type=int,
         default=1,
@@ -122,6 +129,8 @@ def build_job_from_args(args) -> tuple[type[SwarmJob], dict]:
     model = args.model or os.environ["MODEL"]
     endpoint = args.endpoint or os.environ["ENDPOINT"]
     job_params = json.loads(args.job_kwargs or os.getenv("JOB_KWARGS", "{}"))
+    if getattr(args, "id_column", None):
+        job_params["id_column_name"] = args.id_column
     kwargs = job_params.pop("kwargs", {})
 
     job_cls = _load_cls(cls_path)
@@ -194,8 +203,6 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         nshards=nshards,
         store_uri=store_uri,  # used by new-style
         checkpoint_every=args.checkpoint_interval,
-        tag=tag,  # used by old-style
-        checkpoint_dir=args.checkpoint_dir,  # used by old-style
         data_backend=backend.name,
         native_backend=native_backend,
         checkpointing=checkpointing,
