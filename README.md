@@ -256,9 +256,28 @@ domyn-swarm job submit \
 * **--num-threads** - How many threads should be used by the driver to run the job
 * **--limit** / **-l** - Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset
 * **--detach** - Detach the job from the current terminal, running in a different process (PID will be printed)
+* **--data-backend** — Data backend for IO (`pandas`, `polars`, `ray`)
+* **--runner** — Runner implementation for non-ray backends (`pandas`, `arrow`)
+* **--native-backend / --no-native-backend** — Enable native backend execution (ray only today)
+* **--native-batch-size** — Batch size for native backend mode (ray only today)
+* **--backend-read-kwargs** / **--backend-write-kwargs** — JSON dict forwarded to backend read/write
+* **--id-column / --id-col** — Optional column name used for stable row ids
 
 
 Internally uses checkpointing, batching, and retry logic.
+
+Polars scan example (uses `scan_parquet` under the hood):
+
+```bash
+domyn-swarm job submit \
+  my_module:CustomCompletionJob \
+  --name my-swarm-name \
+  --input prompts.parquet \
+  --output answers.parquet \
+  --data-backend polars \
+  --runner arrow \
+  --backend-read-kwargs '{"use_scan": true}'
+```
 
 
 ### `domyn-swarm job submit-script`
