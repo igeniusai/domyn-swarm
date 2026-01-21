@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pyarrow as pa
@@ -58,3 +59,26 @@ class PandasBackend(DataBackend):
     def iter_batches(self, data: pd.DataFrame, *, batch_size: int) -> Iterable[pd.DataFrame]:
         for start in range(0, len(data), batch_size):
             yield data.iloc[start : start + batch_size]
+
+    def iter_job_batches(
+        self, data: pd.DataFrame, *, batch_size: int, id_col: str, input_col: str
+    ) -> Iterable[Any]:
+        """Yield normalized batches for SwarmJob execution.
+
+        Args:
+            data: Input pandas DataFrame.
+            batch_size: Maximum number of rows per yielded batch.
+            id_col: Column containing stable ids.
+            input_col: Column containing job input values.
+
+        Yields:
+            `JobBatch` objects containing ids, items, and the batch DataFrame.
+        """
+        from domyn_swarm.data.backends.base import JobBatch
+
+        for batch in self.iter_batches(data, batch_size=batch_size):
+            yield JobBatch(
+                ids=batch[id_col].to_list(),
+                items=batch[input_col].to_list(),
+                batch=batch,
+            )

@@ -141,12 +141,18 @@ class PolarsJobRunner:
             or self.cfg.checkpoint_every
         )
 
-        for batch in self.backend.iter_batches(data, batch_size=int(batch_size)):
+        for job_batch in self.backend.iter_job_batches(
+            data,
+            batch_size=int(batch_size),
+            id_col=self.cfg.id_col,
+            input_col=input_col,
+        ):
+            batch = job_batch.batch
             if not isinstance(batch, pl.DataFrame):
-                raise ValueError("Polars runner expects iter_batches to yield polars.DataFrame")
+                raise ValueError("Polars runner expects job batches to carry polars.DataFrame")
 
-            ids = batch.get_column(self.cfg.id_col).to_list()
-            items = batch.get_column(input_col).to_list()
+            ids = job_batch.ids
+            items = job_batch.items
 
             todo_indices = [i for i, item_id in enumerate(ids) if item_id not in done_ids]
             if not todo_indices:
@@ -187,14 +193,17 @@ class PolarsJobRunner:
                 if mode == OutputJoinMode.IO_ONLY
                 else data
             )
-            return base_lf.join(out_df.lazy(), on=self.cfg.id_col, how="left").collect(
-                engine="streaming"
-            )
+            return base_lf.join(
+                out_df.lazy(),
+                on=self.cfg.id_col,
+                how="left",
+                maintain_order="left",
+            ).collect(engine="streaming")
 
         base_df = (
             data.select([self.cfg.id_col, input_col]) if mode == OutputJoinMode.IO_ONLY else data
         )
-        return base_df.join(out_df, on=self.cfg.id_col, how="left")
+        return base_df.join(out_df, on=self.cfg.id_col, how="left", maintain_order="left")
 
 
 async def run_polars_job(

@@ -141,3 +141,30 @@ class PolarsBackend(DataBackend):
 
         for start in range(0, data.height, batch_size):
             yield data.slice(start, batch_size)
+
+    def iter_job_batches(
+        self, data: Any, *, batch_size: int, id_col: str, input_col: str
+    ) -> Iterable[Any]:
+        """Yield normalized batches for SwarmJob execution.
+
+        Args:
+            data: Polars DataFrame or LazyFrame.
+            batch_size: Maximum number of rows per yielded batch.
+            id_col: Column containing stable ids.
+            input_col: Column containing job input values.
+
+        Yields:
+            `JobBatch` objects containing ids, items, and the batch DataFrame.
+        """
+        import polars as pl
+
+        from domyn_swarm.data.backends.base import JobBatch
+
+        for batch in self.iter_batches(data, batch_size=batch_size):
+            if not isinstance(batch, pl.DataFrame):
+                raise BackendError("Polars iter_batches must yield polars.DataFrame for jobs.")
+            yield JobBatch(
+                ids=batch.get_column(id_col).to_list(),
+                items=batch.get_column(input_col).to_list(),
+                batch=batch,
+            )

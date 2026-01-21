@@ -23,6 +23,27 @@ import pandas as pd
 import pyarrow as pa
 
 
+@dataclass(frozen=True)
+class JobBatch:
+    """Normalized batch representation for SwarmJobs.
+
+    This shape is intended to be backend-agnostic: pandas, polars, and ray can all expose
+    batches in a way that provides:
+    - stable ids used for checkpointing/resume
+    - the list of items passed into `SwarmJob.transform_items` / `transform_streaming`
+    - the backend-native batch object, for optional downstream joins or debugging
+
+    Args:
+        ids: Stable identifiers for the rows in this batch.
+        items: Items extracted from the input column for job execution.
+        batch: Backend-native batch object (e.g., `pd.DataFrame`, `pl.DataFrame`, or a ray batch).
+    """
+
+    ids: list[Any]
+    items: list[Any]
+    batch: Any
+
+
 class DataBackend(Protocol):
     name: str
 
@@ -47,6 +68,22 @@ class DataBackend(Protocol):
     def slice(self, data: Any, indices: list[int]) -> Any: ...
 
     def iter_batches(self, data: Any, *, batch_size: int) -> Iterable[Any]: ...
+
+    def iter_job_batches(
+        self, data: Any, *, batch_size: int, id_col: str, input_col: str
+    ) -> Iterable[JobBatch]:
+        """Yield JobBatch objects for a given dataset.
+
+        Args:
+            data: Backend-native dataset object.
+            batch_size: Maximum number of rows per yielded batch.
+            id_col: Column name containing stable ids for checkpointing/resume.
+            input_col: Column name containing input items for job execution.
+
+        Yields:
+            Normalized `JobBatch` instances.
+        """
+        ...
 
 
 @dataclass(frozen=True)

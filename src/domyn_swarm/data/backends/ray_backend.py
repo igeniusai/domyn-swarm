@@ -66,3 +66,38 @@ class RayBackend(DataBackend):
 
     def iter_batches(self, data: Any, *, batch_size: int) -> Iterable[Any]:
         return data.iter_batches(batch_size=batch_size)
+
+    def iter_job_batches(
+        self, data: Any, *, batch_size: int, id_col: str, input_col: str
+    ) -> Iterable[Any]:
+        """Yield normalized batches for SwarmJob execution.
+
+        Note:
+            Ray batches can be pandas DataFrames, pyarrow Tables, or dict-like objects depending
+            on Ray configuration. This method extracts ids/items from common batch shapes.
+
+        Args:
+            data: Ray Dataset.
+            batch_size: Maximum number of rows per yielded batch.
+            id_col: Column containing stable ids.
+            input_col: Column containing job input values.
+
+        Yields:
+            `JobBatch` objects containing ids, items, and the batch object.
+        """
+        from domyn_swarm.data.backends.base import JobBatch
+
+        for batch in self.iter_batches(data, batch_size=batch_size):
+            if isinstance(batch, pd.DataFrame):
+                ids = batch[id_col].to_list()
+                items = batch[input_col].to_list()
+            elif isinstance(batch, pa.Table):
+                ids = batch.column(id_col).to_pylist()
+                items = batch.column(input_col).to_pylist()
+            elif isinstance(batch, dict):
+                ids = list(batch[id_col])
+                items = list(batch[input_col])
+            else:  # pragma: no cover
+                raise BackendError(f"Unsupported ray batch type: {type(batch)!r}")
+
+            yield JobBatch(ids=ids, items=items, batch=batch)
