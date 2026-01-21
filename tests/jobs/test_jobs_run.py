@@ -164,6 +164,59 @@ async def test_run_job_unified_polars_runner_lazy(tmp_path):
     assert out_df["output"].to_list() == ["test_shard_1", "test_shard_2"]
 
 
+@pytest.mark.asyncio
+async def test_arrow_runner_output_modes_pandas(tmp_path):
+    """Validate Arrow runner output modes for pandas backend.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+    """
+    df = pd.DataFrame({"messages": [1, 2], "extra": ["a", "b"]})
+    expected_cols = {
+        OutputJoinMode.APPEND: {"_row_id", "messages", "extra", "output"},
+        OutputJoinMode.IO_ONLY: {"_row_id", "messages", "output"},
+        OutputJoinMode.REPLACE: {"_row_id", "output"},
+    }
+    for mode, cols in expected_cols.items():
+        out_df = await run_job_unified(
+            lambda m=mode: DummySwarmJob(output_mode=m),
+            df,
+            input_col="messages",
+            output_cols=["output"],
+            store_uri=f"file://{tmp_path / f'out_{mode.value}.parquet'}",
+            runner="arrow",
+        )
+        assert set(out_df.columns) == cols
+
+
+@pytest.mark.asyncio
+async def test_arrow_runner_output_modes_polars(tmp_path):
+    """Validate Arrow runner output modes for polars backend.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+    """
+    pl = pytest.importorskip("polars")
+    df = pl.DataFrame({"messages": [1, 2], "extra": ["a", "b"]})
+    expected_cols = {
+        OutputJoinMode.APPEND: {"_row_id", "messages", "extra", "output"},
+        OutputJoinMode.IO_ONLY: {"_row_id", "messages", "output"},
+        OutputJoinMode.REPLACE: {"_row_id", "output"},
+    }
+    for mode, cols in expected_cols.items():
+        out_df = await run_job_unified(
+            lambda m=mode: DummySwarmJob(output_mode=m),
+            df,
+            input_col="messages",
+            output_cols=["output"],
+            store_uri=f"file://{tmp_path / f'out_{mode.value}.parquet'}",
+            data_backend="polars",
+            runner="arrow",
+        )
+        assert isinstance(out_df, pl.DataFrame)
+        assert set(out_df.columns) == cols
+
+
 def test_parse_args_minimal():
     args = parse_args(
         [
