@@ -31,7 +31,6 @@ from domyn_swarm.jobs.run import (
 )
 
 
-# Dummy SwarmJob for testing
 class DummySwarmJob(SwarmJob):
     max_concurrency = 2
     retries = 1
@@ -140,6 +139,29 @@ async def test_run_job_unified_arrow_runner_id_column(tmp_path):
     )
     assert out_df["doc_id"].tolist() == [10, 11]
     assert out_df["output"].tolist() == ["test_shard_1", "test_shard_2"]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_polars_runner_lazy(tmp_path):
+    """Run the Arrow-backed polars path with LazyFrame input.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+    """
+    pl = pytest.importorskip("polars")
+    data = pl.DataFrame({"doc_id": [10, 11], "messages": [1, 2]}).lazy()
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        data_backend="polars",
+        runner="arrow",
+    )
+    assert isinstance(out_df, pl.DataFrame)
+    assert out_df["doc_id"].to_list() == [10, 11]
+    assert out_df["output"].to_list() == ["test_shard_1", "test_shard_2"]
 
 
 def test_parse_args_minimal():

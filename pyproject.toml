@@ -73,6 +73,7 @@ dev = [
     "pytest-icdiff>=0.9",
     "pytest-mock>=3.14.1",
     "pytest-sugar>=1.0.0",
+    "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.11.13",
 ]
@@ -213,5 +214,6 @@ venv = ".venv"
 [tool.pytest.ini_options]
 addopts = "--cov-config=.coveragerc --cov=src/ --cov-report html"
 markers = [
-    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')"
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "timeout: per-test timeout marker (requires pytest-timeout to enforce)",
 ]

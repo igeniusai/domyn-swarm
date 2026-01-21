@@ -260,7 +260,7 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
     """
 
     _, coll_host, coll_port, coll_proc = collector_process
-    child_port = 18080  # or use get_free_port() if you have it
+    child_port = get_free_port()
 
     # Ray state file consumed by fake_ray_cli
     ray_state_file = tmp_path / "ray_state.json"
@@ -281,7 +281,7 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
     # - FAKE_RAY_STATE_FILE → fake_ray_cli reads capacity from this file
     env_overrides = {
         "FAKE_CHILD_MODE": "healthy",
-        "PATH": f"{fake_ray_bin.parent.as_posix()}:{os.environ.get('PATH', '')}",
+        "PATH": f"{fake_ray_bin.as_posix()}:{os.environ.get('PATH', '')}",
         "FAKE_RAY_STATE_FILE": ray_state_file.as_posix(),
     }
 
