@@ -95,7 +95,7 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
             done_ids.update(self._read_done_ids(self.base_path))
 
         if self.fs.exists(self.dir_path):
-            for path in self.fs.glob(self.dir_path + "part-*.parquet"):
+            for path in self.fs.glob(self.dir_path + "*.parquet"):
                 done_ids.update(self._read_done_ids(path))
 
         self.done_ids = done_ids

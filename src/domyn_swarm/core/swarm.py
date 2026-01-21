@@ -362,6 +362,7 @@ class DomynLLMSwarm(BaseModel):
         no_checkpointing: bool = False,
         runner: str = "pandas",
         job_resources: dict | None = None,
+        checkpoint_tag: str | None = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -471,6 +472,8 @@ class DomynLLMSwarm(BaseModel):
             exe.append("--no-resume")
         if no_checkpointing:
             exe.append("--no-checkpointing")
+        if checkpoint_tag:
+            exe.append(f"--checkpoint-tag={checkpoint_tag}")
 
         if limit:
             exe.append(f"--limit={limit}")

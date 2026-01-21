@@ -119,6 +119,13 @@ def parse_args(cli_args=None):
         default="pandas",
         help="Runner implementation to use for non-ray backends.",
     )
+    parser.add_argument(
+        "--checkpoint-tag",
+        type=str,
+        default=None,
+        help="An optional tag to be used when checkpointing is enabled. "
+        "It will be used in place of the default hash-based tag.",
+    )
 
     if not cli_args:
         return parser.parse_args()
@@ -164,7 +171,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         native_backend = True
 
     data_in = backend.read(in_path, limit=args.limit, **backend_read_kwargs)
-    tag = parquet_hash(in_path) + compute_hash(str(out_path))
+    tag = args.checkpoint_tag or parquet_hash(in_path) + compute_hash(str(out_path))
 
     def make_job():
         return job_cls(**job_kwargs)
