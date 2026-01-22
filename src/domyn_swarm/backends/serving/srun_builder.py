@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import os
 
 from domyn_swarm.config.slurm import SlurmConfig
 
@@ -50,13 +51,19 @@ class SrunCommandBuilder:
         :param ntasks: Number of tasks to run.
         :return: A list representing the srun command.
         """
+        # If we're already inside a Slurm allocation (i.e. SLURM_JOB_ID is set),
+        # avoid pinning execution to the load-balancer allocation/node. This prevents
+        # large data jobs from running on the LB node when launched from a Slurm job.
+        in_slurm_allocation = (os.getenv("SLURM_JOB_ID") or os.getenv("SLURM_JOBID")) is not None
+
         cmd = [
             "srun",
-            f"--jobid={self.jobid}",
-            f"--nodelist={self.nodelist}",
             f"--ntasks={ntasks}",
             "--overlap",
         ]
+        if not in_slurm_allocation:
+            cmd.insert(1, f"--jobid={self.jobid}")
+            cmd.insert(2, f"--nodelist={self.nodelist}")
 
         if (
             any("--mem" in arg for arg in self.extra_args) is False
