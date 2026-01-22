@@ -358,6 +358,70 @@ def test_submit_job_returns_none_when_not_detached(cfg_stub):
     assert out is None
 
 
+def test_submit_job_ray_requires_ray_address(cfg_stub, monkeypatch):
+    """Fail fast when submitting a Ray job without a ray address."""
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class Job:
+        name = "job"
+        checkpoint_interval = 10
+        data_backend = "ray"
+
+        def to_kwargs(self):
+            return {"data_backend": "ray", "id_column_name": "doc_id"}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    monkeypatch.delenv("DOMYN_SWARM_RAY_ADDRESS", raising=False)
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    # Also ensure swarm/backend envs don't provide it.
+    cfg_stub.backend.env = {}
+
+    with pytest.raises(ValueError, match="explicit ray address"):
+        swarm.submit_job(
+            Job(),
+            input_path=Path("/tmp/in.parquet"),
+            output_path=Path("/tmp/out.parquet"),
+        )
+    assert dep.run_calls == []
+
+
+def test_submit_job_ray_forwards_ray_address(cfg_stub, monkeypatch):
+    """Forward ray address into env and the in-cluster runner args."""
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class Job:
+        name = "job"
+        checkpoint_interval = 10
+        data_backend = "ray"
+
+        def to_kwargs(self):
+            return {"data_backend": "ray", "id_column_name": "doc_id"}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    monkeypatch.delenv("DOMYN_SWARM_RAY_ADDRESS", raising=False)
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    cfg_stub.backend.env = {}
+
+    swarm.submit_job(
+        Job(),
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        ray_address="ray://head:10001",
+    )
+
+    call = dep.run_calls[-1]
+    assert call["env"]["DOMYN_SWARM_RAY_ADDRESS"] == "ray://head:10001"
+    assert any(arg == "--ray-address=ray://head:10001" for arg in call["command"])
+
+
 def test_cleanup_calls_deployment_down_when_handle_present(cfg_stub):
     swarm = make_swarm(cfg_stub)
     with swarm:

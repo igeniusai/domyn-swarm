@@ -140,6 +140,34 @@ async def test_run_job_unified_ray_requires_user_id_column():
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_forwards_ray_address(monkeypatch):
+    """Forward ray address from run_job_unified into the ray runner."""
+    df = pd.DataFrame({"doc_id": [1, 2], "messages": [1, 2]})
+    seen: dict[str, object] = {}
+
+    async def _fake_run_ray_job(*args, **kwargs):
+        seen.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr("domyn_swarm.jobs.compat.run_ray_job", _fake_run_ray_job)
+    monkeypatch.setattr(
+        "domyn_swarm.jobs.compat._get_backend",
+        lambda name: types.SimpleNamespace(name="ray"),
+    )
+
+    out = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        df,
+        input_col="messages",
+        output_cols=["output"],
+        data_backend="ray",
+        ray_address="ray://head:10001",
+    )
+    assert out == "ok"
+    assert seen["ray_address"] == "ray://head:10001"
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_arrow_runner_id_column(tmp_path):
     df = pd.DataFrame({"doc_id": [10, 11], "messages": [1, 2]})
     out_df = await run_job_unified(
@@ -529,6 +557,103 @@ async def test_amain_no_checkpointing_forces_recompute(monkeypatch, tmp_path):
                 '{"input_column_name": "text", "output_cols": "output"}',
             ]
         )
+
+
+@pytest.mark.asyncio
+async def test_amain_ray_backend_requires_ray_address(monkeypatch, tmp_path):
+    """Fail early if a Ray job is started without a ray address."""
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+
+    monkeypatch.delenv("DOMYN_SWARM_RAY_ADDRESS", raising=False)
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+
+    class _RayBackend:
+        name = "ray"
+
+        def read(self, *args, **kwargs):
+            raise AssertionError("backend.read should not be called when ray address is missing")
+
+    monkeypatch.setattr(run_mod, "get_backend", lambda name: _RayBackend())
+    monkeypatch.setattr(
+        run_mod,
+        "build_job_from_args",
+        lambda args: (DummySwarmJob, {"data_backend": "ray"}),
+    )
+
+    args = run_mod.parse_args(
+        [
+            "--job-class",
+            "domyn_swarm.jobs.run:DummySwarmJob",
+            "--model",
+            "m",
+            "--endpoint",
+            "http://e",
+            "--input-parquet",
+            str(input_path),
+            "--output-parquet",
+            str(output_path),
+            "--checkpoint-tag",
+            "t",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="explicit ray address"):
+        await run_mod._amain(args)
+
+
+@pytest.mark.asyncio
+async def test_amain_ray_backend_forwards_ray_address(monkeypatch, tmp_path):
+    """Forward ray address into run_job_unified when provided."""
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+
+    class _RayBackend:
+        name = "ray"
+
+        def read(self, *args, **kwargs):
+            return "data"
+
+        def write(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(run_mod, "get_backend", lambda name: _RayBackend())
+    monkeypatch.setattr(
+        run_mod,
+        "build_job_from_args",
+        lambda args: (DummySwarmJob, {"data_backend": "ray"}),
+    )
+
+    seen: dict[str, object] = {}
+
+    async def _fake_run_job_unified(*args, **kwargs):
+        seen.update(kwargs)
+        return "result"
+
+    monkeypatch.setattr(run_mod, "run_job_unified", _fake_run_job_unified)
+    monkeypatch.setattr(run_mod, "_write_result", lambda *a, **k: None)
+
+    args = run_mod.parse_args(
+        [
+            "--job-class",
+            "domyn_swarm.jobs.run:DummySwarmJob",
+            "--model",
+            "m",
+            "--endpoint",
+            "http://e",
+            "--input-parquet",
+            str(input_path),
+            "--output-parquet",
+            str(output_path),
+            "--checkpoint-tag",
+            "t",
+            "--ray-address",
+            "ray://head:10001",
+        ]
+    )
+
+    await run_mod._amain(args)
+    assert seen["ray_address"] == "ray://head:10001"
 
 
 def test_main_wrapper(monkeypatch):
