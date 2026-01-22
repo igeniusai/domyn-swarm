@@ -22,11 +22,15 @@ import os
 from pathlib import Path
 import sys
 
+import numpy as np
+
+from domyn_swarm.checkpoint.store import ParquetShardStore
 from domyn_swarm.helpers.data import compute_hash, parquet_hash
 from domyn_swarm.helpers.io import load_dataframe, save_dataframe
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs import SwarmJob
 from domyn_swarm.jobs.compat import run_job_unified  # base class
+from domyn_swarm.jobs.runner import JobRunner, RunnerConfig
 
 logger = setup_logger("domyn_swarm.jobs.run", level=logging.INFO)
 
@@ -92,6 +96,11 @@ def build_job_from_args(args) -> tuple[type[SwarmJob], dict]:
     return job_cls, job_kwargs
 
 
+def _shard_filename(shard_id: int, nshards: int) -> str:
+    width = max(1, len(str(nshards - 1)))
+    return f"data-{shard_id:0{width}d}.parquet"
+
+
 async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     args = parse_args(cli_args)
     in_path: Path = args.input_parquet or Path(os.environ["INPUT_PARQUET"])
@@ -120,10 +129,36 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     ckp_base = Path(args.checkpoint_dir) / f"{job_cls.__name__}_{tag}.parquet"
     store_uri = f"file://{ckp_base}"
 
+    is_dir_output = out_path.is_dir() or out_path.suffix == ""
+    input_col = job_kwargs.get("input_column_name", "messages")
+
+    # For directory outputs + multiple shards, avoid materializing a giant concatenated DataFrame
+    # (and avoid re-sharding it again in save_dataframe). Write each shard output directly.
+    if nshards > 1 and is_dir_output:
+        out_path.mkdir(parents=True, exist_ok=True)
+        cfg = RunnerConfig(id_col="_row_id", checkpoint_every=args.checkpoint_interval)
+        job_probe = make_job()
+        resolved_output_cols = output_cols or job_probe.default_output_cols
+        indices = np.array_split(df_in.index, nshards)
+
+        for shard_id, idx in enumerate(indices):
+            sub = df_in.loc[idx].copy(deep=False)
+            shard_store_uri = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
+            store = ParquetShardStore(shard_store_uri)
+            df_part = await JobRunner(store, cfg).run(
+                make_job(),
+                sub,
+                input_col=input_col,
+                output_cols=resolved_output_cols,
+                output_mode=job_probe.output_mode,
+            )
+            df_part.to_parquet(out_path / _shard_filename(shard_id, nshards), index=False)
+        return
+
     df_out = await run_job_unified(
         make_job,
         df_in,
-        input_col=job_kwargs.get("input_column_name", "messages"),
+        input_col=input_col,
         output_cols=output_cols,
         nshards=nshards,
         store_uri=store_uri,  # used by new-style

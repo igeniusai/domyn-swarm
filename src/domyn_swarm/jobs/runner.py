@@ -112,6 +112,120 @@ def _normalize_batch_outputs(
         return local_outputs, ["output"]
 
 
+def _index_outputs(df_outputs: pd.DataFrame, *, id_col: str) -> pd.DataFrame:
+    """Return an outputs DataFrame indexed by `id_col`.
+
+    Args:
+        df_outputs: Output rows DataFrame returned by the checkpoint store.
+        id_col: Column name used as the stable id for each row.
+
+    Returns:
+        A DataFrame indexed by `id_col`. If `id_col` is already the index, returns `df_outputs`
+        unchanged; otherwise sets the index (keeping `id_col` as a column).
+
+    Raises:
+        ValueError: If `id_col` is neither the index name nor a column.
+    """
+    if df_outputs.index.name == id_col:
+        return df_outputs
+    if id_col not in df_outputs.columns:
+        raise ValueError(f"Output DataFrame missing id column '{id_col}'")
+    return df_outputs.set_index(id_col, drop=False)
+
+
+def _resolve_output_columns(
+    df_outputs: pd.DataFrame,
+    *,
+    id_col: str,
+    output_cols: list[str] | None,
+) -> list[str]:
+    """Resolve output columns to attach/return, excluding `id_col` if needed.
+
+    Args:
+        df_outputs: Output rows DataFrame (may be indexed by `id_col`).
+        id_col: Column name used as the stable id for each row.
+        output_cols: Optional explicit list of output column names.
+
+    Returns:
+        A list of column names that represent model outputs.
+    """
+    if output_cols:
+        return list(output_cols)
+    return [c for c in df_outputs.columns if c != id_col]
+
+
+def _apply_outputs_append(
+    df: pd.DataFrame,
+    *,
+    id_col: str,
+    out_indexed: pd.DataFrame,
+    out_cols: list[str],
+) -> pd.DataFrame:
+    """Attach output columns to `df` in-place (APPEND mode) without a full merge copy.
+
+    Args:
+        df: Input DataFrame containing `id_col`.
+        id_col: Stable id column name.
+        out_indexed: Output DataFrame indexed by `id_col`.
+        out_cols: Output column names to attach.
+
+    Returns:
+        The updated DataFrame (same object as `df`).
+    """
+    aligned = out_indexed.reindex(df[id_col].to_numpy(), copy=False)
+    for c in out_cols:
+        df[c] = aligned[c].to_numpy(copy=False)
+    return df
+
+
+def _build_io_only(
+    df: pd.DataFrame,
+    *,
+    id_col: str,
+    input_col: str,
+    out_indexed: pd.DataFrame,
+    out_cols: list[str],
+) -> pd.DataFrame:
+    """Build an id+input+outputs DataFrame (IO_ONLY mode) without merging all columns.
+
+    Args:
+        df: Input DataFrame containing `id_col` and `input_col`.
+        id_col: Stable id column name.
+        input_col: Input column name.
+        out_indexed: Output DataFrame indexed by `id_col`.
+        out_cols: Output column names to attach.
+
+    Returns:
+        A DataFrame with columns `[id_col, input_col, *out_cols]` in the original row order.
+    """
+    io_df = df.loc[:, [id_col, input_col]].copy(deep=False)
+    aligned = out_indexed.reindex(io_df[id_col].to_numpy(), copy=False)
+    for c in out_cols:
+        io_df[c] = aligned[c].to_numpy(copy=False)
+    return io_df.loc[:, [id_col, input_col, *out_cols]]
+
+
+def _build_replace(
+    out_indexed: pd.DataFrame,
+    *,
+    id_col: str,
+    out_cols: list[str],
+) -> pd.DataFrame:
+    """Build an id+outputs DataFrame (REPLACE mode).
+
+    Args:
+        out_indexed: Output DataFrame indexed by `id_col`.
+        id_col: Stable id column name.
+        out_cols: Output column names to return.
+
+    Returns:
+        A DataFrame with columns `[id_col, *out_cols]`.
+    """
+    if id_col not in out_indexed.columns:
+        out_indexed = out_indexed.reset_index()
+    return out_indexed.loc[:, [id_col, *out_cols]]
+
+
 @dataclass
 class RunnerConfig:
     id_col: str = "_row_id"
@@ -152,7 +266,7 @@ class JobRunner:
         job: SwarmJob,
         df: pd.DataFrame,
         *,
-        input_col: str | list[str] | tuple[str],
+        input_col: str,
         output_cols: list[str] | None,
         output_mode: OutputJoinMode | None = None,
     ) -> pd.DataFrame:
@@ -204,34 +318,31 @@ class JobRunner:
             checkpoint_every=self.cfg.checkpoint_every,
         )
         out_df = await asyncio.to_thread(self.store.finalize)
-        if out_df.index.name == self.cfg.id_col:
-            if self.cfg.id_col in out_df.columns:
-                # id is already a column → keep it and drop the index
-                out_df = out_df.reset_index(drop=True)
-            else:
-                # id only lives in the index → move it to a column
-                out_df = out_df.reset_index()
+        out_indexed = _index_outputs(out_df, id_col=self.cfg.id_col)
+        out_cols = _resolve_output_columns(
+            out_indexed,
+            id_col=self.cfg.id_col,
+            output_cols=output_cols,
+        )
 
         if mode == OutputJoinMode.APPEND:
-            # left-join to preserve original row order and columns
-            return df.merge(out_df, on=self.cfg.id_col, how="left")
-        elif mode == OutputJoinMode.IO_ONLY:
-            # keep only id + inputs + outputs
-            out_df = df.merge(out_df, on=self.cfg.id_col, how="left")
-            if output_cols:
-                keep = [self.cfg.id_col, input_col, *output_cols]
-            else:
-                output_columns = [
-                    c for c in out_df.columns if c not in (self.cfg.id_col, input_col)
-                ]
-                keep = [self.cfg.id_col, input_col, *output_columns]
-        else:
-            if output_cols:
-                keep = [self.cfg.id_col, *output_cols]
-            else:
-                output_columns = [c for c in out_df.columns if c != self.cfg.id_col]
-                keep = [self.cfg.id_col, *output_columns]
-        return out_df.loc[:, keep]
+            return _apply_outputs_append(
+                df,
+                id_col=self.cfg.id_col,
+                out_indexed=out_indexed,
+                out_cols=out_cols,
+            )
+
+        if mode == OutputJoinMode.IO_ONLY:
+            return _build_io_only(
+                df,
+                id_col=self.cfg.id_col,
+                input_col=input_col,
+                out_indexed=out_indexed,
+                out_cols=out_cols,
+            )
+
+        return _build_replace(out_indexed, id_col=self.cfg.id_col, out_cols=out_cols)
 
 
 async def run_sharded(
