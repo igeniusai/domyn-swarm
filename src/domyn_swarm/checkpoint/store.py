@@ -78,7 +78,7 @@ class ParquetShardStore(CheckpointStore):
         self.done_ids: set[Any] = set()
 
     def prepare(self, df: pd.DataFrame, id_col: str) -> pd.DataFrame:
-        df = df.copy()
+        df = df.copy(deep=False)
         self.id_col = id_col
         done_ids: set[Any] = set()
 

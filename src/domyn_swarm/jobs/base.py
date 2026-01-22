@@ -385,11 +385,10 @@ class SwarmJob(abc.ABC):
         on_flush: Callable[[list[int], list[Any]], Awaitable[None]],
         checkpoint_every: int,
     ):
-        # Wrap your existing BatchExecutor (fixed per earlier comments)
         executor = BatchExecutor(self.max_concurrency, checkpoint_every, self.retries)
-        return await executor.run(
+        return await executor.run_streaming(
             items,
             self._call_unit,
-            on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+            on_batch_done=lambda outs, idxs: on_flush(idxs, outs),
             progress=True,
         )

@@ -171,7 +171,7 @@ class JobRunner:
         if isinstance(mode, str):
             mode = OutputJoinMode(mode)
 
-        df = df.copy()
+        df = df.copy(deep=False)
         if self.cfg.id_col not in df.columns:
             df[self.cfg.id_col] = df.index
 
@@ -255,7 +255,7 @@ async def run_sharded(
     import asyncio
 
     async def _one_shard(shard_id: int, idx):
-        sub = df.loc[idx].copy()
+        sub = df.loc[idx].copy(deep=False)
         su = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
         store = ParquetShardStore(su)
         runner = JobRunner(store, cfg)

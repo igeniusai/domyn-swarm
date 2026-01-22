@@ -87,7 +87,7 @@ async def run_job_unified(
     indices = np.array_split(df.index, nshards)
 
     async def _one(i, idx):
-        sub = df.loc[idx].copy()
+        sub = df.loc[idx].copy(deep=False)
         su = store_uri.replace(".parquet", f"_shard{i}.parquet")
         store = ParquetShardStore(su)
         return await JobRunner(store, cfg).run(
