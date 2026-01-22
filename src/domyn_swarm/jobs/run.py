@@ -40,6 +40,35 @@ def _load_cls(path: str) -> type[SwarmJob]:
     return getattr(importlib.import_module(mod), cls)
 
 
+def _is_valid_parquet_file(path: Path) -> bool:
+    """Return True if `path` can be opened as a Parquet file.
+
+    Uses pyarrow footer parsing when available (fast, doesn't load full data).
+
+    Args:
+        path: Local parquet file path.
+
+    Returns:
+        True if the file appears to be a valid parquet file; False otherwise.
+    """
+    if not path.exists() or not path.is_file():
+        return False
+    if path.stat().st_size == 0:
+        return False
+    try:
+        import pyarrow.parquet as pq  # type: ignore
+
+        pq.ParquetFile(str(path))
+        return True
+    except Exception:
+        try:
+            # Fallback: attempt a minimal pandas read (may be slower than pyarrow footer parse).
+            _ = load_dataframe(path, limit=1)
+            return True
+        except Exception:
+            return False
+
+
 def parse_args(cli_args=None):
     if isinstance(cli_args, argparse.Namespace):
         return cli_args
@@ -142,6 +171,12 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         indices = np.array_split(df_in.index, nshards)
 
         for shard_id, idx in enumerate(indices):
+            out_file = out_path / _shard_filename(shard_id, nshards)
+            if out_file.exists() and not out_file.is_file():
+                raise ValueError(f"Output shard path exists but is not a file: {out_file}")
+            if _is_valid_parquet_file(out_file):
+                logger.info("Output shard %s already exists and is valid; skipping.", out_file)
+                continue
             sub = df_in.loc[idx].copy(deep=False)
             shard_store_uri = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
             store = ParquetShardStore(shard_store_uri)
@@ -152,7 +187,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
                 output_cols=resolved_output_cols,
                 output_mode=job_probe.output_mode,
             )
-            df_part.to_parquet(out_path / _shard_filename(shard_id, nshards), index=False)
+            df_part.to_parquet(out_file, index=False)
         return
 
     df_out = await run_job_unified(

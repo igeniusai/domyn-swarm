@@ -202,6 +202,87 @@ async def test_amain_writes_shards_directly_for_dir_output(monkeypatch, tmp_path
     assert got["output"].str.startswith("test_shard_").all()
 
 
+@pytest.mark.asyncio
+async def test_amain_skips_existing_output_shards(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_dir = tmp_path / "outdir"
+    checkpoint_dir = tmp_path / "ckp"
+
+    df_in = pd.DataFrame({"text": ["hello", "world", "third", "fourth"]})
+    df_in.to_parquet(input_path)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Pre-create shard 0 with sentinel outputs to ensure it isn't overwritten.
+    df_existing = pd.DataFrame(
+        {"text": ["hello", "world"], "_row_id": [0, 1], "output": ["keep", "keep"]}
+    )
+    df_existing.to_parquet(output_dir / "data-0.parquet", index=False)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_dir))
+    monkeypatch.setenv("JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}')
+
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    args = [
+        "--nthreads",
+        "2",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--checkpoint-interval",
+        "2",
+        "--job-kwargs",
+        '{"input_column_name": "text", "output_cols": "output"}',
+    ]
+    await _amain(args)
+
+    df0 = pd.read_parquet(output_dir / "data-0.parquet")
+    df1 = pd.read_parquet(output_dir / "data-1.parquet")
+    assert (df0["output"] == "keep").all()
+    assert df1["output"].str.startswith("test_shard_").all()
+
+
+@pytest.mark.asyncio
+async def test_amain_does_not_skip_invalid_parquet_shard(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_dir = tmp_path / "outdir"
+    checkpoint_dir = tmp_path / "ckp"
+
+    df_in = pd.DataFrame({"text": ["hello", "world", "third", "fourth"]})
+    df_in.to_parquet(input_path)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create a corrupt shard file; runner should detect it and regenerate.
+    (output_dir / "data-0.parquet").write_bytes(b"not a parquet file")
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_dir))
+    monkeypatch.setenv("JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}')
+
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    args = [
+        "--nthreads",
+        "2",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--checkpoint-interval",
+        "2",
+        "--job-kwargs",
+        '{"input_column_name": "text", "output_cols": "output"}',
+    ]
+    await _amain(args)
+
+    df0 = pd.read_parquet(output_dir / "data-0.parquet")
+    assert df0["output"].str.startswith("test_shard_").all()
+
+
 def test_main_wrapper(monkeypatch):
     # Use parse_args via monkeypatch to avoid invoking asyncio in this test
     with patch("domyn_swarm.jobs.run._amain") as mock_amain:
