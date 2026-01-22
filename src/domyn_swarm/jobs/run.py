@@ -170,13 +170,14 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         resolved_output_cols = output_cols or job_probe.default_output_cols
         indices = np.array_split(df_in.index, nshards)
 
-        for shard_id, idx in enumerate(indices):
+        async def _one_shard(shard_id: int, idx) -> None:
             out_file = out_path / _shard_filename(shard_id, nshards)
             if out_file.exists() and not out_file.is_file():
                 raise ValueError(f"Output shard path exists but is not a file: {out_file}")
             if _is_valid_parquet_file(out_file):
                 logger.info("Output shard %s already exists and is valid; skipping.", out_file)
-                continue
+                return
+
             sub = df_in.loc[idx].copy(deep=False)
             shard_store_uri = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
             store = ParquetShardStore(shard_store_uri)
@@ -187,7 +188,11 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
                 output_cols=resolved_output_cols,
                 output_mode=job_probe.output_mode,
             )
-            df_part.to_parquet(out_file, index=False)
+            tmp_out = out_file.with_name(out_file.name + ".tmp")
+            df_part.to_parquet(tmp_out, index=False)
+            os.replace(tmp_out, out_file)
+
+        await asyncio.gather(*[_one_shard(shard_id, idx) for shard_id, idx in enumerate(indices)])
         return
 
     df_out = await run_job_unified(
