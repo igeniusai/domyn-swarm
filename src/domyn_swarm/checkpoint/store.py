@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Any, Protocol
@@ -133,6 +134,9 @@ class ParquetShardStore(CheckpointStore):
             The resulting parquet file is saved with a UUID-based filename to avoid
             conflicts and uses the configured ID column as the index.
         """
+        await asyncio.to_thread(self._flush_sync, batch, output_cols)
+
+    def _flush_sync(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
         tmp = pd.DataFrame({self.id_col: batch.ids})
         if output_cols is None:
             # assume dict outputs
