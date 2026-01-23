@@ -65,6 +65,7 @@ class SrunCommandBuilder:
         cmd = [
             "srun",
             f"--ntasks={ntasks}",
+            "--nodes=1",
             "--overlap",
         ]
         if not in_slurm_allocation:

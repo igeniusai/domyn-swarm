@@ -34,16 +34,17 @@ def _clear_slurm_env(monkeypatch):
 def test_build_basic_no_env_no_mail_no_extra():
     cfg = _fake_cfg(mem="16GB", cpus=2)
     b = SrunCommandBuilder(cfg=cfg, jobid=123, nodelist="nodeA")
-    exe = ["python", "-m", "domyn_swarm.jobs.run", "--help"]
+    exe = ["python", "-m", "domyn_swarm.jobs.cli.run", "--help"]
 
     cmd = b.build(exe)
 
     # Must start with srun and core flags
-    assert cmd[:7] == [
+    assert cmd[:8] == [
         "srun",
         "--jobid=123",
         "--nodelist=nodeA",
         "--ntasks=1",
+        "--nodes=1",
         "--overlap",
         "--mem=16GB",
         "--cpus-per-task=2",
