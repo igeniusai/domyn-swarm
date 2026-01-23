@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -171,7 +172,7 @@ class JobRunner:
         if isinstance(mode, str):
             mode = OutputJoinMode(mode)
 
-        df = df.copy()
+        df = df.copy(deep=False)
         if self.cfg.id_col not in df.columns:
             df[self.cfg.id_col] = df.index
 
@@ -202,7 +203,7 @@ class JobRunner:
             on_flush=_on_flush,
             checkpoint_every=self.cfg.checkpoint_every,
         )
-        out_df = self.store.finalize()
+        out_df = await asyncio.to_thread(self.store.finalize)
         if out_df.index.name == self.cfg.id_col:
             if self.cfg.id_col in out_df.columns:
                 # id is already a column → keep it and drop the index
@@ -255,7 +256,7 @@ async def run_sharded(
     import asyncio
 
     async def _one_shard(shard_id: int, idx):
-        sub = df.loc[idx].copy()
+        sub = df.loc[idx].copy(deep=False)
         su = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
         store = ParquetShardStore(su)
         runner = JobRunner(store, cfg)

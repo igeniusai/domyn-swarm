@@ -233,7 +233,11 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         checkpointing=checkpointing,
         runner=runner_choice,
         ray_address=args.ray_address,
+        output_path=out_path,
     )
+
+    if result is None:
+        return
 
     _write_result(backend, result, out_path, nshards, backend_write_kwargs, runner_choice)
 

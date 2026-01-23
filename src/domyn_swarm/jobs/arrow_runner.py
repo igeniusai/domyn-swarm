@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
@@ -108,7 +109,7 @@ class ArrowJobRunner:
             checkpoint_every=self.cfg.checkpoint_every,
         )
 
-        out_table = self.store.finalize()
+        out_table = await asyncio.to_thread(self.store.finalize)
         if mode == OutputJoinMode.REPLACE:
             return out_table
 

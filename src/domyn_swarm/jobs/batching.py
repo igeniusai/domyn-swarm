@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 import logging
 import threading
+from typing import Any
 
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 from tqdm.asyncio import tqdm
@@ -54,8 +56,8 @@ class BatchExecutor:
 
     async def run(
         self,
-        items,
-        fn,
+        items: Sequence[Any],
+        fn: Callable[..., Awaitable[Any]],
         *,
         on_batch_done=None,
         progress: bool = True,
@@ -130,6 +132,89 @@ class BatchExecutor:
                 total_progress_bar.update(len(pending_ids))
         self._finalize_progress(total_progress_bar, pbar)
         return out
+
+    async def run_streaming(
+        self,
+        items: Sequence[Any],
+        fn: Callable[..., Awaitable[Any]],
+        *,
+        on_batch_done: Callable[[list[Any], list[int]], Awaitable[None]] | None = None,
+        progress: bool = True,
+        on_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        on_batch_progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> None:
+        """Run a batched async pipeline without retaining all outputs.
+
+        Args:
+            items: Sequence of items to process.
+            fn: Coroutine function applied to each item.
+            on_batch_done: Optional callback invoked as `await on_batch_done(outputs, idxs)`.
+            progress: Whether to display progress bars.
+            on_progress: Optional callback with `(completed, total)` updates.
+            on_batch_progress: Optional callback with `(batch_completed, batch_total)` updates.
+        """
+        total = len(items)
+        if total == 0:
+            return
+
+        sem = asyncio.Semaphore(self.max_concurrency)
+        idx_lock = asyncio.Lock()
+        state_lock = asyncio.Lock()
+        next_idx = 0
+        completed = 0
+        pending_ids: list[int] = []
+        pending_out: dict[int, Any] = {}
+
+        fn = self._wrap_retry(fn)
+        total_progress_bar, pbar = self._init_progress(progress, total)
+
+        async def worker():
+            nonlocal completed, pending_ids, next_idx
+            while True:
+                async with idx_lock:
+                    if next_idx >= total:
+                        return
+                    idx = next_idx
+                    next_idx += 1
+
+                item = items[idx]
+                async with sem:
+                    result = await fn(*item) if isinstance(item, tuple) else await fn(item)
+
+                batch_ids: list[int] | None = None
+                batch_out: list[Any] | None = None
+                local_completed = 0
+
+                async with state_lock:
+                    completed += 1
+                    local_completed = completed
+                    pending_ids.append(idx)
+                    pending_out[idx] = result
+
+                    flush_now = completed % self.checkpoint_interval == 0 or completed == total
+                    if flush_now and on_batch_done:
+                        batch_ids = pending_ids
+                        pending_ids = []
+                        batch_out = [pending_out.pop(i) for i in batch_ids]
+
+                if batch_ids is not None and batch_out is not None and on_batch_done:
+                    await on_batch_done(batch_out, batch_ids)
+                    if total_progress_bar is not None:
+                        total_progress_bar.update(len(batch_ids))
+                    if pbar is not None:
+                        remaining = total - local_completed
+                        pbar.reset(total=min(remaining, self.checkpoint_interval))
+
+                if pbar is not None:
+                    pbar.update(1)
+                if on_progress:
+                    await on_progress(local_completed, total)
+                if on_batch_progress:
+                    batch_total = min(self.checkpoint_interval, total)
+                    await on_batch_progress(pbar.n if pbar is not None else 0, batch_total)
+
+        await asyncio.gather(*(worker() for _ in range(self.max_concurrency)))
+        self._finalize_progress(total_progress_bar, pbar)
 
     @staticmethod
     def _init_queue(items):

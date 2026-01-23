@@ -399,11 +399,17 @@ class SwarmJob(abc.ABC):
         on_flush: Callable[[list[int], list[Any]], Awaitable[None]],
         checkpoint_every: int,
     ):
-        # Wrap your existing BatchExecutor (fixed per earlier comments)
+        """Run a streaming transform without retaining all outputs in memory.
+
+        Args:
+            items: Input items to process.
+            on_flush: Callback invoked with `(idxs, outputs)` for flushed batches.
+            checkpoint_every: Number of items between flushes.
+        """
         executor = BatchExecutor(self.max_concurrency, checkpoint_every, self.retries)
-        return await executor.run(
+        await executor.run_streaming(
             items,
             self._call_unit,
-            on_batch_done=lambda out, idxs: on_flush(idxs, [out[i] for i in idxs]),
+            on_batch_done=lambda outs, idxs: on_flush(idxs, outs),
             progress=True,
         )

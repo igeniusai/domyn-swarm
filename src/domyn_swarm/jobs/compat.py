@@ -15,6 +15,7 @@
 import asyncio
 from collections.abc import Callable
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -47,7 +48,7 @@ def _ensure_arrow_id(table: pa.Table, id_col: str) -> pa.Table:
     return table.append_column(id_col, ids)
 
 
-async def _run_non_ray_arrow(
+async def _run_arrow(
     *,
     job_factory: Callable[[], Any],
     backend: Any,
@@ -172,6 +173,20 @@ def _resolve_id_column(job: SwarmJob) -> tuple[str, bool]:
         if not raw_id_col.strip():
             raise ValueError("id_column_name must be a non-empty string.")
     return raw_id_col or "_row_id", raw_id_col is not None
+
+
+def _shard_filename(shard_id: int, nshards: int) -> str:
+    """Return a shard filename for directory outputs.
+
+    Args:
+        shard_id: Zero-based shard index.
+        nshards: Total number of shards.
+
+    Returns:
+        Filename for the shard (e.g., `data-00.parquet`).
+    """
+    width = max(1, len(str(nshards - 1)))
+    return f"data-{shard_id:0{width}d}.parquet"
 
 
 def _get_backend(backend_name: str) -> DataBackend:
@@ -328,7 +343,7 @@ def _build_checkpoint_store(
     return InMemoryStore()
 
 
-async def _run_non_ray_polars(
+async def _run_polars(
     *,
     job_factory: Callable[[], Any],
     backend: DataBackend,
@@ -341,6 +356,7 @@ async def _run_non_ray_polars(
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
+    output_path: Path | None,
 ) -> Any:
     """Run the polars execution path for non-ray backends.
 
@@ -355,9 +371,11 @@ async def _run_non_ray_polars(
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
+        output_path: Optional output path for direct shard writes.
 
     Returns:
-        Polars DataFrame containing job outputs.
+        Polars DataFrame containing job outputs, or None when outputs are written directly
+        to a directory (pandas/polars direct shard paths).
     """
     import polars as pl
 
@@ -384,6 +402,7 @@ async def _run_non_ray_polars(
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
             id_col=id_col,
+            output_path=output_path,
         )
     if not checkpointing:
         raise ValueError("Sharded execution requires checkpointing to be enabled.")
@@ -406,6 +425,7 @@ async def _run_non_ray_polars(
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
             id_col=id_col,
+            output_path=None,
         )
 
     chunk_size = math.ceil(total_rows / nshards)
@@ -424,6 +444,7 @@ async def _run_non_ray_polars(
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
             id_col=id_col,
+            output_path=None,
         )
 
     tasks = []
@@ -436,7 +457,7 @@ async def _run_non_ray_polars(
     return pl.concat(parts, how="vertical")
 
 
-async def _run_non_ray_pandas(
+async def _run_pandas(
     *,
     job_factory: Callable[[], Any],
     job_probe: SwarmJob,
@@ -450,6 +471,7 @@ async def _run_non_ray_pandas(
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
+    output_path: Path | None,
 ) -> Any:
     """Run the pandas-backed execution path for non-ray backends.
 
@@ -466,6 +488,7 @@ async def _run_non_ray_pandas(
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
+        output_path: Optional output path used for direct shard writes.
 
     Returns:
         Job results in backend-native output form.
@@ -475,13 +498,16 @@ async def _run_non_ray_pandas(
         _validate_required_id(df, id_col)
 
     cfg = RunnerConfig(id_col=id_col, checkpoint_every=checkpoint_every)
+    resolved_output_cols = output_cols or job_probe.default_output_cols
+    is_dir_output = output_path is not None and (output_path.is_dir() or output_path.suffix == "")
+
     if nshards <= 1:
         store = _build_checkpoint_store(checkpointing=checkpointing, store_uri=store_uri)
         out = await JobRunner(store, cfg).run(
             job_probe,
             df,
             input_col=input_col,
-            output_cols=output_cols or job_probe.default_output_cols,
+            output_cols=resolved_output_cols,
             output_mode=job_probe.output_mode,
         )
         return out if backend.name == "pandas" else backend.from_pandas(out)
@@ -490,8 +516,8 @@ async def _run_non_ray_pandas(
         raise ValueError("Sharded execution requires checkpointing to be enabled.")
     indices = np.array_split(df.index, nshards)
 
-    async def _one(i, idx):
-        sub = df.loc[idx].copy()
+    async def _run_shard(i: int, idx):
+        sub = df.loc[idx].copy(deep=False)
         assert store_uri is not None
         su = store_uri.replace(".parquet", f"_shard{i}.parquet")
         store = ParquetShardStore(su)
@@ -499,11 +525,22 @@ async def _run_non_ray_pandas(
             job_factory(),
             sub,
             input_col=input_col,
-            output_cols=output_cols or job_probe.default_output_cols,
+            output_cols=resolved_output_cols,
             output_mode=job_probe.output_mode,
         )
 
-    parts = await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
+    if backend.name == "pandas" and is_dir_output:
+        assert output_path is not None
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        async def _write_shard(i: int, idx) -> None:
+            part = await _run_shard(i, idx)
+            part.to_parquet(output_path / _shard_filename(i, nshards), index=False)
+
+        await asyncio.gather(*[_write_shard(i, idx) for i, idx in enumerate(indices)])
+        return None
+
+    parts = await asyncio.gather(*[_run_shard(i, idx) for i, idx in enumerate(indices)])
     out = pd.concat(parts).sort_index()
     return out if backend.name == "pandas" else backend.from_pandas(out)
 
@@ -547,7 +584,55 @@ async def run_job_unified(
     checkpointing: bool = True,
     runner: str = "pandas",
     ray_address: str | None = None,
+    output_path: Path | None = None,
 ) -> Any:
+    """Run a SwarmJob with backend-aware execution and checkpointing.
+
+    This is the main compatibility entry point that selects the correct execution path based on
+    the job configuration (ray vs non-ray), backend selection, and runner choice (pandas vs arrow).
+    It enforces the streaming API contract, resolves id columns, validates checkpointing
+    requirements, and returns backend-native results.
+
+    Behavior summary:
+    - Ray backend:
+      * Requires a user-provided id column (`id_column_name`).
+      * Requires native execution; non-native is rejected.
+      * Delegates to the Ray runner with optional checkpointing and compaction.
+    - Non-ray backends:
+      * `runner="arrow"` + `data_backend="polars"` uses the Polars runner (Arrow checkpoint store),
+        preserving LazyFrame batching semantics where possible.
+      * `runner="arrow"` uses the Arrow runner (and Arrow checkpoint store).
+      * `runner="pandas"` uses the pandas JobRunner (checkpointed parquet shards).
+      * For pandas + directory outputs + `nshards>1`, writes shards directly to the output
+        directory and returns `None` (caller should skip writing a combined output).
+      * For polars + directory outputs + `nshards==1`, writes the final output directly
+        via `LazyFrame.sink_parquet` and returns `None`.
+
+    Args:
+        job_factory: Callable that returns a SwarmJob instance.
+        data: Input dataset in backend-native form (pandas, polars, arrow, ray dataset, etc.).
+        input_col: Column name to read inputs from.
+        output_cols: Optional list of output column names (None for dict outputs).
+        nshards: Number of shards to split input into for non-ray execution.
+        store_uri: Base checkpoint store URI (required when checkpointing is enabled).
+        checkpoint_every: Flush interval in items.
+        data_backend: Backend name override (defaults to the job's `data_backend` or "pandas").
+        native_backend: Override for native execution (required for ray).
+        checkpointing: Whether to read/write checkpoint state.
+        runner: Runner implementation to use for non-ray backends ("pandas" or "arrow").
+        ray_address: Optional Ray cluster address (only used for ray backend).
+        output_path: Optional output path used to enable direct shard writes when using
+            the pandas runner and directory outputs.
+
+    Returns:
+        Backend-native result for non-ray runs, or the Ray runner result.
+        Returns None when the pandas or polars paths write outputs directly to a directory.
+
+    Raises:
+        TypeError: If the job does not implement the streaming API.
+        ValueError: If required id columns are missing or if checkpointing is misconfigured.
+        RuntimeError: If the backend cannot be resolved.
+    """
     job_probe = job_factory()
     _ensure_new_api(job_probe)
     backend_name = _resolve_backend_name(job_probe, data_backend)
@@ -574,7 +659,7 @@ async def run_job_unified(
         )
 
     if runner == "arrow" and backend.name == "polars":
-        return await _run_non_ray_polars(
+        return await _run_polars(
             job_factory=job_factory,
             backend=backend,
             data=data,
@@ -586,10 +671,11 @@ async def run_job_unified(
             store_uri=store_uri,
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
+            output_path=output_path,
         )
 
     if runner == "arrow":
-        result = await _run_non_ray_arrow(
+        result = await _run_arrow(
             job_factory=job_factory,
             backend=backend,
             data=data,
@@ -604,7 +690,7 @@ async def run_job_unified(
         )
         return backend.from_arrow(result)
 
-    return await _run_non_ray_pandas(
+    return await _run_pandas(
         job_factory=job_factory,
         job_probe=job_probe,
         backend=backend,
@@ -617,4 +703,5 @@ async def run_job_unified(
         store_uri=store_uri,
         checkpoint_every=checkpoint_every,
         checkpointing=checkpointing,
+        output_path=output_path,
     )

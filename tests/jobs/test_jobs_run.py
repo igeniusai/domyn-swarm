@@ -339,6 +339,47 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_amain_writes_shards_directly_for_dir_output(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_dir = tmp_path / "outdir"
+    checkpoint_dir = tmp_path / "checkpoints"
+
+    df_in = pd.DataFrame({"text": ["hello", "world", "third", "fourth"]})
+    df_in.to_parquet(input_path)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_dir))
+    monkeypatch.setenv("JOB_KWARGS", '{"input_column_name": "text", "output_cols": "output"}')
+
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    args = [
+        "--nthreads",
+        "2",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--checkpoint-interval",
+        "2",
+        "--job-kwargs",
+        '{"input_column_name": "text", "output_cols": "output"}',
+    ]
+    await _amain(args)
+
+    shard0 = output_dir / "data-0.parquet"
+    shard1 = output_dir / "data-1.parquet"
+    assert shard0.exists()
+    assert shard1.exists()
+
+    df0 = pd.read_parquet(shard0)
+    df1 = pd.read_parquet(shard1)
+    got = pd.concat([df0, df1], ignore_index=True).sort_values("_row_id")
+    assert got["output"].str.startswith("test_shard_").all()
+
+
+@pytest.mark.asyncio
 async def test_amain_end_to_end_polars_backend(monkeypatch, tmp_path):
     pytest.importorskip("polars")
 

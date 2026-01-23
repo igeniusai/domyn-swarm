@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Any, Protocol, TypeVar
@@ -87,7 +88,7 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
         self.done_ids: set[Any] = set()
 
     def prepare(self, data: pd.DataFrame, id_col: str) -> pd.DataFrame:
-        data = data.copy()
+        data = data.copy(deep=False)
         self.id_col = id_col
         done_ids: set[Any] = set()
 
@@ -156,6 +157,15 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
         Note:
             The resulting parquet file is saved with a UUID-based filename to avoid
             conflicts and uses the configured ID column as the index.
+        """
+        await asyncio.to_thread(self._flush_sync, batch, output_cols)
+
+    def _flush_sync(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
+        """Synchronously write a batch to a parquet shard.
+
+        Args:
+            batch: Batch containing ids and output rows.
+            output_cols: Output column names (None for dict outputs).
         """
         out: dict[str, list[Any]] = {self.id_col: list(batch.ids)}
         if output_cols is None:

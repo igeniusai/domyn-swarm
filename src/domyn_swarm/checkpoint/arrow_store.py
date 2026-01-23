@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Any
@@ -175,6 +176,15 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
 
     async def flush(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
         """Write a batch of outputs to a shard parquet file.
+
+        Args:
+            batch: Batch of ids and output rows.
+            output_cols: Output column names (None for dict outputs).
+        """
+        await asyncio.to_thread(self._flush_sync, batch, output_cols)
+
+    def _flush_sync(self, batch: FlushBatch, output_cols: list[str] | None) -> None:
+        """Synchronously write a batch of outputs to a parquet shard.
 
         Args:
             batch: Batch of ids and output rows.
