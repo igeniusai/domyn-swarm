@@ -112,6 +112,7 @@ class JobRunSpec:
     detach: bool
     mail_user: str | None
     ray_address: str | None
+    checkpoint_tag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +192,7 @@ def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> No
         no_checkpointing=request.run.no_checkpointing,
         runner=request.run.runner,
         ray_address=request.run.ray_address,
+        checkpoint_tag=request.run.checkpoint_tag,
     )
 
 
