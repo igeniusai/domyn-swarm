@@ -116,7 +116,7 @@ class TestJobSubmission:
         handle = backend.submit(
             name="my-job",
             image="repo/image:tag",
-            command=["python", "-m", "domyn_swarm.jobs.run", "--help"],
+            command=["python", "-m", "domyn_swarm.jobs.cli.run", "--help"],
             env={"ENDPOINT": "http://x"},
             resources={
                 "resource_shape": "gpu.4xh200",
@@ -138,7 +138,7 @@ class TestJobSubmission:
         container = job_spec.spec.container
         assert isinstance(container, LeptonContainer)
         assert container.image == "repo/image:tag"
-        assert container.command == ["python", "-m", "domyn_swarm.jobs.run", "--help"]
+        assert container.command == ["python", "-m", "domyn_swarm.jobs.cli.run", "--help"]
 
     def test_submit_injects_api_token_as_secret_env_var(self, backend):
         """Test that submit() properly injects API token as a secret environment variable."""

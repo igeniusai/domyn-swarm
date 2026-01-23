@@ -372,7 +372,7 @@ class DomynLLMSwarm(BaseModel):
         The *job* object is converted to keyword arguments via
         :py:meth:`SwarmJob.to_kwargs`, transmitted to the head node
         (where ``SLURM_NODEID == 0``), reconstructed by
-        ``domyn_swarm.jobs.run``, and executed under ``srun``.
+        ``domyn_swarm.jobs.cli.run``, and executed under ``srun``.
 
         Parameters
         ----------
@@ -415,7 +415,7 @@ class DomynLLMSwarm(BaseModel):
         The constructed command is logged with *rich* for transparency, e.g.::
 
             srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
-                python -m domyn_swarm.jobs.run --job-class=<module:Class> ...
+                python -m domyn_swarm.jobs.cli.run --job-class=<module:Class> ...
 
         Examples
         --------
@@ -455,7 +455,7 @@ class DomynLLMSwarm(BaseModel):
         exe = [
             str(python_interpreter),
             "-m",
-            "domyn_swarm.jobs.run",
+            "domyn_swarm.jobs.cli.run",
             f"--job-class={job_class}",
             f"--model={self.model}",
             f"--input-parquet={input_parquet}",

@@ -12,23 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .api import (
+from .base import OutputJoinMode, SwarmJob
+from .batching import BatchExecutor
+from .chat_completion import (
     ChatCompletionJob,
     ChatCompletionPerplexityJob,
     CompletionJob,
-    JobRunner,
     MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
     MultiTurnTranslationJob,
-    OutputJoinMode,
     PerplexityMixin,
-    RunnerConfig,
-    SwarmJob,
-    run_sharded,
 )
-from .execution.dispatch import run_job_unified
+from .runner import JobRunner, RunnerConfig, run_sharded
 
 __all__ = [
+    "BatchExecutor",
     "ChatCompletionJob",
     "ChatCompletionPerplexityJob",
     "CompletionJob",
@@ -40,6 +38,5 @@ __all__ = [
     "PerplexityMixin",
     "RunnerConfig",
     "SwarmJob",
-    "run_job_unified",
     "run_sharded",
 ]

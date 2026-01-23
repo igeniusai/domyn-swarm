@@ -1,6 +1,6 @@
 import pytest
 
-from domyn_swarm.jobs.runner import _normalize_batch_outputs
+from domyn_swarm.jobs.api.runner import normalize_batch_outputs
 
 
 @pytest.mark.parametrize(
@@ -33,21 +33,21 @@ from domyn_swarm.jobs.runner import _normalize_batch_outputs
     ],
 )
 def test_normalize_batch_outputs_happy(expected_cols, outputs, rows, cols):
-    got_rows, got_cols = _normalize_batch_outputs(outputs, expected_cols)
+    got_rows, got_cols = normalize_batch_outputs(outputs, expected_cols)
     assert got_rows == rows
     assert got_cols == cols
 
 
 def test_normalize_batch_outputs_errors_tuple_without_names():
     with pytest.raises(ValueError):
-        _normalize_batch_outputs([(1, 2), (3, 4)], expected_cols=None)
+        normalize_batch_outputs([(1, 2), (3, 4)], expected_cols=None)
 
 
 def test_normalize_batch_outputs_errors_multi_cols_but_scalar():
     with pytest.raises(ValueError):
-        _normalize_batch_outputs([123, 456], expected_cols=["a", "b"])
+        normalize_batch_outputs([123, 456], expected_cols=["a", "b"])
 
 
 def test_normalize_batch_outputs_errors_single_col_mismatch_tuple_len():
     with pytest.raises(ValueError):
-        _normalize_batch_outputs([(1, 2)], expected_cols=["only_one"])
+        normalize_batch_outputs([(1, 2)], expected_cols=["only_one"])

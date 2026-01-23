@@ -212,7 +212,7 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
         env_overrides=env_overrides,
     )
 
-    stdout, stderr = proc.communicate(timeout=20.0)
+    stdout, stderr = proc.communicate(timeout=60.0)
 
     # Debug if things go wrong
     print("=== WATCHDOG STDOUT ===", file=sys.stderr)

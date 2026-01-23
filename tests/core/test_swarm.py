@@ -289,7 +289,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     call = dep.run_calls[-1]
     # command contains python, module, args and our limit
     cmd = call["command"]
-    assert cmd[:3] == ["python", "-m", "domyn_swarm.jobs.run"]
+    assert cmd[:3] == ["python", "-m", "domyn_swarm.jobs.cli.run"]
     assert f"--endpoint={swarm.endpoint}" in cmd
     assert "--job-kwargs" in cmd
     # The item right after "--job-kwargs" must be the JSON we created

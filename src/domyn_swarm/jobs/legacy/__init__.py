@@ -12,18 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Compatibility shim for deprecated imports."""
-
-from __future__ import annotations
-
-import warnings
-
-from domyn_swarm.jobs.api.batching import BatchExecutor
-
-warnings.warn(
-    "domyn_swarm.jobs.batching is deprecated; use domyn_swarm.jobs.api.batching",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
-__all__ = ["BatchExecutor"]
+__all__ = []

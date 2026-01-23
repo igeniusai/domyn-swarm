@@ -23,7 +23,7 @@ import typer
 from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.core.swarm import DomynLLMSwarm, _load_job
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.jobs.base import SwarmJob
+from domyn_swarm.jobs.api.base import SwarmJob
 import domyn_swarm.utils as utils
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)

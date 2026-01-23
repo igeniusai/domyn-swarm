@@ -17,15 +17,16 @@ from unittest.mock import AsyncMock
 import pandas as pd
 import pytest
 
-from domyn_swarm.jobs import (
+from domyn_swarm.jobs.api.chat_completion import (
     ChatCompletionJob,
     ChatCompletionPerplexityJob,
     CompletionJob,
     MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
     MultiTurnTranslationJob,
+    _assistant_message_dict,
+    _extract_reasoning_content,
 )
-from domyn_swarm.jobs.chat_completion import _assistant_message_dict, _extract_reasoning_content
 
 
 @pytest.mark.asyncio
@@ -154,11 +155,11 @@ async def test_chat_completion_perplexity_job(monkeypatch, tmp_path):
     mock_resp.choices = [mock_choice]
 
     monkeypatch.setattr(
-        "domyn_swarm.jobs.chat_completion.extract_token_logprobs",
+        "domyn_swarm.jobs.api.chat_completion.extract_token_logprobs",
         lambda c: [0.1, 0.2, 0.3],
     )
     monkeypatch.setattr(
-        "domyn_swarm.jobs.chat_completion.compute_perplexity_metrics",
+        "domyn_swarm.jobs.api.chat_completion.compute_perplexity_metrics",
         lambda t: (42.0, 21.0),
     )
 

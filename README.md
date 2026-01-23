@@ -126,7 +126,7 @@ domyn-swarm job submit \
 Under the hood, this spawns a driver that:
 
 * reads `ENDPOINT=http://<endpoint-node>:9000`
-* runs `python -m domyn_swarm.jobs.run ...` via `srun` (Slurm) or the platform equivalent
+* runs `python -m domyn_swarm.jobs.cli.run ...` via `srun` (Slurm) or the platform equivalent
 * streams prompts→answers with batching, backoff retries, checkpointing
 
 ### 4) Submit a free‑form Python script
