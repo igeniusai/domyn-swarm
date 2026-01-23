@@ -83,8 +83,7 @@ async def _run_arrow(
     table = data if isinstance(data, pa.Table) else backend.to_arrow(data)
     if require_id and id_col not in table.column_names:
         raise ValueError(f"Input table missing required id column '{id_col}'.")
-    if checkpointing and store_uri is None:
-        raise ValueError("store_uri is required when checkpointing is enabled.")
+    _validate_checkpoint_store(checkpointing, store_uri)
     if nshards <= 1:
         return await run_arrow_job(
             job_factory,
@@ -96,8 +95,7 @@ async def _run_arrow(
             checkpointing=checkpointing,
             id_col=id_col,
         )
-    if not checkpointing:
-        raise ValueError("Sharded execution requires checkpointing to be enabled.")
+    _validate_sharded_execution(checkpointing)
 
     if id_col not in table.column_names:
         table = _ensure_arrow_id(table, id_col)
@@ -106,7 +104,7 @@ async def _run_arrow(
     async def _one(i, idx):
         assert store_uri is not None
         sub = table.take(pa.array(idx, type=pa.int64()))
-        su = store_uri.replace(".parquet", f"_shard{i}.parquet")
+        su = _shard_store_uri(store_uri, i)
         return await run_arrow_job(
             job_factory,
             sub,
@@ -280,6 +278,40 @@ def _column_names_from_schema(data: Any) -> list[str] | None:
     return names
 
 
+def _get_column_names(data: Any) -> list[str] | None:
+    """Resolve column names from a dataset-like object.
+
+    Args:
+        data: Input dataset-like object.
+
+    Returns:
+        List of column names if available, otherwise None.
+    """
+    return (
+        _column_names_from_collect_schema(data)
+        or _column_names_from_columns_attr(data)
+        or _column_names_from_schema(data)
+    )
+
+
+def _require_column_names(data: Any) -> list[str]:
+    """Resolve column names or raise if unavailable.
+
+    Args:
+        data: Input dataset-like object.
+
+    Returns:
+        List of column names.
+
+    Raises:
+        ValueError: If column names cannot be resolved.
+    """
+    names = _get_column_names(data)
+    if names is None:
+        raise ValueError(f"Cannot validate id column on data type: {type(data)!r}")
+    return names
+
+
 def _validate_required_id(data: Any, id_col: str) -> None:
     """Validate that the input data contains the required id column.
 
@@ -290,13 +322,7 @@ def _validate_required_id(data: Any, id_col: str) -> None:
     Raises:
         ValueError: If the column is missing or cannot be validated.
     """
-    names = (
-        _column_names_from_collect_schema(data)
-        or _column_names_from_columns_attr(data)
-        or _column_names_from_schema(data)
-    )
-    if names is None:
-        raise ValueError(f"Cannot validate id column on data type: {type(data)!r}")
+    names = _require_column_names(data)
     if id_col not in names:
         raise ValueError(f"Input data missing required id column '{id_col}'.")
 
@@ -319,6 +345,63 @@ def _resolve_ray_native(native_backend: bool | None) -> bool:
     return native
 
 
+def _validate_checkpoint_store(checkpointing: bool, store_uri: str | None) -> None:
+    """Validate checkpointing prerequisites.
+
+    Args:
+        checkpointing: Whether checkpointing is enabled.
+        store_uri: Store URI for checkpointing.
+
+    Raises:
+        ValueError: If checkpointing is enabled without a store URI.
+    """
+    if checkpointing:
+        _require_store_uri(store_uri)
+
+
+def _require_store_uri(store_uri: str | None) -> str:
+    """Return the store URI or raise if missing.
+
+    Args:
+        store_uri: Store URI for checkpointing.
+
+    Returns:
+        Store URI string.
+
+    Raises:
+        ValueError: If store_uri is None.
+    """
+    if store_uri is None:
+        raise ValueError("store_uri is required when checkpointing is enabled.")
+    return store_uri
+
+
+def _validate_sharded_execution(checkpointing: bool) -> None:
+    """Validate sharded execution prerequisites.
+
+    Args:
+        checkpointing: Whether checkpointing is enabled.
+
+    Raises:
+        ValueError: If sharded execution is attempted without checkpointing.
+    """
+    if not checkpointing:
+        raise ValueError("Sharded execution requires checkpointing to be enabled.")
+
+
+def _shard_store_uri(store_uri: str, shard_id: int) -> str:
+    """Return the store URI for a specific shard.
+
+    Args:
+        store_uri: Base checkpoint store URI.
+        shard_id: Zero-based shard index.
+
+    Returns:
+        Store URI for the shard.
+    """
+    return store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
+
+
 def _build_checkpoint_store(
     *,
     checkpointing: bool,
@@ -337,8 +420,7 @@ def _build_checkpoint_store(
         ValueError: If checkpointing is enabled without a store URI.
     """
     if checkpointing:
-        if store_uri is None:
-            raise ValueError("store_uri is required when checkpointing is enabled.")
+        store_uri = _require_store_uri(store_uri)
         return ParquetShardStore(store_uri)
     return InMemoryStore()
 
@@ -377,6 +459,58 @@ async def _run_polars(
         Polars DataFrame containing job outputs, or None when outputs are written directly
         to a directory (pandas/polars direct shard paths).
     """
+    data = _coerce_polars_data(data)
+    _validate_polars_inputs(
+        data,
+        require_id=require_id,
+        id_col=id_col,
+        checkpointing=checkpointing,
+        store_uri=store_uri,
+    )
+
+    if nshards <= 1:
+        return await _run_polars_single(
+            job_factory=job_factory,
+            backend=backend,
+            data=data,
+            input_col=input_col,
+            output_cols=output_cols,
+            store_uri=store_uri,
+            checkpoint_every=checkpoint_every,
+            checkpointing=checkpointing,
+            id_col=id_col,
+            output_path=output_path,
+        )
+
+    _validate_sharded_execution(checkpointing)
+    data = _ensure_polars_id(data, id_col)
+    data = _collect_polars_data(data)
+    return await _run_polars_sharded(
+        job_factory=job_factory,
+        backend=backend,
+        data=data,
+        input_col=input_col,
+        output_cols=output_cols,
+        store_uri=store_uri,
+        checkpoint_every=checkpoint_every,
+        checkpointing=checkpointing,
+        id_col=id_col,
+        nshards=nshards,
+    )
+
+
+def _coerce_polars_data(data: Any) -> Any:
+    """Convert supported inputs into a polars DataFrame or LazyFrame.
+
+    Args:
+        data: Input dataset-like object.
+
+    Returns:
+        Polars DataFrame or LazyFrame.
+
+    Raises:
+        ValueError: If the input cannot be converted to polars.
+    """
     import polars as pl
 
     if isinstance(data, pd.DataFrame):
@@ -386,32 +520,145 @@ async def _run_polars(
 
     if not isinstance(data, pl.DataFrame | pl.LazyFrame):
         raise ValueError("Polars runner expects a polars DataFrame or LazyFrame.")
+    return data
+
+
+def _validate_polars_inputs(
+    data: Any,
+    *,
+    require_id: bool,
+    id_col: str,
+    checkpointing: bool,
+    store_uri: str | None,
+) -> None:
+    """Validate polars execution preconditions.
+
+    Args:
+        data: Polars DataFrame or LazyFrame.
+        require_id: Whether id_col must already exist in the input.
+        id_col: Column name used for stable row ids.
+        checkpointing: Whether checkpointing is enabled.
+        store_uri: Store URI for checkpointing.
+
+    Raises:
+        ValueError: If required preconditions are not met.
+    """
     if require_id:
         _validate_required_id(data, id_col)
-    if checkpointing and store_uri is None:
-        raise ValueError("store_uri is required when checkpointing is enabled.")
+    _validate_checkpoint_store(checkpointing, store_uri)
 
-    if nshards <= 1:
-        return await run_polars_job(
-            job_factory,
-            backend,
-            data,
-            input_col=input_col,
-            output_cols=output_cols,
-            store_uri=store_uri,
-            checkpoint_every=checkpoint_every,
-            checkpointing=checkpointing,
-            id_col=id_col,
-            output_path=output_path,
-        )
-    if not checkpointing:
-        raise ValueError("Sharded execution requires checkpointing to be enabled.")
 
-    if id_col not in data.columns:
-        data = data.with_row_index(id_col)
+def _ensure_polars_id(data: Any, id_col: str) -> Any:
+    """Ensure the id column exists on a polars frame.
+
+    Args:
+        data: Polars DataFrame or LazyFrame.
+        id_col: Column name used for stable row ids.
+
+    Returns:
+        Polars DataFrame or LazyFrame with id_col present.
+
+    Raises:
+        ValueError: If column names cannot be determined.
+    """
+    names = _require_column_names(data)
+    if id_col not in names:
+        return data.with_row_index(id_col)
+    return data
+
+
+def _collect_polars_data(data: Any) -> Any:
+    """Collect a polars LazyFrame into a DataFrame.
+
+    Args:
+        data: Polars DataFrame or LazyFrame.
+
+    Returns:
+        Polars DataFrame.
+    """
+    import polars as pl
 
     if isinstance(data, pl.LazyFrame):
-        data = data.collect()
+        return data.collect()
+    return data
+
+
+async def _run_polars_single(
+    *,
+    job_factory: Callable[[], Any],
+    backend: DataBackend,
+    data: Any,
+    input_col: str,
+    output_cols: list[str] | None,
+    store_uri: str | None,
+    checkpoint_every: int,
+    checkpointing: bool,
+    id_col: str,
+    output_path: Path | None,
+) -> Any:
+    """Run a single-shard polars job.
+
+    Args:
+        job_factory: Callable producing a SwarmJob instance.
+        backend: Data backend used for conversion.
+        data: Polars DataFrame or LazyFrame.
+        input_col: Input column name in the dataset.
+        output_cols: Output columns to produce (None for dict outputs).
+        store_uri: Base checkpoint store URI.
+        checkpoint_every: Flush interval in items.
+        checkpointing: Whether checkpointing is enabled.
+        id_col: Column name used for stable row ids.
+        output_path: Optional output path for direct shard writes.
+
+    Returns:
+        Polars DataFrame containing job outputs, or None when outputs are written directly
+        to a directory.
+    """
+    return await run_polars_job(
+        job_factory,
+        backend,
+        data,
+        input_col=input_col,
+        output_cols=output_cols,
+        store_uri=store_uri,
+        checkpoint_every=checkpoint_every,
+        checkpointing=checkpointing,
+        id_col=id_col,
+        output_path=output_path,
+    )
+
+
+async def _run_polars_sharded(
+    *,
+    job_factory: Callable[[], Any],
+    backend: DataBackend,
+    data: Any,
+    input_col: str,
+    output_cols: list[str] | None,
+    store_uri: str | None,
+    checkpoint_every: int,
+    checkpointing: bool,
+    id_col: str,
+    nshards: int,
+) -> Any:
+    """Run a sharded polars job with checkpointing.
+
+    Args:
+        job_factory: Callable producing a SwarmJob instance.
+        backend: Data backend used for conversion.
+        data: Polars DataFrame.
+        input_col: Input column name in the dataset.
+        output_cols: Output columns to produce (None for dict outputs).
+        store_uri: Base checkpoint store URI.
+        checkpoint_every: Flush interval in items.
+        checkpointing: Whether checkpointing is enabled.
+        id_col: Column name used for stable row ids.
+        nshards: Number of shards to split the input into.
+
+    Returns:
+        Polars DataFrame containing job outputs.
+    """
+    import polars as pl
 
     total_rows = data.height
     if total_rows == 0:
@@ -433,7 +680,7 @@ async def _run_polars(
     async def _one(i: int, start: int):
         assert store_uri is not None
         sub = data.slice(start, chunk_size)
-        su = store_uri.replace(".parquet", f"_shard{i}.parquet")
+        su = _shard_store_uri(store_uri, i)
         return await run_polars_job(
             job_factory,
             backend,
@@ -512,14 +759,13 @@ async def _run_pandas(
         )
         return out if backend.name == "pandas" else backend.from_pandas(out)
 
-    if not checkpointing:
-        raise ValueError("Sharded execution requires checkpointing to be enabled.")
+    _validate_sharded_execution(checkpointing)
     indices = np.array_split(df.index, nshards)
 
     async def _run_shard(i: int, idx):
         sub = df.loc[idx].copy(deep=False)
         assert store_uri is not None
-        su = store_uri.replace(".parquet", f"_shard{i}.parquet")
+        su = _shard_store_uri(store_uri, i)
         store = ParquetShardStore(su)
         return await JobRunner(store, cfg).run(
             job_factory(),
