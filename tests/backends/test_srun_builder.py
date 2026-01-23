@@ -14,13 +14,21 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 
 
 def _fake_cfg(mem="32GB", cpus=8):
     """Make a minimal cfg with .endpoint.mem / .endpoint.cpus_per_task."""
-    endpoint = SimpleNamespace(mem=mem, cpus_per_task=cpus)
+    endpoint = SimpleNamespace(mem=mem, cpus_per_task=cpus, require_allocated_node=False)
     return SimpleNamespace(endpoint=endpoint)
+
+
+@pytest.fixture(autouse=True)
+def _clear_slurm_env(monkeypatch):
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.delenv("SLURM_JOBID", raising=False)
 
 
 def test_build_basic_no_env_no_mail_no_extra():
@@ -136,3 +144,47 @@ def test_extra_args_override_default_mem_and_cpus():
     for flag in extra:
         assert flag in cmd
         assert cmd.index(flag) < len(cmd) - 1
+
+
+def test_build_inside_slurm_job_does_not_pin_to_lb(monkeypatch):
+    cfg = _fake_cfg(mem="16GB", cpus=2)
+    b = SrunCommandBuilder(cfg=cfg, jobid=123, nodelist="nodeA")
+    monkeypatch.setenv("SLURM_JOB_ID", "999")
+
+    cmd = b.build(["/bin/true"], ntasks=2)
+
+    assert "--jobid=123" not in cmd
+    assert "--nodelist=nodeA" not in cmd
+    assert "--ntasks=2" in cmd
+
+
+def test_build_inside_slurm_job_even_if_jobid_matches_does_not_pin_to_lb(monkeypatch):
+    cfg = _fake_cfg(mem="16GB", cpus=2)
+    b = SrunCommandBuilder(cfg=cfg, jobid=123, nodelist="nodeA")
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+
+    cmd = b.build(["/bin/true"], ntasks=1)
+
+    assert "--jobid=123" not in cmd
+    assert "--nodelist=nodeA" not in cmd
+
+
+def test_build_requires_allocation_when_flag_set():
+    cfg = _fake_cfg(mem="16GB", cpus=2)
+    cfg.endpoint.require_allocated_node = True
+    b = SrunCommandBuilder(cfg=cfg, jobid=123, nodelist="nodeA")
+
+    with pytest.raises(ValueError, match="require_allocated_node"):
+        b.build(["/bin/true"])
+
+
+def test_build_requires_allocation_allows_in_alloc(monkeypatch):
+    cfg = _fake_cfg(mem="16GB", cpus=2)
+    cfg.endpoint.require_allocated_node = True
+    b = SrunCommandBuilder(cfg=cfg, jobid=123, nodelist="nodeA")
+    monkeypatch.setenv("SLURM_JOB_ID", "999")
+
+    cmd = b.build(["/bin/true"])
+
+    assert "--jobid=123" not in cmd
+    assert "--nodelist=nodeA" not in cmd
