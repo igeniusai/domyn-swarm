@@ -23,6 +23,7 @@ import pandas as pd
 import pyarrow as pa
 
 from domyn_swarm.data.backends.base import BackendError, DataBackend, JobBatch
+from domyn_swarm.helpers.patterns import expand_brace_ranges
 
 
 class PolarsBackend(DataBackend):
@@ -31,15 +32,18 @@ class PolarsBackend(DataBackend):
     def read(self, path: Path, *, limit: int | None = None, **kwargs) -> Any:
         import polars as pl
 
+        patterns = expand_brace_ranges(str(path))
+        parquet_input: str | list[str] = patterns[0] if len(patterns) == 1 else patterns
+
         use_scan = bool(kwargs.pop("use_scan", False) or kwargs.pop("lazy", False))
         kwargs.pop("streaming", None)
         if use_scan:
-            lf = pl.scan_parquet(path, **kwargs)
+            lf = pl.scan_parquet(parquet_input, **kwargs)
             if limit:
                 lf = lf.limit(limit)
             return lf
 
-        df = pl.read_parquet(path, **kwargs)
+        df = pl.read_parquet(parquet_input, **kwargs)
         return df.head(limit) if limit else df
 
     def write(self, data: Any, path: Path, *, nshards: int | None = None, **kwargs) -> None:

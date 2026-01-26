@@ -22,6 +22,7 @@ import pandas as pd
 import pyarrow as pa
 
 from domyn_swarm.data.backends.base import BackendError, DataBackend, JobBatch
+from domyn_swarm.helpers.patterns import expand_brace_ranges
 
 
 class RayBackend(DataBackend):
@@ -30,7 +31,9 @@ class RayBackend(DataBackend):
     def read(self, path: Path, *, limit: int | None = None, **kwargs) -> Any:
         import ray.data as rd
 
-        ds = rd.read_parquet(str(path), **kwargs)
+        patterns = expand_brace_ranges(str(path))
+        parquet_input: str | list[str] = patterns[0] if len(patterns) == 1 else patterns
+        ds = rd.read_parquet(parquet_input, **kwargs)
         return ds.limit(limit) if limit else ds
 
     def write(self, data: Any, path: Path, *, nshards: int | None = None, **kwargs) -> None:

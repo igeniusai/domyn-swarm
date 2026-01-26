@@ -35,3 +35,20 @@ def test_polars_read_scan_parquet(tmp_path: Path) -> None:
 
     assert isinstance(out, pl.LazyFrame)
     assert out.collect().height == 2
+
+
+def test_polars_read_supports_brace_ranges(tmp_path: Path) -> None:
+    """Ensure brace range expansion is supported for parquet inputs.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+    """
+    pl = pytest.importorskip("polars")
+    for i in range(1, 4):
+        pd.DataFrame({"a": [i]}).to_parquet(tmp_path / f"file-{i:04d}.parquet", index=False)
+
+    backend = PolarsBackend()
+    out = backend.read(tmp_path / "file-{0001..0003}.parquet", use_scan=True)
+
+    assert isinstance(out, pl.LazyFrame)
+    assert out.collect().height == 3

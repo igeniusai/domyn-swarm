@@ -261,7 +261,9 @@ domyn-swarm job submit \
 ```
 
 * `<module>:<ClassName>` implementing `SwarmJob`, defaults to `domyn_swarm.jobs:ChatCompletionJob`
-* **--input** / **--output** — Parquet files on shared filesystem
+* **--input** / **--output** — Parquet file or directory (parquet dataset) on a shared filesystem.
+  Input supports brace ranges like `input_00{0978..1955}.parquet` to expand a file range, and
+  pandas also supports wildcard glob patterns (e.g. `data-*.parquet`).
 * **--job-kwargs** — JSON for the job’s constructor
 * **--config** or **--name** (one only) — start a fresh swarm from YAML, or attach to an existing swarm
 * **--checkpoint-dir** — where to store checkpoint state (defaults to `<swarm-dir>/checkpoints`)
@@ -287,7 +289,7 @@ domyn-swarm job submit \
 
 Internally uses checkpointing, batching, and retry logic.
 
-Directory output (write shards directly instead of materializing/concatenating on the driver):
+Directory output (write a parquet dataset instead of materializing/concatenating on the driver):
 
 ```bash
 domyn-swarm job submit \
@@ -311,7 +313,7 @@ domyn-swarm job submit \
 ```
 
 In this mode, execution stays polars-native (batch iteration) and checkpoints are written as Arrow-backed
-parquet shards (no pandas conversion). Using a directory `--output` streams shards directly to disk.
+parquet shards (no pandas conversion). Using a directory `--output` streams output directly to disk.
 
 Ray backend example (distributed execution via Ray Datasets):
 

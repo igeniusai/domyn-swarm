@@ -21,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 from domyn_swarm import utils
+from domyn_swarm.helpers.patterns import expand_brace_ranges
 
 
 def load_dataframe(
@@ -60,17 +61,25 @@ def load_dataframe(
     path = Path(path)
 
     path_str = str(path)
-    has_wildcard = any(ch in path_str for ch in ("*", "?", "["))
+    patterns = expand_brace_ranges(path_str)
 
     if path.is_dir():
         # Pandas supports reading a directory of parquet files directly.
         df = pd.read_parquet(path_str, **read_kwargs)
         return df.head(limit) if limit else df
 
-    if has_wildcard:
-        matched = sorted(glob.glob(path_str))
+    matched: list[str] = []
+    for pat in patterns:
+        has_wildcard = any(ch in pat for ch in ("*", "?", "["))
+        if has_wildcard:
+            matched.extend(glob.glob(pat))
+        else:
+            matched.append(pat)
+
+    if len(patterns) > 1 or any(any(ch in pat for ch in ("*", "?", "[")) for pat in patterns):
+        matched = sorted(dict.fromkeys(matched))
         if not matched:
-            raise ValueError(f"No files matched glob pattern: {path}")
+            raise ValueError(f"No files matched pattern: {path}")
         suffixes = {Path(p).suffix.lower() for p in matched}
         if suffixes != {".parquet"}:
             raise ValueError(f"Unsupported file format for glob pattern: {suffixes}")
