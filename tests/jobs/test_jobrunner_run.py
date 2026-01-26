@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from domyn_swarm.jobs.runner import (
+from domyn_swarm.jobs.api.runner import (
     JobRunner,
     OutputJoinMode,  # your enum
     RunnerConfig,

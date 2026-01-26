@@ -21,9 +21,12 @@ from pathlib import Path
 import pandas as pd
 
 from domyn_swarm import utils
+from domyn_swarm.helpers.patterns import expand_brace_ranges
 
 
-def load_dataframe(path: Path, limit: int | None = None) -> pd.DataFrame:
+def load_dataframe(
+    path: Path, limit: int | None = None, read_kwargs: dict | None = None
+) -> pd.DataFrame:
     """
     Load a dataframe from various file formats.
 
@@ -41,31 +44,42 @@ def load_dataframe(path: Path, limit: int | None = None) -> pd.DataFrame:
         pd.DataFrame: Loaded dataframe.
     """
 
+    read_kwargs = read_kwargs or {}
+
     def _read_single(file_path: Path, suffix: str) -> pd.DataFrame:
         match suffix:
             case ".parquet":
-                return pd.read_parquet(file_path)
+                return pd.read_parquet(file_path, **read_kwargs)
             case ".csv":
-                return pd.read_csv(file_path)
+                return pd.read_csv(file_path, **read_kwargs)
             case ".jsonl":
-                return pd.read_json(file_path, orient="records", lines=True)
+                opts = {"orient": "records", "lines": True, **read_kwargs}
+                return pd.read_json(file_path, **opts)
             case _:
                 raise ValueError(f"Unsupported file format: {suffix}")
 
     path = Path(path)
 
     path_str = str(path)
-    has_wildcard = any(ch in path_str for ch in ("*", "?", "["))
+    patterns = expand_brace_ranges(path_str)
 
     if path.is_dir():
         # Pandas supports reading a directory of parquet files directly.
-        df = pd.read_parquet(path_str)
+        df = pd.read_parquet(path_str, **read_kwargs)
         return df.head(limit) if limit else df
 
-    if has_wildcard:
-        matched = sorted(glob.glob(path_str))
+    matched: list[str] = []
+    for pat in patterns:
+        has_wildcard = any(ch in pat for ch in ("*", "?", "["))
+        if has_wildcard:
+            matched.extend(glob.glob(pat))
+        else:
+            matched.append(pat)
+
+    if len(patterns) > 1 or any(any(ch in pat for ch in ("*", "?", "[")) for pat in patterns):
+        matched = sorted(dict.fromkeys(matched))
         if not matched:
-            raise ValueError(f"No files matched glob pattern: {path}")
+            raise ValueError(f"No files matched pattern: {path}")
         suffixes = {Path(p).suffix.lower() for p in matched}
         if suffixes != {".parquet"}:
             raise ValueError(f"Unsupported file format for glob pattern: {suffixes}")
@@ -95,14 +109,16 @@ def _shard_filename(shard_id: int, nshards: int) -> str:
     return f"data-{shard_id:0{width}d}.parquet"
 
 
-def _save_parquet_shards(df: pd.DataFrame, dest_dir: Path, nshards: int | None) -> None:
+def _save_parquet_shards(
+    df: pd.DataFrame, dest_dir: Path, nshards: int | None, write_kwargs: dict
+) -> None:
     resolved = _coerce_nshards(df, nshards)
     total_rows = len(df)
     if total_rows == 0:
-        df.to_parquet(dest_dir / _shard_filename(0, resolved), index=False)
+        df.to_parquet(dest_dir / _shard_filename(0, resolved), index=False, **write_kwargs)
         return
     if resolved == 1:
-        df.to_parquet(dest_dir / "data.parquet", index=False)
+        df.to_parquet(dest_dir / "data.parquet", index=False, **write_kwargs)
         return
     chunk_size = math.ceil(total_rows / resolved)
     for shard_id in range(resolved):
@@ -113,11 +129,15 @@ def _save_parquet_shards(df: pd.DataFrame, dest_dir: Path, nshards: int | None) 
         df.iloc[start:end].to_parquet(
             dest_dir / _shard_filename(shard_id, resolved),
             index=False,
+            **write_kwargs,
         )
 
 
-def save_dataframe(df: pd.DataFrame, path: Path, nshards: int | None = None):
+def save_dataframe(
+    df: pd.DataFrame, path: Path, nshards: int | None = None, write_kwargs: dict | None = None
+):
     path = Path(path)
+    write_kwargs = write_kwargs or {}
     is_dir_target = path.is_dir()
     has_suffix = path.suffix != ""
     is_dir_output = is_dir_target or not has_suffix
@@ -136,13 +156,14 @@ def save_dataframe(df: pd.DataFrame, path: Path, nshards: int | None = None):
     match suffix:
         case ".parquet":
             if is_dir_output:
-                _save_parquet_shards(df, target, nshards)
+                _save_parquet_shards(df, target, nshards, write_kwargs)
             else:
-                df.to_parquet(target, index=False)
+                df.to_parquet(target, index=False, **write_kwargs)
         case ".csv":
-            df.to_csv(target, index=False)
+            df.to_csv(target, index=False, **write_kwargs)
         case ".jsonl":
-            df.to_json(target, orient="records", lines=True)
+            opts = {"orient": "records", "lines": True, **write_kwargs}
+            df.to_json(target, **opts)
         case _:
             raise ValueError(f"Unsupported output file format: {suffix}")
 

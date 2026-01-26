@@ -32,7 +32,7 @@ It’s designed for **fast evaluation loops**, **robust batch inference**, and *
 
 ## Features
 
-* **One CLI** for **up → submit → status → down** across platforms
+* **One CLI** for **up → job submit → status → down** across platforms
 * **Serving/Compute backends** behind clean protocols → easy to add new targets (e.g., AzureML)
 * **Health checks & readiness**:
   * Slurm: array replicas + LB, HTTP probe on `/v1/models`
@@ -40,16 +40,25 @@ It’s designed for **fast evaluation loops**, **robust batch inference**, and *
 * **SwarmJob API** (DataFrame in → DataFrame out)
   * Built‑in **batching**, **bounded concurrency**, **tenacity retries**, **checkpointing** (Parquet)
   * **Compat layer** for older job shape
+  * **Pluggable data backends** for IO + execution (`pandas`, optional `polars`, optional `ray`)
 * **Script runner** (submit any Python file to the compute backend)
 * **State persistence** (using SQLite to store your swarms state)
-* **Optional extras**: `pip install domyn-swarm[lepton]` to enable DGX Cloud Lepton
+* **Optional extras**: `pip install domyn-swarm[lepton]` (Lepton), `domyn-swarm[polars]`, `domyn-swarm[ray]`
 
 ---
 
 ## Supported backends
 
+### Serving / compute backends
+
 * **Slurm** (HPC) — uses singularity containers and job arrays to run model replicas
 * **NVIDIA DGX Cloud Lepton** — Endpoint + Batch Job via Lepton SDK (optional extra)
+
+### Data backends (job IO / execution)
+
+* **pandas** — default (always installed)
+* **polars** — optional extra, supports `scan_parquet`/streaming reads and directory outputs
+* **ray** — optional extra, supports distributed execution via Ray Datasets (requires a Ray address)
 
 ---
 
@@ -63,8 +72,12 @@ It’s designed for **fast evaluation loops**, **robust batch inference**, and *
 
 ```bash
 pip install domyn-swarm
-# Optional Lepton support
+# Optional extras
 pip install 'domyn-swarm[lepton]'
+pip install 'domyn-swarm[polars]'
+pip install 'domyn-swarm[ray]'
+# or everything
+pip install 'domyn-swarm[all]'
 ```
 
 
@@ -118,7 +131,10 @@ This submits:
 ```bash
 domyn-swarm job submit \
   --name my-swarm-name \
-  --job-kwargs '{"temperature":0.3,"checkpoint_interval":16,"max_concurrency":8,"retries":2}' \
+  --job-kwargs '{"temperature":0.3}' \
+  --checkpoint-interval 16 \
+  --max-concurrency 8 \
+  --retries 2 \
   --input examples/data/chat_completion.parquet \
   --output results.parquet
 ```
@@ -126,7 +142,7 @@ domyn-swarm job submit \
 Under the hood, this spawns a driver that:
 
 * reads `ENDPOINT=http://<endpoint-node>:9000`
-* runs `python -m domyn_swarm.jobs.run ...` via `srun` (Slurm) or the platform equivalent
+* runs `python -m domyn_swarm.jobs.cli.run ...` via `srun` (Slurm) or the platform equivalent
 * streams prompts→answers with batching, backoff retries, checkpointing
 
 ### 4) Submit a free‑form Python script
@@ -200,13 +216,14 @@ Options:
 
 Commands:
   version   Show the version of the domyn-swarm CLI
-  up        Launch a new swarm allocation
-  status    Check the status of the swarm allocation
+  up        Launch a swarm allocation with a configuration
+  status    Check the status of the swarm allocation given its state file
   down      Shut down a swarm allocation
-  submit    Submit a workload to a Domyn-Swarm allocation.
+  job       Submit a workload to a Domyn-Swarm allocation.
   pool      Submit a pool of swarm allocations from a YAML config.
   init      Initialize a new Domyn-Swarm configuration.
   swarm     List existing swarms with a compact status view.
+  db        Manage the Domyn-Swarm state database.
 ```
 
 ### `domyn-swarm up`
@@ -214,16 +231,12 @@ Commands:
 Start a new allocation:
 
 ```bash
-domyn-swarm up -c config.yaml \
-  --replicas 3 \  # I'm overriding what's in the configuration file
-  --reverse-proxy
+domyn-swarm up -c config.yaml --replicas 3 --reverse-proxy
 ```
 
-* `-c/--config` — path to your YAML
-* `-n/--name` - Name of the swarm allocation. If not provided, a random name will be generated.
-* `-r/--replicas` — override number of replicas
-* `--reverse-proxy` — (TBD) launch an Nginx running on the login node you're logged, so that you can access Ray dashboard via SSH tunneling
-
+* `-c/--config` — path to your YAML config
+* `-r/--replicas` — override number of replicas from config
+* `--reverse-proxy/--no-reverse-proxy` — enable an optional reverse proxy for the allocation
 
 ### `domyn-swarm down`
 
@@ -241,24 +254,83 @@ Typed DataFrame → DataFrame jobs:
 domyn-swarm job submit \
   my_module:CustomCompletionJob \
   --name my-swarm-name \
-  --job-kwargs '{"temperature":0.2,"checkpoint_interval":16}' \
+  --job-kwargs '{"temperature":0.2}' \
+  --checkpoint-interval 16 \
   --input prompts.parquet \
   --output answers.parquet
 ```
 
 * `<module>:<ClassName>` implementing `SwarmJob`, defaults to `domyn_swarm.jobs:ChatCompletionJob`
-* **--input** / **--output** — Parquet files on shared filesystem
+* **--input** / **--output** — Parquet file or directory (parquet dataset) on a shared filesystem.
+  Input supports numeric brace ranges like `input_00{0978..1955}.parquet` (also `{0978-1955}`) to
+  expand a file range, and pandas also supports wildcard glob patterns (e.g. `data-*.parquet`).
 * **--job-kwargs** — JSON for the job’s constructor
-* **--config** or **--state** (one only)  -  the definition or state of the cluster where the job will be submitted
-* **--checkpoint-interval** - batch size of the requests to be sent to be processed. Once a batch has finished processing, the checkpoint will be updated
-* **--max-concurrency** - Number of concurrent requests to process
-* **--retries** - Number of retries for failed requests
-* **--num-threads** - How many threads should be used by the driver to run the job
+* **--config** or **--name** (one only) — start a fresh swarm from YAML, or attach to an existing swarm
+* **--checkpoint-dir** — where to store checkpoint state (defaults to `<swarm-dir>/checkpoints`)
+* **--checkpoint-tag** — stable tag for checkpointing (useful to resume across runs)
+* **--no-resume** — ignore existing checkpoints for this run (forces recompute)
+* **--no-checkpointing** — disable checkpointing entirely
+* **--checkpoint-interval** — flush interval for checkpointing (items per flush)
+* **--max-concurrency** — concurrent in-flight requests
+* **--retries** — retries for failed requests
+* **--timeout** — per-request timeout in seconds
+* **--num-threads** — shard count for non-ray execution (also used for directory shard outputs)
 * **--limit** / **-l** - Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset
 * **--detach** - Detach the job from the current terminal, running in a different process (PID will be printed)
+* **--mail-user** — enable job email notifications (when supported by the compute backend)
+* **--data-backend** — Data backend for IO (`pandas`, `polars`, `ray`)
+* **--runner** — Runner implementation for non-ray backends (`pandas`, `arrow`)
+* **--shard-output** — When output is a directory and using the Polars runner, write one parquet
+  file per shard (based on `--num-threads`) using checkpoint outputs as the source of truth.
+* **--native-backend / --no-native-backend** — enable native backend execution (required for ray)
+* **--native-batch-size** — batch size for native backend mode (optional; ray/polars use it)
+* **--backend-read-kwargs** / **--backend-write-kwargs** — JSON dict forwarded to backend read/write
+* **--id-column / --id-col** — Optional column name used for stable row ids
+* **--ray-address** — Ray cluster address to connect to when using `--data-backend ray`
 
 
 Internally uses checkpointing, batching, and retry logic.
+
+Directory output (write a parquet dataset instead of materializing/concatenating on the driver):
+
+```bash
+domyn-swarm job submit \
+  --name my-swarm-name \
+  --input prompts.parquet \
+  --output outputs/ \
+  --num-threads 8
+```
+
+Polars scan example (uses `scan_parquet` under the hood):
+
+```bash
+domyn-swarm job submit \
+  my_module:CustomCompletionJob \
+  --name my-swarm-name \
+  --input prompts.parquet \
+  --output outputs/ \
+  --data-backend polars \
+  --runner arrow \
+  --backend-read-kwargs '{"use_scan": true}'
+```
+
+In this mode, execution stays polars-native (batch iteration) and checkpoints are written as Arrow-backed
+parquet shards (no pandas conversion). Using a directory `--output` streams output directly to disk.
+
+Ray backend example (distributed execution via Ray Datasets):
+
+```bash
+domyn-swarm job submit \
+  --name my-swarm-name \
+  --input prompts.parquet \
+  --output outputs_ray/ \
+  --data-backend ray \
+  --id-column request_id \
+  --ray-address 'ray://<head-node>:10001'
+```
+
+> Ray requires a stable id column (`--id-column`) and an explicit Ray address (`--ray-address` or
+> `DOMYN_SWARM_RAY_ADDRESS` / `RAY_ADDRESS`). Output paths are treated as directories by Ray.
 
 
 ### `domyn-swarm job submit-script`
@@ -272,7 +344,7 @@ domyn-swarm job submit-script \
 ```
 
 * **script\_file**: your `.py` file (must exist)
-* **--config** or **--jobid** (one only)
+* **--config** or **--name** (one only)
 * **args…** after `--` are forwarded to your script
 
 ### `domyn-swarm status`

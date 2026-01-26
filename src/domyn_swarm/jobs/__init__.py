@@ -12,18 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import OutputJoinMode, SwarmJob
-from .chat_completion import (
+from .api import (
     ChatCompletionJob,
     ChatCompletionPerplexityJob,
     CompletionJob,
+    JobRunner,
     MultiChatCompletionJob,
     MultiTurnChatCompletionJob,
     MultiTurnTranslationJob,
+    OutputJoinMode,
     PerplexityMixin,
+    RunnerConfig,
+    SwarmJob,
+    run_sharded,
 )
-from .compat import run_job_unified
-from .runner import JobRunner, RunnerConfig, run_sharded
+from .execution.dispatch import run_job_unified
 
 __all__ = [
     "ChatCompletionJob",

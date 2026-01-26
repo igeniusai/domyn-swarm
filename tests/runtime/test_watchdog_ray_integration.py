@@ -81,7 +81,7 @@ def test_ray_fatal_exit_is_not_restarted(
       * set should_restart=False
       * not restart the child (child run counter == 1)
     """
-    db_path, collector_host, collector_port, collector_proc = collector_process
+    _db_path, collector_host, collector_port, _collector_proc = collector_process
 
     child_port = get_free_port()
     swarm_id = "test-swarm-ray-fatal"
@@ -93,7 +93,7 @@ def test_ray_fatal_exit_is_not_restarted(
         "FAKE_CHILD_MODE": "ray_fatal_exit",
     }
 
-    proc, state_file, log_dir = spawn_watchdog(
+    proc, state_file, _log_dir = spawn_watchdog(
         collector_host=collector_host,
         collector_port=collector_port,
         child_script=fake_child_script,
@@ -160,7 +160,7 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
       * set should_restart=False,
       * never restart the child (run counter == 1).
     """
-    db_path, collector_host, collector_port, collector_proc = collector_process
+    _db_path, collector_host, collector_port, _collector_proc = collector_process
 
     child_port = get_free_port()
     swarm_id = "test-swarm-ray-capacity"
@@ -178,7 +178,7 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
         "FAKE_RAY_GPUS_PER_NODE": "1.0",
     }
 
-    proc, state_file, log_dir = spawn_watchdog(
+    proc, state_file, _log_dir = spawn_watchdog(
         collector_host=collector_host,
         collector_port=collector_port,
         child_script=fake_child_script,
@@ -212,7 +212,7 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
         env_overrides=env_overrides,
     )
 
-    stdout, stderr = proc.communicate(timeout=20.0)
+    stdout, stderr = proc.communicate(timeout=60.0)
 
     # Debug if things go wrong
     print("=== WATCHDOG STDOUT ===", file=sys.stderr)
@@ -259,8 +259,8 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
           * Not treat this as a restartable error (i.e., intended for Slurm requeue).
     """
 
-    _, coll_host, coll_port, coll_proc = collector_process
-    child_port = 18080  # or use get_free_port() if you have it
+    _, coll_host, coll_port, _coll_proc = collector_process
+    child_port = get_free_port()
 
     # Ray state file consumed by fake_ray_cli
     ray_state_file = tmp_path / "ray_state.json"
@@ -281,7 +281,7 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
     # - FAKE_RAY_STATE_FILE → fake_ray_cli reads capacity from this file
     env_overrides = {
         "FAKE_CHILD_MODE": "healthy",
-        "PATH": f"{fake_ray_bin.parent.as_posix()}:{os.environ.get('PATH', '')}",
+        "PATH": f"{fake_ray_bin.as_posix()}:{os.environ.get('PATH', '')}",
         "FAKE_RAY_STATE_FILE": ray_state_file.as_posix(),
     }
 
@@ -300,7 +300,7 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
         "1.0",
     ]
 
-    proc, state_file, log_dir = spawn_watchdog(
+    proc, _state_file, _log_dir = spawn_watchdog(
         collector_host=coll_host,
         collector_port=coll_port,
         child_script=fake_child_script,

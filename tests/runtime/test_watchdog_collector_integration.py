@@ -129,10 +129,10 @@ def test_watchdog_single_replica_happy_path(
     child_port = get_free_port()
 
     # Start collector
-    db_path, host, port, collector_proc = collector_process
+    db_path, host, port, _collector_proc = collector_process
 
     # Start watchdog
-    wd_proc, state_file, log_dir = spawn_watchdog(
+    wd_proc, _state_file, _log_dir = spawn_watchdog(
         collector_host=host,
         collector_port=port,
         child_script=fake_child_script,
@@ -153,7 +153,7 @@ def test_watchdog_single_replica_happy_path(
             time.sleep(0.2)
 
         assert row is not None, "No status row written for single replica"
-        state, http_ready, exit_code, fail_reason = row
+        state, http_ready, _exit_code, _fail_reason = row
 
         # Early state might be "starting"/"unhealthy", so be lenient at first
         assert state in ("starting", "running", "unhealthy")
@@ -166,7 +166,7 @@ def test_watchdog_single_replica_happy_path(
                 if row is None:
                     time.sleep(0.2)
                     continue
-                state, http_ready, exit_code, fail_reason = row
+                state, http_ready, _exit_code, _fail_reason = row
                 if state == "running" and http_ready == 1:
                     break
                 time.sleep(0.2)
@@ -201,14 +201,14 @@ def test_watchdog_multiple_replicas_concurrent(
     base_port = 8200
     num_replicas = 4
 
-    db_path, host, port, collector_proc = collector_process
+    db_path, host, port, _collector_proc = collector_process
 
     watchdog_procs: list[subprocess.Popen] = []
     try:
         # Start N watchdogs with different replica_id + child_port
         for replica_id in range(num_replicas):
             child_port = base_port + replica_id
-            proc, state_file, log_dir = spawn_watchdog(
+            proc, _state_file, _log_dir = spawn_watchdog(
                 collector_host=host,
                 collector_port=port,
                 child_script=fake_child_script,
@@ -240,7 +240,7 @@ def test_watchdog_multiple_replicas_concurrent(
         for replica_id in range(num_replicas):
             row = read_replica_row(db_path, swarm_id, replica_id)
             assert row is not None
-            state, http_ready, exit_code, fail_reason = row
+            state, _http_ready, _exit_code, _fail_reason = row
             final_states[replica_id] = state
 
         # No FAILED state expected in this happy-path test
@@ -279,7 +279,7 @@ def test_watchdog_tolerates_collector_late_start(
     collector_port = get_free_port()
 
     # Start watchdog before collector is up
-    wd_proc, state_file, log_dir = spawn_watchdog(
+    wd_proc, _state_file, _log_dir = spawn_watchdog(
         collector_host=collector_host,
         collector_port=collector_port,
         child_script=fake_child_script,
@@ -520,7 +520,7 @@ def test_watchdog_always_restart_on_success(
 
     row = read_replica_row(db_path, swarm_id, replica_id)
     assert row is not None, "no replica_status row recorded"
-    state, http_ready, exit_code_db, _fail_reason = row
+    state, _http_ready, exit_code_db, _fail_reason = row
 
     # Final state is either EXITED or RUNNING, depending on when we stopped.
     assert state in ("exited", "running")
@@ -601,7 +601,7 @@ def test_watchdog_unhealthy_restart_after_triggers_restart(
 
     row = read_replica_row(db_path, swarm_id, replica_id)
     assert row is not None, "no replica_status row recorded"
-    state, http_ready, exit_code_db, fail_reason = row
+    state, _http_ready, _exit_code_db, fail_reason = row
 
     # Final state is typically FAILED or EXITED or RUNNING, depending on timing.
     assert state in ("failed", "exited", "restarting", "running")

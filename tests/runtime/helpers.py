@@ -131,7 +131,7 @@ def terminate_proc_with_logs(proc: subprocess.Popen, label: str = "watchdog") ->
     if proc.poll() is not None:
         # Already exited: just drain pipes if they exist.
         try:
-            stdout, stderr = proc.communicate(timeout=1)
+            _stdout, stderr = proc.communicate(timeout=1)
         except Exception:
             return
         if stderr:
@@ -140,10 +140,10 @@ def terminate_proc_with_logs(proc: subprocess.Popen, label: str = "watchdog") ->
 
     try:
         proc.terminate()
-        stdout, stderr = proc.communicate(timeout=5)
+        _stdout, stderr = proc.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
-        stdout, stderr = proc.communicate()
+        _stdout, stderr = proc.communicate()
     except Exception:
         # Last resort: don't let this crash the test.
         return

@@ -353,13 +353,18 @@ class DomynLLMSwarm(BaseModel):
         input_path: Path,
         output_path: Path,
         num_threads: int = 1,
+        shard_output: bool = False,
         detach: bool = False,
         limit: int | None = None,
         mail_user: str | None = None,
         checkpoint_dir: str | Path | None = None,
         checkpoint_interval: int | None = None,
+        no_resume: bool = False,
+        no_checkpointing: bool = False,
+        runner: str = "pandas",
         job_resources: dict | None = None,
         checkpoint_tag: str | None = None,
+        ray_address: str | None = None,
     ) -> int | None:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -368,7 +373,7 @@ class DomynLLMSwarm(BaseModel):
         The *job* object is converted to keyword arguments via
         :py:meth:`SwarmJob.to_kwargs`, transmitted to the head node
         (where ``SLURM_NODEID == 0``), reconstructed by
-        ``domyn_swarm.jobs.run``, and executed under ``srun``.
+        ``domyn_swarm.jobs.cli.run``, and executed under ``srun``.
 
         Parameters
         ----------
@@ -380,6 +385,9 @@ class DomynLLMSwarm(BaseModel):
             Destination Parquet file to be written by *job*.
         num_threads : int, default 1
             Number of CPU threads the job may use in the worker process.
+        shard_output : bool, default False
+            If True and `output_path` is a directory, emit one parquet file per shard using
+            checkpoint outputs as the source of truth (supported by the polars runner).
         detach : bool, default False
             If *True*, start the job in a new process group and return
             immediately with its PID; if *False* (default) the call blocks
@@ -411,7 +419,7 @@ class DomynLLMSwarm(BaseModel):
         The constructed command is logged with *rich* for transparency, e.g.::
 
             srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
-                python -m domyn_swarm.jobs.run --job-class=<module:Class> ...
+                python -m domyn_swarm.jobs.cli.run --job-class=<module:Class> ...
 
         Examples
         --------
@@ -451,7 +459,7 @@ class DomynLLMSwarm(BaseModel):
         exe = [
             str(python_interpreter),
             "-m",
-            "domyn_swarm.jobs.run",
+            "domyn_swarm.jobs.cli.run",
             f"--job-class={job_class}",
             f"--model={self.model}",
             f"--input-parquet={input_parquet}",
@@ -460,12 +468,19 @@ class DomynLLMSwarm(BaseModel):
             f"--nthreads={num_threads}",
             f"--checkpoint-dir={checkpoint_dir}",
             f"--checkpoint-interval={checkpoint_interval or job.checkpoint_interval}",
+            f"--runner={runner}",
             "--job-kwargs",
             job_kwargs,
         ]
 
+        if no_resume:
+            exe.append("--no-resume")
+        if no_checkpointing:
+            exe.append("--no-checkpointing")
         if checkpoint_tag:
             exe.append(f"--checkpoint-tag={checkpoint_tag}")
+        if shard_output:
+            exe.append("--shard-output")
 
         if limit:
             exe.append(f"--limit={limit}")
@@ -487,6 +502,22 @@ class DomynLLMSwarm(BaseModel):
         if token:
             env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
             env["VLLM_API_KEY"] = token.get_secret_value()
+
+        if getattr(job, "data_backend", None) == "ray":
+            resolved_ray_address = (
+                ray_address
+                or env.get("DOMYN_SWARM_RAY_ADDRESS")
+                or env.get("RAY_ADDRESS")
+                or os.environ.get("DOMYN_SWARM_RAY_ADDRESS")
+                or os.environ.get("RAY_ADDRESS")
+            )
+            if not resolved_ray_address:
+                raise ValueError(
+                    "Ray backend requires an explicit ray address. Provide --ray-address or set "
+                    "DOMYN_SWARM_RAY_ADDRESS/RAY_ADDRESS in the swarm environment."
+                )
+            env["DOMYN_SWARM_RAY_ADDRESS"] = resolved_ray_address
+            exe.append(f"--ray-address={resolved_ray_address}")
 
         job_name = job.name.lower() if job.name else f"{self.name}-job"
         job_name = f"{self.name}-{job_name}"

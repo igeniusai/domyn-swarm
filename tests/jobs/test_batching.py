@@ -16,7 +16,7 @@ import asyncio
 
 import pytest
 
-from domyn_swarm.jobs.batching import BatchExecutor
+from domyn_swarm.jobs.api.batching import BatchExecutor
 
 
 @pytest.mark.asyncio

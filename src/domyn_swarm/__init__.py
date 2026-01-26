@@ -43,4 +43,4 @@ if TYPE_CHECKING:
     from .config.swarm import DomynLLMSwarmConfig
     from .core.swarm import DomynLLMSwarm
     from .jobs.base import SwarmJob
-    from .jobs.compat import run_job_unified
+    from .jobs.execution.dispatch import run_job_unified

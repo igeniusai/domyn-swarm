@@ -67,8 +67,11 @@ def _serve_http(port: int, mode: str) -> None:
     handler_cls = _HealthHandler
     handler_cls.mode = mode  # <- this is what do_GET will read
 
+    class _ReusableTCPServer(socketserver.TCPServer):
+        allow_reuse_address = True
+
     with (
-        socketserver.TCPServer(("127.0.0.1", port), handler_cls) as httpd,
+        _ReusableTCPServer(("127.0.0.1", port), handler_cls) as httpd,
         contextlib.suppress(KeyboardInterrupt),
     ):
         httpd.serve_forever()
