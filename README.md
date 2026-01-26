@@ -57,7 +57,7 @@ It’s designed for **fast evaluation loops**, **robust batch inference**, and *
 ### Data backends (job IO / execution)
 
 * **pandas** — default (always installed)
-* **polars** — optional extra, supports `scan_parquet`/streaming reads and directory sharded outputs
+* **polars** — optional extra, supports `scan_parquet`/streaming reads and directory outputs
 * **ray** — optional extra, supports distributed execution via Ray Datasets (requires a Ray address)
 
 ---

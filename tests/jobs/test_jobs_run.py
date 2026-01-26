@@ -226,6 +226,44 @@ async def test_run_job_unified_polars_runner_lazy(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_polars_runner_lazy_output_dir_streams(tmp_path):
+    """Stream LazyFrame output directly to an output directory.
+
+    This is the memory-stable path for large outputs: Polars joins the input LazyFrame with
+    checkpoint outputs and writes a single shard into the output directory.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+    """
+    pytest.importorskip("polars")
+
+    import polars as pl
+
+    output_dir = tmp_path / "out_dir"
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+
+    data = pl.DataFrame({"messages": [1, 2]}).lazy()
+    result = await run_job_unified(
+        lambda: DummySwarmJob(),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        data_backend="polars",
+        runner="arrow",
+        output_path=output_dir,
+    )
+
+    assert result is None
+    shard = output_dir / "data-000000.parquet"
+    assert shard.exists()
+
+    df_out = pd.read_parquet(shard).sort_values("_row_id")
+    assert df_out["messages"].tolist() == [1, 2]
+    assert df_out["output"].tolist() == ["test_shard_1", "test_shard_2"]
+
+
+@pytest.mark.asyncio
 async def test_arrow_runner_output_modes_pandas(tmp_path):
     """Validate Arrow runner output modes for pandas backend.
 

@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import math
 from pathlib import Path
@@ -161,8 +161,11 @@ class PolarsJobRunner:
             return False
 
         output_path.mkdir(parents=True, exist_ok=True)
+        # Polars streams to a single parquet file; represent "directory output" as a dataset
+        # containing one streamed shard. This keeps memory bounded for large outputs.
+        target = output_path / "data-000000.parquet"
         if mode == OutputJoinMode.REPLACE:
-            out_lf.sink_parquet(output_path)
+            out_lf.sink_parquet(target)
             return True
 
         base_lf = (
@@ -175,7 +178,7 @@ class PolarsJobRunner:
             on=self.cfg.id_col,
             how="left",
             maintain_order="left",
-        ).sink_parquet(output_path)
+        ).sink_parquet(target)
         return True
 
     def _resolve_mode(
@@ -235,49 +238,6 @@ class PolarsJobRunner:
             or self.cfg.checkpoint_every
         )
 
-    def _init_cache(
-        self,
-        data: pl.DataFrame | pl.LazyFrame,
-        mode: OutputJoinMode,
-    ) -> list[pl.DataFrame] | None:
-        """Initialize batch caching for LazyFrame joins when needed.
-
-        Args:
-            data: Polars DataFrame or LazyFrame.
-            mode: Output join mode.
-
-        Returns:
-            List used for cached batches, or None when caching is unnecessary.
-        """
-        import polars as pl
-
-        if isinstance(data, pl.LazyFrame) and mode != OutputJoinMode.REPLACE:
-            return []
-        return None
-
-    def _maybe_cache_batch(
-        self,
-        cache: list[pl.DataFrame] | None,
-        *,
-        mode: OutputJoinMode,
-        batch: pl.DataFrame,
-        input_col: str,
-    ) -> None:
-        """Cache a batch for later LazyFrame join materialization.
-
-        Args:
-            cache: Optional list of cached batches.
-            mode: Output join mode.
-            batch: Current batch DataFrame.
-            input_col: Input column name.
-        """
-        if cache is None:
-            return
-        if mode == OutputJoinMode.IO_ONLY:
-            cache.append(batch.select([self.cfg.id_col, input_col]))
-        else:
-            cache.append(batch)
-
     def _iter_todo_batches(
         self,
         data: pl.DataFrame | pl.LazyFrame,
@@ -285,8 +245,8 @@ class PolarsJobRunner:
         input_col: str,
         done_ids: set[Any],
         batch_size: int,
-    ) -> list[tuple[pl.DataFrame, list[Any], list[Any]]]:
-        """Collect batches that still need processing.
+    ) -> Iterator[tuple[pl.DataFrame, list[Any], list[Any]]]:
+        """Iterate batches that still need processing.
 
         Args:
             data: Polars DataFrame or LazyFrame.
@@ -294,12 +254,11 @@ class PolarsJobRunner:
             done_ids: Set of ids already processed.
             batch_size: Batch size for iteration.
 
-        Returns:
-            List of tuples of (batch, todo_ids, todo_items).
+        Yields:
+            Tuples of (batch, todo_ids, todo_items).
         """
         import polars as pl
 
-        batches: list[tuple[pl.DataFrame, list[Any], list[Any]]] = []
         for job_batch in self.backend.iter_job_batches(
             data,
             batch_size=batch_size,
@@ -319,8 +278,7 @@ class PolarsJobRunner:
 
             todo_ids = [ids[i] for i in todo_indices]
             todo_items = [items[i] for i in todo_indices]
-            batches.append((batch, todo_ids, todo_items))
-        return batches
+            yield batch, todo_ids, todo_items
 
     def _build_flush_cb(
         self,
@@ -356,7 +314,6 @@ class PolarsJobRunner:
         *,
         out_df: pl.DataFrame,
         mode: OutputJoinMode,
-        cached_batches: list[pl.DataFrame] | None,
         input_col: str,
     ) -> pl.DataFrame:
         """Finalize and join outputs for a run.
@@ -365,7 +322,6 @@ class PolarsJobRunner:
             data: Polars DataFrame or LazyFrame.
             out_df: Output DataFrame built from checkpoint store.
             mode: Output join mode.
-            cached_batches: Cached input batches for LazyFrame joins.
             input_col: Input column name.
 
         Returns:
@@ -377,10 +333,14 @@ class PolarsJobRunner:
             return out_df
 
         if isinstance(data, pl.LazyFrame):
-            base_df = (
-                pl.DataFrame() if not cached_batches else pl.concat(cached_batches, how="vertical")
+            base_lf = (
+                data.select([self.cfg.id_col, input_col])
+                if mode == OutputJoinMode.IO_ONLY
+                else data
             )
-            return base_df.join(out_df, on=self.cfg.id_col, how="left", maintain_order="left")
+            return base_lf.join(
+                out_df.lazy(), on=self.cfg.id_col, how="left", maintain_order="left"
+            ).collect()
 
         base_df = (
             data.select([self.cfg.id_col, input_col]) if mode == OutputJoinMode.IO_ONLY else data
@@ -416,25 +376,17 @@ class PolarsJobRunner:
         self._ensure_input_col(data, input_col)
 
         mode = self._resolve_mode(job, output_mode)
-        if not isinstance(data, pl.LazyFrame):
-            data = self._ensure_id(data)
+        data = self._ensure_id(data)
 
         done_ids = self._prepare_done_ids()
         batch_size = self._resolve_batch_size(job)
-        cached_batches = self._init_cache(data, mode)
 
-        for batch, todo_ids, todo_items in self._iter_todo_batches(
+        for _batch, todo_ids, todo_items in self._iter_todo_batches(
             data,
             input_col=input_col,
             done_ids=done_ids,
             batch_size=batch_size,
         ):
-            self._maybe_cache_batch(
-                cached_batches,
-                mode=mode,
-                batch=batch,
-                input_col=input_col,
-            )
             on_flush = self._build_flush_cb(todo_ids, output_cols, done_ids)
             await job.transform_streaming(
                 todo_items,
@@ -461,7 +413,6 @@ class PolarsJobRunner:
             data,
             out_df=out_df,
             mode=mode,
-            cached_batches=cached_batches,
             input_col=input_col,
         )
 
@@ -565,7 +516,10 @@ def _validate_polars_inputs(
     if require_id:
         import polars as pl
 
-        if not isinstance(data, pl.LazyFrame):
+        if isinstance(data, pl.LazyFrame):
+            if id_col not in data.collect_schema().names():
+                raise ValueError(f"Missing required id column: {id_col}")
+        else:
             _validate_required_id(data, id_col)
     _validate_checkpoint_store(checkpointing, store_uri)
 
@@ -652,6 +606,8 @@ async def _run_polars(
     )
 
     if nshards <= 1:
+        if not require_id:
+            data = _ensure_polars_id(data, id_col)
         return await _run_polars_single(
             job_factory=job_factory,
             backend=backend,
