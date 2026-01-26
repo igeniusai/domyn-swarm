@@ -239,6 +239,31 @@ def test_parquet_hash_different_files(tmp_path):
     assert hash1 != hash2
 
 
+def test_parquet_hash_brace_range_matches_directory_hash(tmp_path):
+    df = pd.DataFrame({"x": [10, 20]})
+    for i in range(1, 4):
+        df.to_parquet(tmp_path / f"file-{i:04d}.parquet", index=False)
+
+    dir_hash = parquet_hash(tmp_path)
+    pattern_hash = parquet_hash(tmp_path / "file-{0001..0003}.parquet")
+    assert pattern_hash == dir_hash
+
+
+def test_parquet_hash_glob_matches_directory_hash(tmp_path):
+    df = pd.DataFrame({"x": [10, 20]})
+    for i in range(1, 4):
+        df.to_parquet(tmp_path / f"file-{i:04d}.parquet", index=False)
+
+    dir_hash = parquet_hash(tmp_path)
+    glob_hash = parquet_hash(tmp_path / "file-*.parquet")
+    assert glob_hash == dir_hash
+
+
+def test_parquet_hash_pattern_no_match_raises(tmp_path):
+    with pytest.raises(ValueError, match="No files matched pattern"):
+        parquet_hash(tmp_path / "missing-{0001..0003}.parquet")
+
+
 def test_perplexity_typical_case():
     logprobs = [-1.0, -2.0, -1.5]
     result = compute_perplexity(logprobs)
