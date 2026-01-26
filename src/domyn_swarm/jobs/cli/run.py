@@ -132,6 +132,12 @@ def parse_args(cli_args=None):
         default=None,
         help="Address of the Ray cluster to connect to run the SwarmJob (if using Ray backend).",
     )
+    parser.add_argument(
+        "--shard-output",
+        action="store_true",
+        help="When output is a directory, write one parquet file per shard (based on --nthreads) "
+        "using checkpoint outputs as the source of truth. Only supported for the Polars runner.",
+    )
 
     if not cli_args:
         return parser.parse_args()
@@ -234,6 +240,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         runner=runner_choice,
         ray_address=args.ray_address,
         output_path=out_path,
+        shard_output=bool(getattr(args, "shard_output", False)),
     )
 
     if result is None:

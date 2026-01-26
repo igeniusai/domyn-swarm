@@ -262,8 +262,8 @@ domyn-swarm job submit \
 
 * `<module>:<ClassName>` implementing `SwarmJob`, defaults to `domyn_swarm.jobs:ChatCompletionJob`
 * **--input** / **--output** — Parquet file or directory (parquet dataset) on a shared filesystem.
-  Input supports brace ranges like `input_00{0978..1955}.parquet` to expand a file range, and
-  pandas also supports wildcard glob patterns (e.g. `data-*.parquet`).
+  Input supports numeric brace ranges like `input_00{0978..1955}.parquet` (also `{0978-1955}`) to
+  expand a file range, and pandas also supports wildcard glob patterns (e.g. `data-*.parquet`).
 * **--job-kwargs** — JSON for the job’s constructor
 * **--config** or **--name** (one only) — start a fresh swarm from YAML, or attach to an existing swarm
 * **--checkpoint-dir** — where to store checkpoint state (defaults to `<swarm-dir>/checkpoints`)
@@ -280,6 +280,8 @@ domyn-swarm job submit \
 * **--mail-user** — enable job email notifications (when supported by the compute backend)
 * **--data-backend** — Data backend for IO (`pandas`, `polars`, `ray`)
 * **--runner** — Runner implementation for non-ray backends (`pandas`, `arrow`)
+* **--shard-output** — When output is a directory and using the Polars runner, write one parquet
+  file per shard (based on `--num-threads`) using checkpoint outputs as the source of truth.
 * **--native-backend / --no-native-backend** — enable native backend execution (required for ray)
 * **--native-batch-size** — batch size for native backend mode (optional; ray/polars use it)
 * **--backend-read-kwargs** / **--backend-write-kwargs** — JSON dict forwarded to backend read/write

@@ -264,6 +264,56 @@ async def test_run_job_unified_polars_runner_lazy_output_dir_streams(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_polars_runner_lazy_output_dir_shard_output(tmp_path):
+    """Write one parquet file per shard into an output directory.
+
+    This uses checkpoint outputs as the source of truth, and materializes one file per shard
+    (based on `nshards`).
+
+    Args:
+        tmp_path: Pytest temporary directory.
+    """
+    pytest.importorskip("polars")
+
+    import polars as pl
+
+    output_dir = tmp_path / "out_dir"
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+
+    data = pl.DataFrame({"messages": [1, 2, 3, 4]}).lazy()
+    result = await run_job_unified(
+        lambda: DummySwarmJob(),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        nshards=2,
+        store_uri=store_uri,
+        data_backend="polars",
+        runner="arrow",
+        output_path=output_dir,
+        shard_output=True,
+    )
+
+    assert result is None
+    shard0 = output_dir / "data-0.parquet"
+    shard1 = output_dir / "data-1.parquet"
+    assert shard0.exists()
+    assert shard1.exists()
+
+    df_out = pd.concat(
+        [pd.read_parquet(shard0), pd.read_parquet(shard1)],
+        ignore_index=True,
+    ).sort_values("_row_id")
+    assert df_out["messages"].tolist() == [1, 2, 3, 4]
+    assert df_out["output"].tolist() == [
+        "test_shard_1",
+        "test_shard_2",
+        "test_shard_3",
+        "test_shard_4",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_arrow_runner_output_modes_pandas(tmp_path):
     """Validate Arrow runner output modes for pandas backend.
 
@@ -455,6 +505,61 @@ async def test_amain_end_to_end_polars_backend(monkeypatch, tmp_path):
     df_out = pd.read_parquet(output_path)
     assert "output" in df_out.columns
     assert df_out.shape[0] == 2
+
+
+@pytest.mark.asyncio
+async def test_amain_end_to_end_polars_backend_shard_output(monkeypatch, tmp_path):
+    """Write polars outputs as a sharded parquet dataset when output is a directory."""
+    pytest.importorskip("polars")
+
+    input_path = tmp_path / "input.parquet"
+    output_dir = tmp_path / "output_dir"
+    checkpoint_dir = tmp_path / "checkpoints"
+
+    df_in = pd.DataFrame({"messages": [1, 2, 3, 4]})
+    df_in.to_parquet(input_path)
+
+    monkeypatch.setenv("JOB_CLASS", "domyn_swarm.jobs.cli.run:DummySwarmJob")
+    monkeypatch.setenv("MODEL", "mock-model")
+    monkeypatch.setenv("ENDPOINT", "mock-endpoint")
+    monkeypatch.setenv("INPUT_PARQUET", str(input_path))
+    monkeypatch.setenv("OUTPUT_PARQUET", str(output_dir))
+    monkeypatch.setenv(
+        "JOB_KWARGS",
+        '{"output_cols":"output","data_backend":"polars","backend_read_kwargs":{"use_scan":true}}',
+    )
+
+    monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
+
+    args = [
+        "--nthreads",
+        "2",
+        "--runner",
+        "arrow",
+        "--shard-output",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--job-kwargs",
+        '{"output_cols":"output","data_backend":"polars","backend_read_kwargs":{"use_scan":true}}',
+    ]
+    await _amain(args)
+
+    shard0 = output_dir / "data-0.parquet"
+    shard1 = output_dir / "data-1.parquet"
+    assert shard0.exists()
+    assert shard1.exists()
+
+    df_out = pd.concat(
+        [pd.read_parquet(shard0), pd.read_parquet(shard1)],
+        ignore_index=True,
+    ).sort_values("_row_id")
+    assert df_out["messages"].tolist() == [1, 2, 3, 4]
+    assert df_out["output"].tolist() == [
+        "test_shard_1",
+        "test_shard_2",
+        "test_shard_3",
+        "test_shard_4",
+    ]
 
 
 @pytest.mark.asyncio

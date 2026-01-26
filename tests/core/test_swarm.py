@@ -275,6 +275,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
         input_path=Path("/tmp/in.parquet"),
         output_path=Path("/tmp/out.parquet"),
         num_threads=2,
+        shard_output=True,
         detach=True,
         limit=5,
         checkpoint_dir=Path("/tmp/.ckpt"),
@@ -292,6 +293,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     assert cmd[:3] == ["python", "-m", "domyn_swarm.jobs.cli.run"]
     assert f"--endpoint={swarm.endpoint}" in cmd
     assert "--job-kwargs" in cmd
+    assert "--shard-output" in cmd
     # The item right after "--job-kwargs" must be the JSON we created
     idx = cmd.index("--job-kwargs")
     kwargs_json = cmd[idx + 1]

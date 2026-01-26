@@ -159,6 +159,7 @@ async def run_job_unified(
     runner: str = "pandas",
     ray_address: str | None = None,
     output_path: Path | None = None,
+    shard_output: bool = False,
 ) -> Any:
     """Run a SwarmJob with backend-aware execution and checkpointing.
 
@@ -177,6 +178,9 @@ async def run_job_unified(
         ray_address: Optional Ray cluster address (only used for ray backend).
         output_path: Optional output path used to enable direct shard writes when using
             the pandas runner and directory outputs.
+        shard_output: If True and output_path is a directory, write one parquet file per shard
+            (based on `nshards`) using checkpoint outputs as the source of truth when supported
+            by the runner/backend (currently Polars).
 
     Returns:
         Backend-native result for non-ray runs, or the Ray runner result.
@@ -226,6 +230,7 @@ async def run_job_unified(
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
             output_path=output_path,
+            shard_output=shard_output,
         )
 
     if runner == "arrow":

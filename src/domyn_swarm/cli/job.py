@@ -90,6 +90,7 @@ class JobRunSpec:
     Args:
         input_path: Path to the input parquet file.
         output_path: Path to the output parquet file.
+        shard_output: Whether to write one output file per shard when output is a directory.
         checkpoint_dir: Optional checkpoint directory override.
         no_resume: Whether to ignore existing checkpoints.
         no_checkpointing: Whether to disable checkpointing entirely.
@@ -103,6 +104,7 @@ class JobRunSpec:
 
     input_path: Path
     output_path: Path
+    shard_output: bool
     checkpoint_dir: Path | None
     no_resume: bool
     no_checkpointing: bool
@@ -184,6 +186,7 @@ def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> No
         input_path=request.run.input_path,
         output_path=request.run.output_path,
         num_threads=request.run.num_threads,
+        shard_output=request.run.shard_output,
         limit=request.run.limit,
         detach=request.run.detach,
         mail_user=request.run.mail_user,
@@ -340,6 +343,12 @@ def submit_job(
         "-nt",
         help="How many threads should be used by the driver to run the job",
     ),
+    shard_output: bool = typer.Option(
+        False,
+        "--shard-output",
+        help="When output is a directory and using the Polars runner, write one parquet file per "
+        "shard (based on --num-threads) using checkpoint outputs as the source of truth.",
+    ),
     limit: int | None = typer.Option(
         None,
         "--limit",
@@ -397,6 +406,7 @@ def submit_job(
     run_spec = JobRunSpec(
         input_path=input,
         output_path=output,
+        shard_output=shard_output,
         checkpoint_dir=checkpoint_dir,
         no_resume=no_resume,
         no_checkpointing=no_checkpointing,

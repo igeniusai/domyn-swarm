@@ -30,6 +30,7 @@ from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.api.base import OutputJoinMode, SwarmJob
 from domyn_swarm.jobs.api.runner import normalize_batch_outputs
 from domyn_swarm.jobs.io.checkpointing import (
+    _shard_filename,
     _shard_store_uri,
     _validate_checkpoint_store,
     _validate_sharded_execution,
@@ -135,24 +136,24 @@ class PolarsJobRunner:
             return pl.scan_parquet(_with_protocol(store.base_path))
         return None
 
-    def _stream_output_to_dir(
+    def _stream_output_to_path(
         self,
         *,
         data: pl.DataFrame | pl.LazyFrame,
         input_col: str,
         mode: OutputJoinMode,
-        output_path: Path,
+        output_file: Path,
     ) -> bool:
-        """Stream output directly to a directory when possible.
+        """Stream output directly to a parquet file when possible.
 
         Args:
             data: Input data (DataFrame or LazyFrame).
             input_col: Input column name.
             mode: Output join mode.
-            output_path: Directory to write parquet outputs into.
+            output_file: Parquet file path to stream outputs into.
 
         Returns:
-            True if output was streamed to the directory, False otherwise.
+            True if output was streamed to the file, False otherwise.
         """
         import polars as pl
 
@@ -160,12 +161,9 @@ class PolarsJobRunner:
         if out_lf is None:
             return False
 
-        output_path.mkdir(parents=True, exist_ok=True)
-        # Polars streams to a single parquet file; represent "directory output" as a dataset
-        # containing one streamed shard. This keeps memory bounded for large outputs.
-        target = output_path / "data-000000.parquet"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         if mode == OutputJoinMode.REPLACE:
-            out_lf.sink_parquet(target)
+            out_lf.sink_parquet(output_file)
             return True
 
         base_lf = (
@@ -178,7 +176,7 @@ class PolarsJobRunner:
             on=self.cfg.id_col,
             how="left",
             maintain_order="left",
-        ).sink_parquet(target)
+        ).sink_parquet(output_file)
         return True
 
     def _resolve_mode(
@@ -278,7 +276,8 @@ class PolarsJobRunner:
 
             todo_ids = [ids[i] for i in todo_indices]
             todo_items = [items[i] for i in todo_indices]
-            yield batch, todo_ids, todo_items
+            todo_df = batch if len(todo_indices) == batch.height else batch[todo_indices]
+            yield todo_df, todo_ids, todo_items
 
     def _build_flush_cb(
         self,
@@ -356,6 +355,7 @@ class PolarsJobRunner:
         output_cols: list[str] | None,
         output_mode: OutputJoinMode | None = None,
         output_path: Path | None = None,
+        shard_output: bool = False,
     ) -> pl.DataFrame | None:
         """Run a SwarmJob against a polars DataFrame/LazyFrame using batch iteration.
 
@@ -365,7 +365,12 @@ class PolarsJobRunner:
             input_col: Column name to read inputs from.
             output_cols: Output column names (None for dict outputs).
             output_mode: Output join mode (APPEND, REPLACE, IO_ONLY).
-            output_path: Optional directory output path for direct shard writes.
+            output_path: Optional output path. For directory outputs, passing a directory enables
+                streaming to a single parquet file inside that directory. When `shard_output` is
+                True, `output_path` must be a parquet file path and the output will be written
+                using checkpoint outputs as the source of truth.
+            shard_output: If True, write a single shard parquet file from checkpoint outputs
+                into `output_path` (file).
 
         Returns:
             Polars DataFrame with job outputs (and inputs depending on mode), or None if
@@ -379,9 +384,10 @@ class PolarsJobRunner:
         data = self._ensure_id(data)
 
         done_ids = self._prepare_done_ids()
+
         batch_size = self._resolve_batch_size(job)
 
-        for _batch, todo_ids, todo_items in self._iter_todo_batches(
+        for _todo_df, todo_ids, todo_items in self._iter_todo_batches(
             data,
             input_col=input_col,
             done_ids=done_ids,
@@ -394,18 +400,27 @@ class PolarsJobRunner:
                 checkpoint_every=self.cfg.checkpoint_every,
             )
 
-        if (
-            output_path is not None
-            and (output_path.is_dir() or output_path.suffix == "")
-            and isinstance(self.store, ArrowShardStore)
-            and self._stream_output_to_dir(
-                data=data,
-                input_col=input_col,
-                mode=mode,
-                output_path=output_path,
-            )
-        ):
-            return None
+        if isinstance(self.store, ArrowShardStore):
+            if shard_output:
+                if output_path is None or output_path.suffix == "":
+                    raise ValueError("shard_output requires output_path to be a parquet file.")
+                if self._stream_output_to_path(
+                    data=data,
+                    input_col=input_col,
+                    mode=mode,
+                    output_file=output_path,
+                ):
+                    return None
+
+            if output_path is not None and (output_path.is_dir() or output_path.suffix == ""):
+                target = output_path / "data-000000.parquet"
+                if self._stream_output_to_path(
+                    data=data,
+                    input_col=input_col,
+                    mode=mode,
+                    output_file=target,
+                ):
+                    return None
 
         out_table = await asyncio.to_thread(self.store.finalize)
         out_df = cast(pl.DataFrame, pl.from_arrow(out_table))
@@ -429,6 +444,7 @@ async def run_polars_job(
     checkpointing: bool,
     id_col: str,
     output_path: Path | None = None,
+    shard_output: bool = False,
 ) -> Any:
     """Run a job using the polars runner with Arrow-based checkpointing.
 
@@ -442,13 +458,18 @@ async def run_polars_job(
         checkpoint_every: Flush interval in items.
         checkpointing: Whether to read/write checkpoint state.
         id_col: Column name used for stable row ids.
-        output_path: Optional output path for direct shard writes.
+        output_path: Optional output path. When `shard_output` is True, this must be a
+            parquet file path to write the shard output into.
+        shard_output: If True, write a single shard parquet output using checkpoint outputs
+            as the source of truth.
 
     Returns:
         Backend-native output (polars DataFrame) or None when outputs are written directly
-        to a directory.
+        to a parquet file (shard output) or streamed to a directory target.
     """
     _validate_checkpoint_store(checkpointing, store_uri)
+    if shard_output and not checkpointing:
+        raise ValueError("shard_output requires checkpointing to be enabled.")
 
     try:
         import polars as pl  # noqa: F401
@@ -466,6 +487,7 @@ async def run_polars_job(
         output_cols=output_cols,
         output_mode=getattr(job, "output_mode", OutputJoinMode.APPEND),
         output_path=output_path,
+        shard_output=shard_output,
     )
 
 
@@ -575,6 +597,7 @@ async def _run_polars(
     checkpoint_every: int,
     checkpointing: bool,
     output_path: Path | None,
+    shard_output: bool,
 ) -> Any:
     """Run the polars execution path for non-ray backends.
 
@@ -608,6 +631,12 @@ async def _run_polars(
     if nshards <= 1:
         if not require_id:
             data = _ensure_polars_id(data, id_col)
+        if (
+            shard_output
+            and output_path is not None
+            and (output_path.is_dir() or output_path.suffix == "")
+        ):
+            output_path = output_path / _shard_filename(0, 1)
         return await _run_polars_single(
             job_factory=job_factory,
             backend=backend,
@@ -619,7 +648,17 @@ async def _run_polars(
             checkpointing=checkpointing,
             id_col=id_col,
             output_path=output_path,
+            shard_output=shard_output,
         )
+
+    if shard_output:
+        is_dir_output = output_path is not None and (
+            output_path.is_dir() or output_path.suffix == ""
+        )
+        if not is_dir_output:
+            raise ValueError(
+                "shard_output requires output_path to be a directory when running with nshards>1."
+            )
 
     _validate_sharded_execution(checkpointing)
     data = _ensure_polars_id(data, id_col)
@@ -635,6 +674,8 @@ async def _run_polars(
         checkpointing=checkpointing,
         id_col=id_col,
         nshards=nshards,
+        output_path=output_path,
+        shard_output=shard_output,
     )
 
 
@@ -650,6 +691,7 @@ async def _run_polars_single(
     checkpointing: bool,
     id_col: str,
     output_path: Path | None,
+    shard_output: bool,
 ) -> Any:
     """Run a single-shard polars job.
 
@@ -680,6 +722,7 @@ async def _run_polars_single(
         checkpointing=checkpointing,
         id_col=id_col,
         output_path=output_path,
+        shard_output=shard_output,
     )
 
 
@@ -695,6 +738,8 @@ async def _run_polars_sharded(
     checkpointing: bool,
     id_col: str,
     nshards: int,
+    output_path: Path | None,
+    shard_output: bool = False,
 ) -> Any:
     """Run a sharded polars job with checkpointing.
 
@@ -709,9 +754,13 @@ async def _run_polars_sharded(
         checkpointing: Whether checkpointing is enabled.
         id_col: Column name used for stable row ids.
         nshards: Number of shards to split the input into.
+        output_path: Optional output directory.
+        shard_output: If True, write one parquet output per shard into output_path using
+            checkpoint outputs as the source of truth.
 
     Returns:
-        Polars DataFrame containing job outputs.
+        Polars DataFrame containing job outputs, or None when outputs are written directly
+        to per-shard parquet files.
     """
     import polars as pl
 
@@ -728,6 +777,7 @@ async def _run_polars_sharded(
             checkpointing=checkpointing,
             id_col=id_col,
             output_path=None,
+            shard_output=False,
         )
 
     chunk_size = math.ceil(total_rows / nshards)
@@ -736,6 +786,12 @@ async def _run_polars_sharded(
         assert store_uri is not None
         sub = data.slice(start, chunk_size)
         su = _shard_store_uri(store_uri, i)
+        out_file = None
+        if shard_output:
+            if output_path is None:
+                raise ValueError("shard_output requires an output directory.")
+            output_path.mkdir(parents=True, exist_ok=True)
+            out_file = output_path / _shard_filename(i, nshards)
         return await run_polars_job(
             job_factory,
             backend,
@@ -746,7 +802,8 @@ async def _run_polars_sharded(
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
             id_col=id_col,
-            output_path=None,
+            output_path=out_file,
+            shard_output=shard_output,
         )
 
     tasks = []
@@ -756,4 +813,6 @@ async def _run_polars_sharded(
             break
         tasks.append(_one(shard_id, start))
     parts = await asyncio.gather(*tasks)
+    if shard_output:
+        return None
     return pl.concat(parts, how="vertical")

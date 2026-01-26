@@ -353,6 +353,7 @@ class DomynLLMSwarm(BaseModel):
         input_path: Path,
         output_path: Path,
         num_threads: int = 1,
+        shard_output: bool = False,
         detach: bool = False,
         limit: int | None = None,
         mail_user: str | None = None,
@@ -384,6 +385,9 @@ class DomynLLMSwarm(BaseModel):
             Destination Parquet file to be written by *job*.
         num_threads : int, default 1
             Number of CPU threads the job may use in the worker process.
+        shard_output : bool, default False
+            If True and `output_path` is a directory, emit one parquet file per shard using
+            checkpoint outputs as the source of truth (supported by the polars runner).
         detach : bool, default False
             If *True*, start the job in a new process group and return
             immediately with its PID; if *False* (default) the call blocks
@@ -475,6 +479,8 @@ class DomynLLMSwarm(BaseModel):
             exe.append("--no-checkpointing")
         if checkpoint_tag:
             exe.append(f"--checkpoint-tag={checkpoint_tag}")
+        if shard_output:
+            exe.append("--shard-output")
 
         if limit:
             exe.append(f"--limit={limit}")

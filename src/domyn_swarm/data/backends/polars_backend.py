@@ -119,7 +119,11 @@ class PolarsBackend(DataBackend):
         return pl.from_arrow(table)
 
     def slice(self, data: Any, indices: list[int]) -> Any:
-        return data.take(indices)
+        import polars as pl
+
+        if isinstance(data, pl.DataFrame):
+            return data[indices]
+        raise BackendError("Polars backend slice() requires a polars.DataFrame.")
 
     def iter_batches(self, data: Any, *, batch_size: int) -> Iterable[Any]:
         """Yield batches from a polars DataFrame or LazyFrame.
