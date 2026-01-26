@@ -46,6 +46,9 @@ class RayBackend(DataBackend):
     def schema(self, data: Any) -> dict[str, str]:
         schema = data.schema()
 
+        if isinstance(schema, dict):
+            return {str(k): str(v) for k, v in schema.items()}
+
         names = getattr(schema, "names", None)
         types = getattr(schema, "types", None)
         if isinstance(names, list) and isinstance(types, list):
@@ -56,11 +59,8 @@ class RayBackend(DataBackend):
         # Fall back to treating the schema as an iterable of fields (e.g., pyarrow.Schema).
         try:
             return {field.name: str(field.type) for field in schema}
-        except TypeError:
+        except (TypeError, AttributeError):
             pass
-
-        if isinstance(schema, dict):
-            return {str(k): str(v) for k, v in schema.items()}
 
         raise BackendError(f"Unsupported ray schema object: {type(schema)!r}")
 

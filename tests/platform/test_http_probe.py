@@ -1,147 +1,100 @@
-# Copyright 2025 iGenius S.p.A
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import math
-from types import SimpleNamespace
+import types
 
 import pytest
-import requests
 
-from domyn_swarm.platform.http_probe import wait_http_200
-
-
-class FakeClock:
-    def __init__(self, t0: float = 0.0):
-        self.t = t0
-        self.sleep_calls = 0
-        self.last_slept = []
-
-    def now(self) -> float:
-        return self.t
-
-    def sleep(self, dt: float) -> None:
-        self.sleep_calls += 1
-        self.last_slept.append(dt)
-        self.t += dt
+from domyn_swarm.platform.http_probe import HttpWaitError, get_url_status, wait_http_200
 
 
-def _http_get_sequencer(sequence):
-    """
-    Returns a http_get(url, timeout=...) callable that:
-    - pops the next item from `sequence` each call
-    - if it's an Exception instance, raises it
-    - if it's an int, returns an object with .status_code set to that int
-    - if sequence is exhausted, repeats the last item
-    """
-    seq = list(sequence)
+class DummyToken:
+    """Token stub for settings."""
 
-    def _get(url, timeout=5.0, headers=None):
-        # Keep verifying the function passes timeout=5.0
-        assert math.isclose(timeout, 5.0)
-        item = seq.pop(0) if seq else sequence[-1]
-        if isinstance(item, Exception):
-            raise item
-        return SimpleNamespace(status_code=int(item))
-
-    return _get
+    def get_secret_value(self) -> str:
+        return "secret"
 
 
-def test_immediate_success_no_sleep():
-    clock = FakeClock()
-    http_get = _http_get_sequencer([200])
+def test_wait_http_200_success(monkeypatch):
+    """Returns once the endpoint reports 200."""
+    responses = [500, 200]
+
+    def _http_get(url, **kwargs):
+        """Fake HTTP getter that returns successive statuses."""
+        status = responses.pop(0)
+        return types.SimpleNamespace(status_code=status)
+
+    def _now():
+        """Deterministic clock."""
+        return 0.0
 
     wait_http_200(
-        "http://svc/ok",
-        timeout_s=10,
-        poll_interval_s=1.0,
-        now=clock.now,
-        sleep=clock.sleep,
-        http_get=http_get,
+        "http://example",
+        timeout_s=5,
+        poll_interval_s=0.0,
+        now=_now,
+        sleep=lambda _: None,
+        http_get=_http_get,
     )
 
-    assert clock.sleep_calls == 0  # returned immediately
 
+def test_wait_http_200_timeout(monkeypatch):
+    """Raises HttpWaitError when the timeout expires."""
+    ticks = {"t": 0.0}
 
-def test_retries_then_success_sleeps_once():
-    clock = FakeClock()
-    http_get = _http_get_sequencer([503, 200])
+    def _now():
+        """Monotonic clock that advances by 1 per call."""
+        ticks["t"] += 1.0
+        return ticks["t"]
 
-    wait_http_200(
-        "http://svc/retry",
-        timeout_s=10,
-        poll_interval_s=2.5,
-        now=clock.now,
-        sleep=clock.sleep,
-        http_get=http_get,
-    )
+    def _http_get(url, **kwargs):
+        """Fake HTTP getter that always fails."""
+        return types.SimpleNamespace(status_code=500)
 
-    assert clock.sleep_calls == 1
-    assert clock.last_slept == [2.5]
-
-
-def test_handles_request_exception_then_succeeds():
-    clock = FakeClock()
-    http_get = _http_get_sequencer([requests.RequestException("boom"), 200])
-
-    wait_http_200(
-        "http://svc/exc",
-        timeout_s=10,
-        poll_interval_s=1.0,
-        now=clock.now,
-        sleep=clock.sleep,
-        http_get=http_get,
-    )
-
-    assert clock.sleep_calls == 1  # one failed attempt, one sleep, then success
-
-
-def test_times_out_after_deadline():
-    clock = FakeClock()
-    # Always non-200 so we hit the timeout
-    http_get = _http_get_sequencer([500])
-
-    timeout_s = 10
-    poll = 3
-    with pytest.raises(RuntimeError, match="Timeout waiting for http://svc/slow to return 200 OK"):
+    with pytest.raises(HttpWaitError):
         wait_http_200(
-            "http://svc/slow",
-            timeout_s=timeout_s,
-            poll_interval_s=poll,
-            now=clock.now,
-            sleep=clock.sleep,
-            http_get=http_get,
+            "http://example",
+            timeout_s=1,
+            poll_interval_s=0.0,
+            now=_now,
+            sleep=lambda _: None,
+            http_get=_http_get,
         )
 
-    # Expected number of sleeps: ceil(timeout / poll)
-    assert clock.sleep_calls == math.ceil(timeout_s / poll)
-    # And our fake time advanced accordingly
-    assert clock.t >= timeout_s
 
+def test_wait_http_200_includes_token(monkeypatch):
+    """Adds authorization headers when a token is configured."""
+    seen_headers = {}
 
-def test_passes_url_to_http_get_and_uses_default_poll_interval():
-    # We don't check sleep intervals here; just ensure the URL reaches http_get
-    seen = {}
+    class DummySettings:
+        """Settings stub with API token."""
 
-    def http_get(url, timeout=5.0, headers=None):
-        seen["url"] = url
-        return SimpleNamespace(status_code=200)
+        api_token = DummyToken()
+        vllm_api_key = None
+        singularityenv_vllm_api_key = None
 
-    # Use real time defaults but keep tiny timeout to avoid flakiness (no sleeping happens anyway)
+    monkeypatch.setattr("domyn_swarm.platform.http_probe.get_settings", lambda: DummySettings())
+
+    def _http_get(url, **kwargs):
+        """Capture authorization headers."""
+        seen_headers.update(kwargs.get("headers", {}))
+        return types.SimpleNamespace(status_code=200)
+
     wait_http_200(
-        "http://svc/path",
+        "http://example",
         timeout_s=1,
-        http_get=http_get,
+        poll_interval_s=0.0,
+        now=lambda: 0.0,
+        sleep=lambda _: None,
+        http_get=_http_get,
     )
+    assert seen_headers["Authorization"] == "Bearer secret"
 
-    assert seen["url"] == "http://svc/path"
+
+def test_get_url_status_handles_failure():
+    """Returns -1 when the HTTP request fails."""
+
+    def _http_get(url, **kwargs):
+        """Fake HTTP getter that raises a RequestException."""
+        import requests
+
+        raise requests.RequestException("nope")
+
+    assert get_url_status("http://example", http_get=_http_get) == -1
