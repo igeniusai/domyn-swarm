@@ -92,9 +92,13 @@ Changelog = "https://github.com/igeniusai/domyn-swarm/blob/main/CHANGELOG.md"
 
 [project.scripts]
 domyn-swarm = "domyn_swarm.cli:app"
+ds = "domyn_swarm.cli:app"
+dswarm = "domyn_swarm.cli:app"
 
 [project.entry-points."uv.run"]
 domyn-swarm = "domyn_swarm.cli:app"
+ds = "domyn_swarm.cli:app"
+dswarm = "domyn_swarm.cli:app"
 
 [project.optional-dependencies]
 lepton = [
