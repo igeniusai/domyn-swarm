@@ -216,6 +216,10 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
             return pd.DataFrame().set_index(self.id_col)
 
         tables: list[pa.Table] = []
+        if self.fs.exists(self.base_path):
+            with self.fs.open(self.base_path, "rb") as f:
+                base_table = pq.read_table(f)
+            tables.append(self._normalize_id_column(base_table))
         for p in parts:
             with self.fs.open(p, "rb") as f:
                 tables.append(pq.read_table(f))

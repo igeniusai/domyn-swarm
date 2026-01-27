@@ -34,3 +34,24 @@ async def test_parquet_shard_store_roundtrip_and_dedup(tmp_path):
     assert out.index.name == "_row_id"
     assert out.loc[0, "result"] == "x"
     assert out.loc[1, "result"] == "y2"
+
+
+@pytest.mark.asyncio
+async def test_parquet_shard_store_finalize_includes_base_when_new_parts(tmp_path):
+    base = tmp_path / "run.parquet"
+    store = ParquetShardStore(f"file://{base}")
+
+    await store.flush(FlushBatch(ids=[0, 1], rows=["x", "y"]), output_cols=["result"])
+    store.finalize()
+
+    parts_dir = tmp_path / "run"
+    for part in parts_dir.glob("part-*.parquet"):
+        part.unlink()
+
+    store2 = ParquetShardStore(f"file://{base}")
+    await store2.flush(FlushBatch(ids=[2], rows=["z"]), output_cols=["result"])
+    out = store2.finalize()
+
+    assert out.loc[0, "result"] == "x"
+    assert out.loc[1, "result"] == "y"
+    assert out.loc[2, "result"] == "z"
