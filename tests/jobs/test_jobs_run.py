@@ -51,6 +51,23 @@ class DummySwarmJob(SwarmJob):
         return [f"test_shard_{i}" for i in items]
 
 
+class DummyDictSwarmJob(SwarmJob):
+    output_mode = OutputJoinMode.APPEND
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("endpoint", "http://dummy-endpoint")
+        kwargs.setdefault("model", "dummy-model")
+        kwargs.setdefault("input_column_name", "messages")
+        kwargs.setdefault("output_cols", "output")
+        kwargs.setdefault("default_output_cols", [])
+        super().__init__(**kwargs)
+        self.params = kwargs
+        self.output_mode = kwargs.get("output_mode", OutputJoinMode.APPEND)
+
+    async def transform_items(self, items: list):
+        return [{"output": f"test_shard_{i}"} for i in items]
+
+
 def test_load_cls_runtime():
     mod = types.ModuleType("fake_module")
 
@@ -364,6 +381,52 @@ async def test_arrow_runner_output_modes_polars(tmp_path):
         )
         assert isinstance(out_df, pl.DataFrame)
         assert set(out_df.columns) == cols
+
+
+@pytest.mark.asyncio
+async def test_arrow_runner_uses_pandas_index_as_id_when_missing(tmp_path):
+    df = pd.DataFrame({"messages": [1, 2]}, index=[10, 20])
+    out_df = await run_job_unified(
+        DummySwarmJob,
+        df,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        runner="arrow",
+    )
+    assert out_df["_row_id"].tolist() == [10, 20]
+
+
+@pytest.mark.asyncio
+async def test_arrow_runner_append_suffixes_on_collision(tmp_path):
+    df = pd.DataFrame({"messages": [1, 2], "output": ["orig1", "orig2"]})
+    out_df = await run_job_unified(
+        DummyDictSwarmJob,
+        df,
+        input_col="messages",
+        output_cols=None,
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        runner="arrow",
+    )
+    assert {"output_x", "output_y"}.issubset(out_df.columns)
+    assert out_df["output_x"].tolist() == ["orig1", "orig2"]
+    assert out_df["output_y"].tolist() == ["test_shard_1", "test_shard_2"]
+
+
+@pytest.mark.asyncio
+async def test_arrow_runner_io_only_suffixes_on_collision(tmp_path):
+    df = pd.DataFrame({"messages": [1, 2], "output": ["orig1", "orig2"]})
+    out_df = await run_job_unified(
+        lambda: DummyDictSwarmJob(output_mode=OutputJoinMode.IO_ONLY),
+        df,
+        input_col="messages",
+        output_cols=None,
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        runner="arrow",
+    )
+    assert {"output_x", "output_y"}.issubset(out_df.columns)
+    assert out_df["output_x"].tolist() == ["orig1", "orig2"]
+    assert out_df["output_y"].tolist() == ["test_shard_1", "test_shard_2"]
 
 
 def test_parse_args_minimal():

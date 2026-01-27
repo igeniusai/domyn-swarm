@@ -21,6 +21,7 @@ import logging
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 
 from domyn_swarm.checkpoint.arrow_store import ArrowShardStore, InMemoryArrowStore
@@ -84,11 +85,7 @@ class ArrowJobRunner:
         if isinstance(mode, str):
             mode = OutputJoinMode(mode)
 
-        table = table
-        if self.cfg.id_col not in table.column_names:
-            # Inject id as positional index
-            ids = pa.array(range(len(table)))
-            table = table.append_column(self.cfg.id_col, ids)
+        table = _ensure_arrow_id(table, self.cfg.id_col)
 
         todo = self.store.prepare(table, self.cfg.id_col)
         ids_col = todo[self.cfg.id_col]
@@ -128,18 +125,30 @@ class ArrowJobRunner:
         }
 
         base_ids = table[self.cfg.id_col].to_pylist()
-        columns: dict[str, list[Any]] = {}
-
-        # Start from the original columns depending on the mode.
         if mode == OutputJoinMode.IO_ONLY:
-            columns[self.cfg.id_col] = base_ids
-            columns[input_col] = table[input_col].to_pylist()
-        else:  # APPEND
-            for c in table.column_names:
-                columns[c] = table[c].to_pylist()
+            base_columns = [input_col]
+            extra = [
+                c
+                for c in table.column_names
+                if c not in (self.cfg.id_col, input_col) and c in output_columns
+            ]
+            base_columns.extend(extra)
+        else:
+            base_columns = [c for c in table.column_names if c != self.cfg.id_col]
+        collisions = set(base_columns) & set(output_columns)
+
+        def _base_name(col: str) -> str:
+            return f"{col}_x" if col in collisions else col
+
+        def _out_name(col: str) -> str:
+            return f"{col}_y" if col in collisions else col
+
+        columns: dict[str, list[Any]] = {self.cfg.id_col: base_ids}
+        for c in base_columns:
+            columns[_base_name(c)] = table[c].to_pylist()
 
         for c in output_columns:
-            columns[c] = [out_rows.get(rid, {}).get(c) for rid in base_ids]
+            columns[_out_name(c)] = [out_rows.get(rid, {}).get(c) for rid in base_ids]
 
         return pa.Table.from_pydict(columns)
 
@@ -195,6 +204,11 @@ def _ensure_arrow_id(table: pa.Table, id_col: str) -> pa.Table:
     """
     if id_col in table.column_names:
         return table
+    for candidate in ("__index_level_0__", "index", "level_0"):
+        if candidate in table.column_names:
+            return table.rename_columns(
+                [id_col if c == candidate else c for c in table.column_names]
+            )
     ids = pa.array(range(len(table)))
     return table.append_column(id_col, ids)
 
@@ -231,7 +245,16 @@ async def _run_arrow(
     Returns:
         Arrow table containing job outputs (and inputs depending on output mode).
     """
-    table = data if isinstance(data, pa.Table) else backend.to_arrow(data)
+    if isinstance(data, pa.Table):
+        table = data
+    elif isinstance(data, pd.DataFrame):
+        df = data
+        if id_col not in df.columns:
+            df = df.copy(deep=False)
+            df[id_col] = df.index
+        table = backend.to_arrow(df)
+    else:
+        table = backend.to_arrow(data)
     if require_id and id_col not in table.column_names:
         raise ValueError(f"Input table missing required id column '{id_col}'.")
     _validate_checkpoint_store(checkpointing, store_uri)
