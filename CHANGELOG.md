@@ -1,3 +1,64 @@
+## v0.26.0 (2026-01-27)
+
+### Feat
+
+- **scripts**: add aliases for 'ds' and 'dswarm' to entry points
+- **db**: add prune command to delete dirty swarm records and implement delete_records method
+- **sharding**: add support for shard output in Polars runner, enabling one parquet file per shard
+- **polars**: update output handling to support directory outputs and add tests for LazyFrame streaming
+- **parquet**: add support for brace range and glob patterns in parquet_hash function
+- **patterns**: implement brace range expansion for file patterns in I/O operations
+- **job**: add checkpoint_tag to JobRunSpec and submission parameters
+- **srun**: add default node count to srun command and update test for CLI execution
+- **compat**: enhance checkpointing and sharded execution validation in Arrow and Polars jobs
+- **srun**: add support for Slurm allocation checks and update command construction
+- **jobs**: enhance job execution with direct shard output support and async flushing
+- **ray**: implement Ray backend support with address configuration and validation
+- **ray**: add schema extraction and job batching support to RayBackend
+- **jobs**: implement iter_job_batches method for backend classes and add JobBatch data structure
+- **jobs**: enhance Polars backend with lazy execution and checkpointing support
+- **job**: add checkpoint tag option for job submission and processing
+- **jobs**: implement Polars runner and enhance job execution with checkpointing support
+- **jobs**: add support for optional id column in job submissions and processing
+- **jobs**: wire arrow runner selection through CLI
+- **arrow**: add arrow runner core and generic checkpoint store
+- **jobs**: add in-memory checkpoint store and options to disable checkpointing and resume
+- **backends**: enhance Polars backend write functionality and add tests
+- **chat**: enhance reasoning content handling in chat completion jobs
+- **cli**: add job submit flags for data backend
+- **jobs**: run jobs with selected data backend
+- **data-backends**: add backend registry and pandas/polars/ray backends
+- **request**: introduce _request_kwargs method to filter request kwargs and update API calls
+- **planning**: centralize plan building and normalize deployment resources
+- **deployment**: introduce DeploymentContext for normalized deployment handling and refactor related methods
+- **io**: add support for sharded parquet file saving in save_dataframe function
+- **batching**: add progress hooks and refactor run method for BatchExecutor
+- **cli**: show replica rows in status view
+- **slurm**: wire watchdog args and surface replica hints
+- **runtime**: add watchdog args builder and status helper
+- enhance fingerprint computation with stable representation and update tests for checkpoint manager
+- extend CheckpointManager to include input_col and enhance fingerprint validation
+- add payload normalization function and corresponding tests for collector and watchdog
+- enhance CheckpointManager with expected_output_cols validation and add tests
+- add progress parameter to BatchExecutor.run method and update tests
+
+### Fix
+
+- **store**: update parquet file pattern to match all parquet files in directory
+- **jobs**: improve backend type hinting and simplify checkpointing logic
+- **dependencies**: reorganize Polars and Ray dependencies in pyproject.toml and uv.lock
+- **run**: streamline output handling in run_job_unified and remove unnecessary conversions
+- **checkpoint**: stabilize finalize() id column handling
+- **swarm**: remove JOB_KWARGS from job details dictionary
+- **slurm**: include DSWARM_AGENT_VERSION in SLURM job script
+
+### Refactor
+
+- **jobs**: update and deprecate jobs module
+- **tests**: rename unused variables in watchdog tests for clarity
+- **checkpoint**: make ParquetShardStore arrow-native
+- replace deprecated transform method with transform_items in multiple job classes
+
 ## v0.25.0 (2026-01-08)
 
 ### Feat

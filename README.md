@@ -84,7 +84,7 @@ pip install 'domyn-swarm[all]'
 **From source (GitHub):**
 
 ```bash
-RELEASE=v0.25.0
+RELEASE=v0.26.0
 pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE
 # or with uv
 uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE # git+ssh://git@github.com/igeniusai/domyn-swarm.git[lepton]
