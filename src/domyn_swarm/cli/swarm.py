@@ -52,25 +52,29 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
     from domyn_swarm.platform.protocols import ServingPhase
 
     records = SwarmStateManager.list_all()
+    hidden_phases = {ServingPhase.FAILED, ServingPhase.STOPPED, ServingPhase.UNKNOWN}
 
     for rec in records:
-        name: str = rec.get("name", "unnamed-swarm")
+        deployment_name = rec.get("deployment_name") or rec.get("name")
+        if not deployment_name:
+            continue
+        name: str = rec.get("name", deployment_name)
         backend = rec.get("platform", "unknown").lower()
 
         url = rec.get("endpoint", "")
-        phase = ServingPhase.UNKNOWN.value
+        phase = "UNPROBED" if not probe else ServingPhase.UNKNOWN.value
         http = None
         extra: dict[str, Any] | None = None
 
-        if name and probe:
+        if probe:
             try:
                 # Load a live swarm and ask the serving backend for status
-                swarm = DomynLLMSwarm.from_state(deployment_name=name)
+                swarm = DomynLLMSwarm.from_state(deployment_name=deployment_name)
                 # Prefer serving.status(handle) if present
                 st = swarm._deployment.serving.status(swarm.serving_handle)  # type: ignore[attr-defined]
+                if st.phase in hidden_phases:
+                    continue  # skip dirty swarms
                 phase = st.phase.value
-                if phase == "UNKNOWN":
-                    continue  # skip dead/unknown swarms
 
                 # Prefer URL from live status if available
                 url = url or st.url
@@ -82,6 +86,7 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
                             extra[k] = st.detail[k]
             except Exception as e:
                 logger.debug(f"Status probe failed for {name}: {e}")
+                continue
 
         yield SwarmSummary(name=name, backend=backend, phase=phase, url=url, http=http, extra=extra)
 

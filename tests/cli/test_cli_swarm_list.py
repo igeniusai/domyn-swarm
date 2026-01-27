@@ -53,8 +53,8 @@ def test_iter_summaries_no_probe_uses_state_only(mocker):
     assert [s.name for s in out] == ["a", "b"]
     assert [s.backend for s in out] == ["slurm", "lepton"]
     assert [s.phase for s in out] == [
-        ServingPhase.UNKNOWN.value,
-        ServingPhase.UNKNOWN.value,
+        "UNPROBED",
+        "UNPROBED",
     ]
     assert [s.url for s in out] == ["http://a:9000", ""]
     spy_from_state.assert_not_called()
@@ -101,7 +101,7 @@ def test_iter_summaries_probe_skips_unknown(mocker):
     assert out == []
 
 
-def test_iter_summaries_probe_errors_are_soft(mocker):
+def test_iter_summaries_probe_errors_skip_record(mocker):
     mocker.patch(
         "domyn_swarm.core.state.state_manager.SwarmStateManager.list_all",
         return_value=[_rec("oops", "lepton", "http://rec:9000")],
@@ -109,14 +109,31 @@ def test_iter_summaries_probe_errors_are_soft(mocker):
     mocker.patch("domyn_swarm.DomynLLMSwarm.from_state", side_effect=RuntimeError("boom"))
 
     out = list(SW._iter_summaries(probe=True))
-    assert len(out) == 1
-    s = out[0]
-    assert s.name == "oops"
-    assert s.backend == "lepton"
-    assert s.phase == ServingPhase.UNKNOWN.value
-    assert s.url == "http://rec:9000"
-    assert s.http is None
-    assert s.extra is None
+    assert out == []
+
+
+def test_iter_summaries_probe_skips_failed_or_stopped(mocker):
+    mocker.patch(
+        "domyn_swarm.core.state.state_manager.SwarmStateManager.list_all",
+        return_value=[
+            _rec("failed", "slurm", ""),
+            _rec("stopped", "lepton", ""),
+            _rec("ok", "slurm", ""),
+        ],
+    )
+    statuses = {
+        "failed": ServingStatus(phase=ServingPhase.FAILED, url=None, detail=None),
+        "stopped": ServingStatus(phase=ServingPhase.STOPPED, url=None, detail=None),
+        "ok": ServingStatus(phase=ServingPhase.RUNNING, url="http://ok", detail=None),
+    }
+
+    def _from_state(*, deployment_name: str):
+        return _fake_swarm_with_status(statuses[deployment_name])
+
+    mocker.patch("domyn_swarm.DomynLLMSwarm.from_state", side_effect=_from_state)
+
+    out = list(SW._iter_summaries(probe=True))
+    assert [s.name for s in out] == ["ok"]
 
 
 def test_cli_list_prints_no_swarms_message(mocker):

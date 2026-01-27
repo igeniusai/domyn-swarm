@@ -127,6 +127,29 @@ class SwarmStateManager:
                 s.commit()
 
     @classmethod
+    def delete_records(cls, deployment_names: Iterable[str]) -> int:
+        """Delete multiple swarm records by deployment name.
+
+        Args:
+            deployment_names (Iterable[str]): Names of deployments to delete.
+
+        Returns:
+            int: Number of records deleted.
+        """
+        names = [name for name in deployment_names if name]
+        if not names:
+            return 0
+        session_factory = make_session_factory(cls._get_db_path())
+        with session_factory() as s:
+            deleted = (
+                s.query(SwarmRecord)
+                .filter(SwarmRecord.deployment_name.in_(names))
+                .delete(synchronize_session=False)
+            )
+            s.commit()
+        return int(deleted or 0)
+
+    @classmethod
     def list_all(cls) -> list[dict[str, Any]]:
         session_factory = make_session_factory(cls._get_db_path())
         with session_factory() as s:
