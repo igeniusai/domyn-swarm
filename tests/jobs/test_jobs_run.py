@@ -429,6 +429,58 @@ async def test_arrow_runner_io_only_suffixes_on_collision(tmp_path):
     assert out_df["output_y"].tolist() == ["test_shard_1", "test_shard_2"]
 
 
+@pytest.mark.asyncio
+async def test_arrow_runner_polars_uses_pandas_index_as_id_when_missing(tmp_path):
+    pytest.importorskip("polars")
+    df = pd.DataFrame({"messages": [1, 2]}, index=[10, 20])
+    out_df = await run_job_unified(
+        DummySwarmJob,
+        df,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        data_backend="polars",
+        runner="arrow",
+    )
+    assert out_df["_row_id"].to_list() == [10, 20]
+
+
+@pytest.mark.asyncio
+async def test_arrow_runner_polars_append_suffixes_on_collision(tmp_path):
+    pl = pytest.importorskip("polars")
+    df = pl.DataFrame({"messages": [1, 2], "output": ["orig1", "orig2"]})
+    out_df = await run_job_unified(
+        DummyDictSwarmJob,
+        df,
+        input_col="messages",
+        output_cols=None,
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        data_backend="polars",
+        runner="arrow",
+    )
+    assert {"output_x", "output_y"}.issubset(out_df.columns)
+    assert out_df["output_x"].to_list() == ["orig1", "orig2"]
+    assert out_df["output_y"].to_list() == ["test_shard_1", "test_shard_2"]
+
+
+@pytest.mark.asyncio
+async def test_arrow_runner_polars_io_only_suffixes_on_collision(tmp_path):
+    pl = pytest.importorskip("polars")
+    df = pl.DataFrame({"messages": [1, 2], "output": ["orig1", "orig2"]})
+    out_df = await run_job_unified(
+        lambda: DummyDictSwarmJob(output_mode=OutputJoinMode.IO_ONLY),
+        df,
+        input_col="messages",
+        output_cols=None,
+        store_uri=f"file://{tmp_path / 'out.parquet'}",
+        data_backend="polars",
+        runner="arrow",
+    )
+    assert {"output_x", "output_y"}.issubset(out_df.columns)
+    assert out_df["output_x"].to_list() == ["orig1", "orig2"]
+    assert out_df["output_y"].to_list() == ["test_shard_1", "test_shard_2"]
+
+
 def test_parse_args_minimal():
     args = parse_args(
         [

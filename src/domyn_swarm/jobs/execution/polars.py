@@ -166,11 +166,17 @@ class PolarsJobRunner:
             out_lf.sink_parquet(output_file)
             return True
 
-        base_lf = (
-            data.select([self.cfg.id_col, input_col]) if mode == OutputJoinMode.IO_ONLY else data
+        output_columns = [c for c in out_lf.collect_schema().names() if c != self.cfg.id_col]
+        base, collisions = self._resolve_join_base(
+            data,
+            input_col=input_col,
+            mode=mode,
+            output_columns=output_columns,
         )
-        if isinstance(base_lf, pl.DataFrame):
-            base_lf = base_lf.lazy()
+
+        base_lf = base.lazy() if isinstance(base, pl.DataFrame) else base
+
+        base_lf, out_lf = self._apply_collision_suffixes_lazy(base_lf, out_lf, collisions)
         base_lf.join(
             out_lf,
             on=self.cfg.id_col,
@@ -195,6 +201,63 @@ class PolarsJobRunner:
         """
         mode = output_mode or getattr(job, "output_mode", OutputJoinMode.APPEND)
         return OutputJoinMode(mode) if isinstance(mode, str) else mode
+
+    def _apply_collision_suffixes_lazy(
+        self,
+        base: pl.LazyFrame,
+        outputs: pl.LazyFrame,
+        collisions: set[str],
+    ) -> tuple[pl.LazyFrame, pl.LazyFrame]:
+        """Apply pandas-like suffixes for colliding columns on LazyFrames."""
+        if not collisions:
+            return base, outputs
+        base = base.rename({c: f"{c}_x" for c in collisions})
+        outputs = outputs.rename({c: f"{c}_y" for c in collisions})
+        return base, outputs
+
+    def _apply_collision_suffixes_df(
+        self,
+        base: pl.DataFrame,
+        outputs: pl.DataFrame,
+        collisions: set[str],
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """Apply pandas-like suffixes for colliding columns on DataFrames."""
+        if not collisions:
+            return base, outputs
+        base = base.rename({c: f"{c}_x" for c in collisions})
+        outputs = outputs.rename({c: f"{c}_y" for c in collisions})
+        return base, outputs
+
+    def _resolve_join_base(
+        self,
+        data: pl.DataFrame | pl.LazyFrame,
+        *,
+        input_col: str,
+        mode: OutputJoinMode,
+        output_columns: list[str],
+    ) -> tuple[pl.DataFrame | pl.LazyFrame, set[str]]:
+        """Build the base frame for output joins and detect name collisions.
+
+        Args:
+            data: Polars DataFrame or LazyFrame.
+            input_col: Column name to read inputs from.
+            mode: Output join mode (APPEND or IO_ONLY).
+            output_columns: Output column names (excluding id column).
+
+        Returns:
+            Tuple of (base frame, colliding column names).
+        """
+        all_columns = self._column_names(data)
+        if mode == OutputJoinMode.IO_ONLY:
+            base_columns = [self.cfg.id_col, input_col]
+            extra = [c for c in all_columns if c not in base_columns and c in output_columns]
+            base_columns.extend(extra)
+            base = data.select(base_columns)
+        else:
+            base_columns = all_columns
+            base = data
+        collisions = set(base_columns) & set(output_columns)
+        return base, collisions
 
     def _ensure_input_col(self, data: pl.DataFrame | pl.LazyFrame, input_col: str) -> None:
         """Validate that the input column exists when eager data is used.
@@ -331,19 +394,19 @@ class PolarsJobRunner:
         if mode == OutputJoinMode.REPLACE:
             return out_df
 
-        if isinstance(data, pl.LazyFrame):
-            base_lf = (
-                data.select([self.cfg.id_col, input_col])
-                if mode == OutputJoinMode.IO_ONLY
-                else data
-            )
-            return base_lf.join(
-                out_df.lazy(), on=self.cfg.id_col, how="left", maintain_order="left"
-            ).collect()
-
-        base_df = (
-            data.select([self.cfg.id_col, input_col]) if mode == OutputJoinMode.IO_ONLY else data
+        output_columns = [c for c in out_df.columns if c != self.cfg.id_col]
+        base, collisions = self._resolve_join_base(
+            data,
+            input_col=input_col,
+            mode=mode,
+            output_columns=output_columns,
         )
+        if isinstance(base, pl.LazyFrame):
+            base, out_lf = self._apply_collision_suffixes_lazy(base, out_df.lazy(), collisions)
+            return base.join(
+                out_lf, on=self.cfg.id_col, how="left", maintain_order="left"
+            ).collect()
+        base_df, out_df = self._apply_collision_suffixes_df(base, out_df, collisions)
         return base_df.join(out_df, on=self.cfg.id_col, how="left", maintain_order="left")
 
     async def run(
@@ -491,11 +554,12 @@ async def run_polars_job(
     )
 
 
-def _coerce_polars_data(data: Any) -> Any:
+def _coerce_polars_data(data: Any, *, id_col: str) -> Any:
     """Convert supported inputs into a polars DataFrame or LazyFrame.
 
     Args:
         data: Input dataset-like object.
+        id_col: Column name used for stable row ids.
 
     Returns:
         Polars DataFrame or LazyFrame.
@@ -506,7 +570,11 @@ def _coerce_polars_data(data: Any) -> Any:
     import polars as pl
 
     if isinstance(data, pd.DataFrame):
-        data = pl.from_pandas(data)
+        df = data
+        if id_col not in df.columns:
+            df = df.copy(deep=False)
+            df[id_col] = df.index
+        data = pl.from_pandas(df)
     elif isinstance(data, pa.Table):
         data = pl.from_arrow(data)
 
@@ -619,7 +687,7 @@ async def _run_polars(
         Polars DataFrame containing job outputs, or None when outputs are written directly
         to a directory.
     """
-    data = _coerce_polars_data(data)
+    data = _coerce_polars_data(data, id_col=id_col)
     _validate_polars_inputs(
         data,
         require_id=require_id,
