@@ -1,3 +1,10 @@
+## v0.26.1 (2026-01-28)
+
+### Fix
+
+- **arrow**: align ids and merge semantics
+- **arrow**: include base outputs when finalizing shards
+
 ## v0.26.0 (2026-01-27)
 
 ### Feat
