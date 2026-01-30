@@ -133,7 +133,6 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     # Handle fields
     assert handle.status is JobStatus.RUNNING
     assert handle.meta["pid"] == 5555
-    assert handle.meta["pgid"] == 5555
     assert handle.id == "5555"
     assert handle.meta["cmd"] == shlex.join(popen_calls["cmd"])  # joined string
 
@@ -275,7 +274,7 @@ def test_wait_tracks_detached_popen_and_returns_succeeded():
     assert proc.pid is not None
     be._procs[proc.pid] = proc
 
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid, "pgid": proc.pid})
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid})
     status = be.wait(handle, stream_logs=False)
     assert status is JobStatus.SUCCEEDED
     assert handle.meta["returncode"] == 0
@@ -293,7 +292,7 @@ def test_cancel_terminates_process_group(monkeypatch):
         lambda pgid, grace_s=10.0: calls.append(pgid),
     )
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 777, "pgid": 777})
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 777})
     be.cancel(handle)
     assert calls == [777]
     assert handle.status is JobStatus.CANCELLED
@@ -325,7 +324,7 @@ def test_cancel_then_wait_returns_cancelled():
     assert proc.pid is not None
     be._procs[proc.pid] = proc
 
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid, "pgid": proc.pid})
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid})
     be.cancel(handle)
 
     # Give the signal a moment to land on slower CI boxes.

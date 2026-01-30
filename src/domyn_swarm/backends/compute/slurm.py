@@ -49,6 +49,9 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     - For `detach=True`, we return a JobHandle with local `Popen` PID in `meta["pid"]`.
       `wait()` and `cancel()` are reliable only within the same process that created the
       handle (the OS exit status can't be retrieved cross-process without extra machinery).
+    - Cancellation uses `os.killpg(pid, ...)` to terminate the whole `srun` process group
+      (srun + its children). This relies on `start_new_session=True` so the spawned process
+      becomes the leader of its own process group (i.e. pid == pgid), so we only store `pid`.
     """
 
     cfg: "SlurmConfig"
@@ -116,7 +119,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             return JobHandle(
                 id=str(proc.pid),
                 status=JobStatus.RUNNING,
-                meta={"pid": proc.pid, "pgid": proc.pid, "cmd": shlex.join(cmd)},
+                meta={"pid": proc.pid, "cmd": shlex.join(cmd)},
             )
 
         # synchronous
@@ -186,23 +189,17 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         and escalates to SIGKILL after a short grace period.
         """
         pid_raw = handle.meta.get("pid")
-        pgid_raw = handle.meta.get("pgid")
-        if pid_raw is None and pgid_raw is None:
+        if pid_raw is None:
             return
 
         try:
-            pid = int(pid_raw) if pid_raw is not None else None
-            pgid = int(pgid_raw) if pgid_raw is not None else None
+            pid = int(pid_raw)
         except (TypeError, ValueError):
-            logger.warning("Invalid pid/pgid in job handle meta: pid=%r pgid=%r", pid_raw, pgid_raw)
-            return
-
-        target_pgid = pgid or pid
-        if target_pgid is None:
+            logger.warning("Invalid pid in job handle meta: pid=%r", pid_raw)
             return
 
         with contextlib.suppress(Exception):
-            _terminate_process_group(target_pgid, grace_s=10.0)
+            _terminate_process_group(pid, grace_s=10.0)
 
         handle.status = JobStatus.CANCELLED
         handle.meta["cancelled_at"] = time.time()
