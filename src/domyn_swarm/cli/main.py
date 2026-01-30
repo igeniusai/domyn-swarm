@@ -148,8 +148,7 @@ def check_status(
         str,
         typer.Argument(
             ...,
-            help="Name of the swarm allocation to check status for. "
-            "If not provided, checks all allocations.",
+            help="Name of the swarm allocation to check status for. ",
         ),
     ],
 ) -> None:

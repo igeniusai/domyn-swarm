@@ -35,7 +35,7 @@ It’s designed for **fast evaluation loops**, **robust batch inference**, and *
 * **One CLI** for **up → job submit → status → down** across platforms
 * **Serving/Compute backends** behind clean protocols → easy to add new targets (e.g., AzureML)
 * **Health checks & readiness**:
-  * Slurm: array replicas + LB, HTTP probe on `/v1/models`
+  * Slurm: array replicas + LB, HTTP probe on `/v1/health`
   * Lepton: deployment state polling
 * **SwarmJob API** (DataFrame in → DataFrame out)
   * Built‑in **batching**, **bounded concurrency**, **tenacity retries**, **checkpointing** (Parquet)

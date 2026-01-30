@@ -6,8 +6,8 @@ from domyn_swarm.runtime import watchdog as watchdog_mod
 
 def test_ensure_leading_slash():
     """Adds a leading slash when missing."""
-    assert watchdog_mod._ensure_leading_slash("v1/models") == "/v1/models"
-    assert watchdog_mod._ensure_leading_slash("/v1/models") == "/v1/models"
+    assert watchdog_mod._ensure_leading_slash("v1/health") == "/v1/health"
+    assert watchdog_mod._ensure_leading_slash("/v1/health") == "/v1/health"
 
 
 def test_classify_fail_reason_from_log():

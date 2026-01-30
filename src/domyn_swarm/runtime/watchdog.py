@@ -89,7 +89,7 @@ class WatchdogConfig:
     # HTTP health
     host: str = "127.0.0.1"
     port: int = 8000
-    http_path: str = "/v1/models"
+    http_path: str = "/v1/health"
     http_timeout_s: float = 2.0
     probe_interval_s: float = 10.0
     unhealthy_http_failures: int = 3
