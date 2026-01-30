@@ -288,6 +288,10 @@ domyn-swarm job submit \
 * **--id-column / --id-col** — Optional column name used for stable row ids
 * **--ray-address** — Ray cluster address to connect to when using `--data-backend ray`
 
+Note: if `--id-column` is not provided, pandas uses the DataFrame index and polars uses a generated
+row index (`_row_id`). Resume is stable only if the input ordering/scan is identical across runs;
+for robust resume across restarts or different scan graphs, provide a stable id column.
+
 
 Internally uses checkpointing, batching, and retry logic.
 
