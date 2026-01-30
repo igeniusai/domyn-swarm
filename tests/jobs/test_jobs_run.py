@@ -243,6 +243,94 @@ async def test_run_job_unified_polars_runner_lazy(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_polars_runner_lazy_resume_skips_done_ids(tmp_path):
+    pytest.importorskip("polars")
+
+    import polars as pl
+
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    count = 100
+
+    data = pl.DataFrame(
+        {"doc_id": list(range(1000, 1000 + count)), "messages": list(range(count))}
+    ).lazy()
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        data_backend="polars",
+        runner="arrow",
+        checkpoint_every=1,
+    )
+    assert out_df["doc_id"].to_list() == list(range(1000, 1000 + count))
+    assert out_df["output"].to_list() == [f"test_shard_{i}" for i in range(count)]
+
+    class ExplodingSwarmJob(DummySwarmJob):
+        async def transform_items(self, items: list):
+            raise RuntimeError("unexpected recompute")
+
+    data = pl.DataFrame(
+        {"doc_id": list(range(1000, 1000 + count)), "messages": list(range(count))}
+    ).lazy()
+    out_df = await run_job_unified(
+        lambda: ExplodingSwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        data_backend="polars",
+        runner="arrow",
+        checkpoint_every=1,
+    )
+    assert out_df["doc_id"].to_list() == list(range(1000, 1000 + count))
+    assert out_df["output"].to_list() == [f"test_shard_{i}" for i in range(count)]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_polars_runner_lazy_resume_without_id_column(tmp_path):
+    pytest.importorskip("polars")
+
+    import polars as pl
+
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    count = 100
+
+    data = pl.DataFrame({"messages": list(range(count))}).lazy()
+    out_df = await run_job_unified(
+        DummySwarmJob,
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        data_backend="polars",
+        runner="arrow",
+        checkpoint_every=1,
+    )
+    assert out_df["_row_id"].to_list() == list(range(count))
+    assert out_df["output"].to_list() == [f"test_shard_{i}" for i in range(count)]
+
+    class ExplodingSwarmJob(DummySwarmJob):
+        async def transform_items(self, items: list):
+            raise RuntimeError("unexpected recompute")
+
+    data = pl.DataFrame({"messages": list(range(count))}).lazy()
+    out_df = await run_job_unified(
+        ExplodingSwarmJob,
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        data_backend="polars",
+        runner="arrow",
+        checkpoint_every=1,
+    )
+    assert out_df["_row_id"].to_list() == list(range(count))
+    assert out_df["output"].to_list() == [f"test_shard_{i}" for i in range(count)]
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_polars_runner_lazy_output_dir_streams(tmp_path):
     """Stream LazyFrame output directly to an output directory.
 
