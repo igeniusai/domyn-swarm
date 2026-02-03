@@ -14,6 +14,8 @@
 
 from pathlib import Path
 import shlex
+import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -86,10 +88,12 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     popen_calls = {}
 
     class FakePopen:
-        def __init__(self, cmd, stdout, stderr, start_new_session, close_fds):
+        def __init__(self, cmd, stdin, stdout, stderr, text, start_new_session, close_fds):
             popen_calls["cmd"] = cmd
+            popen_calls["stdin"] = stdin
             popen_calls["stdout"] = stdout
             popen_calls["stderr"] = stderr
+            popen_calls["text"] = text
             popen_calls["start_new_session"] = start_new_session
             popen_calls["close_fds"] = close_fds
             self.pid = 5555
@@ -124,6 +128,7 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     # sanity on flags passed
     assert popen_calls["start_new_session"] is True
     assert popen_calls["close_fds"] is True
+    assert popen_calls["text"] is True
 
     # Handle fields
     assert handle.status is JobStatus.RUNNING
@@ -240,35 +245,89 @@ def test_wait_returns_status_if_no_pid():
     assert be.wait(handle) is JobStatus.PENDING
 
 
-def test_wait_with_pid_returns_succeeded():
+def test_wait_with_pid_but_no_popen_returns_running_if_pid_exists(monkeypatch):
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 123})
-    assert be.wait(handle) is JobStatus.SUCCEEDED
+    monkeypatch.setattr(mod, "_pid_exists", lambda pid: True)
+    assert be.wait(handle) is JobStatus.RUNNING
+
+
+def test_wait_with_pid_but_no_popen_returns_failed_if_pid_missing(monkeypatch):
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 123})
+    monkeypatch.setattr(mod, "_pid_exists", lambda pid: False)
+    assert be.wait(handle) is JobStatus.FAILED
+
+
+def test_wait_tracks_detached_popen_and_returns_succeeded():
+    cfg = _mk_cfg()
+    be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n")
+
+    proc = mod.subprocess.Popen(
+        [sys.executable, "-c", "print('ok')"],
+        stdout=mod.subprocess.PIPE,
+        stderr=mod.subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+        close_fds=True,
+    )
+    assert proc.pid is not None
+    be._procs[proc.pid] = proc
+
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid})
+    status = be.wait(handle, stream_logs=False)
+    assert status is JobStatus.SUCCEEDED
+    assert handle.meta["returncode"] == 0
+    assert proc.pid not in be._procs
 
 
 # ----------------------------
 # cancel()
 # ----------------------------
-def test_cancel_sends_term_to_pid(monkeypatch):
+def test_cancel_terminates_process_group(monkeypatch):
     calls = []
-
-    def fake_run(argv, check=False):
-        calls.append((tuple(argv), check))
-        return SimpleNamespace(returncode=0)
-
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
-
+    monkeypatch.setattr(
+        mod,
+        "_terminate_process_group",
+        lambda pgid, grace_s=10.0: calls.append(pgid),
+    )
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
-    be.cancel(SimpleNamespace(meta={"pid": 777}))
-    assert calls == [(("kill", "-TERM", "777"), False)]
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 777})
+    be.cancel(handle)
+    assert calls == [777]
+    assert handle.status is JobStatus.CANCELLED
 
 
 def test_cancel_swallows_errors(monkeypatch):
-    def fake_run(argv, check=False):
+    def fake_killpg(pgid, grace_s=10.0):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(mod, "_terminate_process_group", fake_killpg)
 
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     # Should not raise
     be.cancel(SimpleNamespace(meta={"pid": 888}))
+
+
+def test_cancel_then_wait_returns_cancelled():
+    cfg = _mk_cfg()
+    be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n")
+
+    proc = mod.subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=mod.subprocess.PIPE,
+        stderr=mod.subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+        close_fds=True,
+    )
+    assert proc.pid is not None
+    be._procs[proc.pid] = proc
+
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid})
+    be.cancel(handle)
+
+    # Give the signal a moment to land on slower CI boxes.
+    time.sleep(0.1)
+    status = be.wait(handle, stream_logs=False)
+    assert status is JobStatus.CANCELLED
