@@ -68,17 +68,16 @@ def test_arrow_shard_store_finalize_retries_with_large_offsets_on_overflow(tmp_p
 
     def fake_take(data, indices, *args, **kwargs):
         call_count["n"] += 1
-        if call_count["n"] == 1:
+        assert isinstance(data, pa.Table)
+        if call_count["n"] == 1 and pa.types.is_string(data.schema.field("out").type):
             raise pa.ArrowInvalid(
                 "offset overflow while concatenating arrays, consider casting input from `string` "
                 "to `large_string` first."
             )
-        assert isinstance(data, pa.Table)
         assert pa.types.is_large_string(data.schema.field("out").type)
         return real_take(data, indices, *args, **kwargs)
 
     monkeypatch.setattr(arrow_store.pc, "take", fake_take)
-    monkeypatch.setattr(arrow_store, "_normalize_tables_for_concat", lambda tables, id_col: tables)
 
     merged = store.finalize()
     assert merged.num_rows == 2
