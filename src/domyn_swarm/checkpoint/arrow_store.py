@@ -116,6 +116,30 @@ def _take_with_offset_overflow_fallback(table: pa.Table, indices: list[int]) -> 
         raise TypeError(f"Expected pc.take(Table, ...) -> Table, got {type(out)!r}") from None
 
 
+def _normalize_tables_for_concat(tables: list[pa.Table], id_col: str) -> list[pa.Table]:
+    """Normalize tables so `pa.concat_tables()` can merge them.
+
+    In practice, this resolves common mismatches like `string` vs `large_string` (or
+    `binary` vs `large_binary`) by promoting to the 64-bit offset variants.
+
+    Args:
+        tables: Input tables to concatenate.
+        id_col: Column name for row ids.
+
+    Returns:
+        Normalized tables.
+    """
+    normalized: list[pa.Table] = []
+    for t in tables:
+        if id_col not in t.column_names:
+            for candidate in ("__index_level_0__", "index", "level_0"):
+                if candidate in t.column_names:
+                    t = t.rename_columns([id_col if c == candidate else c for c in t.column_names])
+                    break
+        normalized.append(_promote_variable_width_to_large(t))
+    return normalized
+
+
 @dataclass
 class InMemoryArrowStore(CheckpointStore[pa.Table]):
     """In-memory checkpoint store for Arrow tables."""
@@ -326,6 +350,8 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
             with self.fs.open(p, "rb") as f:
                 tables.append(pq.read_table(f))
 
+        tables = [self._normalize_id_column(t) for t in tables]
+        tables = _normalize_tables_for_concat(tables, self.id_col)
         table = pa.concat_tables(tables, promote_options="default")
         table = self._normalize_id_column(table)
         ids = table.column(self.id_col).to_pylist()

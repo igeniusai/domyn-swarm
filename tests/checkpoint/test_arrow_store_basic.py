@@ -78,7 +78,35 @@ def test_arrow_shard_store_finalize_retries_with_large_offsets_on_overflow(tmp_p
         return real_take(data, indices, *args, **kwargs)
 
     monkeypatch.setattr(arrow_store.pc, "take", fake_take)
+    monkeypatch.setattr(arrow_store, "_normalize_tables_for_concat", lambda tables, id_col: tables)
 
     merged = store.finalize()
     assert merged.num_rows == 2
     assert pa.types.is_large_string(merged.schema.field("out").type)
+
+
+def test_arrow_shard_store_finalize_promotes_string_to_large_string_before_concat(tmp_path):
+    base = tmp_path / "ckpt.parquet"
+    store = ArrowShardStore(base.as_posix())
+
+    base_table = pa.Table.from_pydict({"_row_id": [1], "reasoning_trace": ["a"]})
+    with store.fs.open(store.base_path, "wb") as f:
+        import pyarrow.parquet as pq
+
+        pq.write_table(base_table, f, use_dictionary=False)
+
+    parts_dir = tmp_path / "ckpt"
+    parts_dir.mkdir(exist_ok=True)
+    part_table = pa.Table.from_arrays(
+        [pa.array([2], type=pa.int64()), pa.array(["b"], type=pa.large_string())],
+        names=["_row_id", "reasoning_trace"],
+    )
+    part_path = parts_dir / "part-000.parquet"
+    with store.fs.open(part_path.as_posix(), "wb") as f:
+        import pyarrow.parquet as pq
+
+        pq.write_table(part_table, f, use_dictionary=False)
+
+    merged = store.finalize()
+    assert merged.num_rows == 2
+    assert pa.types.is_large_string(merged.schema.field("reasoning_trace").type)
