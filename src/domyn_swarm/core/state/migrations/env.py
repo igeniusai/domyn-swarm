@@ -38,6 +38,21 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 target_metadata = Base.metadata
 
+
+def include_object(object_, name: str | None, type_: str, reflected, compare_to) -> bool:
+    """Filter objects included in swarm.db migrations.
+
+    The state DB (`swarm.db`) is intended to store swarm allocations and (soon) submitted jobs.
+    Other SQLite schemas in this repo (e.g. per-swarm `watchdog.db`) are managed separately and
+    should not be migrated via this Alembic environment.
+    """
+    if type_ != "table":
+        return True
+    if name is None:
+        return False
+    return name in {"swarm", "jobs", "alembic_version"}
+
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
@@ -60,6 +75,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -82,7 +98,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
