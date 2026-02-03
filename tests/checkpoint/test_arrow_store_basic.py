@@ -52,3 +52,33 @@ def test_arrow_shard_store_finalize_includes_base_when_new_parts(tmp_path):
     assert by_id[1] == "x"
     assert by_id[2] == "y"
     assert by_id[3] == "z"
+
+
+def test_arrow_shard_store_finalize_retries_with_large_offsets_on_overflow(tmp_path, monkeypatch):
+    base = tmp_path / "ckpt.parquet"
+    store = ArrowShardStore(base.as_posix())
+    table = pa.Table.from_pydict({"_row_id": [1, 2], "text": ["a", "b"]})
+    store.prepare(table, "_row_id")
+    asyncio.run(store.flush(FlushBatch(ids=[1, 2], rows=["x", "y"]), output_cols=["out"]))
+
+    import domyn_swarm.checkpoint.arrow_store as arrow_store
+
+    real_take = arrow_store.pc.take
+    call_count = {"n": 0}
+
+    def fake_take(data, indices, *args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise pa.ArrowInvalid(
+                "offset overflow while concatenating arrays, consider casting input from `string` "
+                "to `large_string` first."
+            )
+        assert isinstance(data, pa.Table)
+        assert pa.types.is_large_string(data.schema.field("out").type)
+        return real_take(data, indices, *args, **kwargs)
+
+    monkeypatch.setattr(arrow_store.pc, "take", fake_take)
+
+    merged = store.finalize()
+    assert merged.num_rows == 2
+    assert pa.types.is_large_string(merged.schema.field("out").type)

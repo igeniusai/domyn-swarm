@@ -30,6 +30,91 @@ from domyn_swarm.helpers.logger import setup_logger
 
 logger = setup_logger("domyn_swarm.checkpoint.arrow_store", level=logging.INFO)
 
+_OFFSET_OVERFLOW_HINT = "offset overflow while concatenating arrays"
+
+
+def _promote_variable_width_to_large(table: pa.Table) -> pa.Table:
+    """Promote variable-width columns to their 64-bit offset equivalents.
+
+    This avoids failures like:
+      "offset overflow while concatenating arrays, consider casting input from `string`
+      to `large_string` first."
+
+    Args:
+        table: Input Arrow table.
+
+    Returns:
+        The input table with `string`/`binary` columns cast to `large_string`/`large_binary`.
+    """
+    schema = table.schema
+    updated_fields: list[pa.Field] = []
+    changed = False
+
+    for field in schema:
+        dtype = field.type
+
+        if pa.types.is_string(dtype) and not pa.types.is_large_string(dtype):
+            updated_fields.append(field.with_type(pa.large_string()))
+            changed = True
+            continue
+        if pa.types.is_binary(dtype) and not pa.types.is_large_binary(dtype):
+            updated_fields.append(field.with_type(pa.large_binary()))
+            changed = True
+            continue
+        if pa.types.is_dictionary(dtype) and dtype.value_type is not None:
+            value_type = dtype.value_type
+            if pa.types.is_string(value_type) and not pa.types.is_large_string(value_type):
+                updated_fields.append(
+                    field.with_type(pa.dictionary(dtype.index_type, pa.large_string()))
+                )
+                changed = True
+                continue
+            if pa.types.is_binary(value_type) and not pa.types.is_large_binary(value_type):
+                updated_fields.append(
+                    field.with_type(pa.dictionary(dtype.index_type, pa.large_binary()))
+                )
+                changed = True
+                continue
+
+        updated_fields.append(field)
+
+    if not changed:
+        return table
+
+    return table.cast(pa.schema(updated_fields, metadata=schema.metadata), safe=False)
+
+
+def _take_with_offset_overflow_fallback(table: pa.Table, indices: list[int]) -> pa.Table:
+    """Take rows from a table, retrying with large offsets on overflow.
+
+    Args:
+        table: Input Arrow table.
+        indices: Row indices to keep.
+
+    Returns:
+        Table restricted to the provided indices.
+    """
+    indices_arr = pa.array(indices, type=pa.int64())
+    try:
+        out = pc.take(table, indices_arr)  # type: ignore[arg-type]
+        if isinstance(out, pa.Table):
+            return out
+        raise TypeError(f"Expected pc.take(Table, ...) -> Table, got {type(out)!r}") from None
+    except pa.ArrowInvalid as e:
+        if _OFFSET_OVERFLOW_HINT not in str(e):
+            raise
+        promoted = _promote_variable_width_to_large(table)
+        if promoted is table:
+            raise
+        logger.warning(
+            "Arrow take failed with offset overflow; promoting string/binary columns to "
+            "large_* types and retrying."
+        )
+        out = pc.take(promoted, indices_arr)  # type: ignore[arg-type]
+        if isinstance(out, pa.Table):
+            return out
+        raise TypeError(f"Expected pc.take(Table, ...) -> Table, got {type(out)!r}") from None
+
 
 @dataclass
 class InMemoryArrowStore(CheckpointStore[pa.Table]):
@@ -156,7 +241,7 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
                 if col is None:
                     raise ValueError(f"Parquet file missing id column {self.id_col!r}: {path}")
                 t = pf.read(columns=[col])
-            return set(t.column(0).combine_chunks().to_pylist())
+            return set(t.column(0).to_pylist())
 
         if self.fs.exists(self.base_path):
             done_ids.update(_read_ids(self.base_path))
@@ -243,10 +328,10 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
 
         table = pa.concat_tables(tables, promote_options="default")
         table = self._normalize_id_column(table)
-        ids = table.column(self.id_col).combine_chunks().to_pylist()
+        ids = table.column(self.id_col).to_pylist()
         last: dict[Any, int] = {v: i for i, v in enumerate(ids)}
         keep_indices = sorted(last.values())
-        table = table.take(pa.array(keep_indices, type=pa.int64()))
+        table = _take_with_offset_overflow_fallback(table, keep_indices)
 
         with self.fs.open(self.base_path, "wb") as f:
             pq.write_table(table, f, use_dictionary=False)
