@@ -30,6 +30,149 @@ from domyn_swarm.helpers.logger import setup_logger
 
 logger = setup_logger("domyn_swarm.checkpoint.arrow_store", level=logging.INFO)
 
+_OFFSET_OVERFLOW_HINT = "offset overflow while concatenating arrays"
+
+
+def _normalize_id_column(table: pa.Table, id_col: str) -> pa.Table:
+    """Ensure the id column is named `id_col`.
+
+    Args:
+        table: Input Arrow table.
+        id_col: Column name for row ids.
+
+    Returns:
+        Table with the id column normalized.
+    """
+    if id_col in table.column_names:
+        return table
+    for candidate in ("__index_level_0__", "index", "level_0"):
+        if candidate in table.column_names:
+            return table.rename_columns(
+                [id_col if c == candidate else c for c in table.column_names]
+            )
+    raise ValueError(f"Merged parquet is missing id column {id_col!r}")
+
+
+def _promote_variable_width_to_large(table: pa.Table) -> pa.Table:
+    """Promote variable-width columns to their 64-bit offset equivalents.
+
+    This avoids failures like:
+      "offset overflow while concatenating arrays, consider casting input from `string`
+      to `large_string` first."
+
+    Args:
+        table: Input Arrow table.
+
+    Returns:
+        The input table with `string`/`binary` columns cast to `large_string`/`large_binary`.
+    """
+    schema = table.schema
+    updated_fields: list[pa.Field] = []
+    changed = False
+
+    for field in schema:
+        dtype = field.type
+
+        if pa.types.is_string(dtype) and not pa.types.is_large_string(dtype):
+            updated_fields.append(field.with_type(pa.large_string()))
+            changed = True
+            continue
+        if pa.types.is_binary(dtype) and not pa.types.is_large_binary(dtype):
+            updated_fields.append(field.with_type(pa.large_binary()))
+            changed = True
+            continue
+        if pa.types.is_dictionary(dtype) and dtype.value_type is not None:
+            value_type = dtype.value_type
+            if pa.types.is_string(value_type) and not pa.types.is_large_string(value_type):
+                updated_fields.append(
+                    field.with_type(pa.dictionary(dtype.index_type, pa.large_string()))
+                )
+                changed = True
+                continue
+            if pa.types.is_binary(value_type) and not pa.types.is_large_binary(value_type):
+                updated_fields.append(
+                    field.with_type(pa.dictionary(dtype.index_type, pa.large_binary()))
+                )
+                changed = True
+                continue
+
+        updated_fields.append(field)
+
+    if not changed:
+        return table
+
+    return table.cast(pa.schema(updated_fields, metadata=schema.metadata), safe=False)
+
+
+def _concat_tables_with_variable_width_fallback(tables: list[pa.Table]) -> pa.Table:
+    """Concatenate tables, promoting variable-width columns on common failures.
+
+    This handles two common issues:
+    - `ArrowTypeError` for `string` vs `large_string` (or `binary` vs `large_binary`) mismatches.
+    - `ArrowInvalid` offset overflow errors that are solved by casting to `large_*`.
+
+    Args:
+        tables: Input tables to concatenate.
+
+    Returns:
+        Concatenated table.
+    """
+    try:
+        return pa.concat_tables(tables, promote_options="default")
+    except pa.ArrowTypeError as e:
+        msg = str(e)
+        if "incompatible types" not in msg:
+            raise
+        if "large_string" not in msg and "large_binary" not in msg:
+            raise
+        promoted = [_promote_variable_width_to_large(t) for t in tables]
+        logger.warning(
+            "Arrow concat failed due to incompatible variable-width types; promoting "
+            "string/binary columns to large_* types and retrying."
+        )
+        return pa.concat_tables(promoted, promote_options="default")
+    except pa.ArrowInvalid as e:
+        if _OFFSET_OVERFLOW_HINT not in str(e):
+            raise
+        promoted = [_promote_variable_width_to_large(t) for t in tables]
+        logger.warning(
+            "Arrow concat failed with offset overflow; promoting string/binary columns to "
+            "large_* types and retrying."
+        )
+        return pa.concat_tables(promoted, promote_options="default")
+
+
+def _take_with_offset_overflow_fallback(table: pa.Table, indices: list[int]) -> pa.Table:
+    """Take rows from a table, retrying with large offsets on overflow.
+
+    Args:
+        table: Input Arrow table.
+        indices: Row indices to keep.
+
+    Returns:
+        Table restricted to the provided indices.
+    """
+    indices_arr = pa.array(indices, type=pa.int64())
+    try:
+        out = pc.take(table, indices_arr)  # type: ignore[arg-type]
+        if isinstance(out, pa.Table):
+            return out
+        raise TypeError(f"Expected pc.take(Table, ...) -> Table, got {type(out)!r}") from None
+    except pa.ArrowInvalid as e:
+        if _OFFSET_OVERFLOW_HINT not in str(e):
+            raise
+        promoted = _promote_variable_width_to_large(table)
+        if promoted is table:
+            raise
+        logger.warning(
+            "Arrow take failed with offset overflow; promoting string/binary columns to "
+            "large_* types and retrying."
+        )
+        out = pc.take(promoted, indices_arr)  # type: ignore[arg-type]
+        if isinstance(out, pa.Table):
+            return out
+        raise TypeError(f"Expected pc.take(Table, ...) -> Table, got {type(out)!r}") from None
+
 
 @dataclass
 class InMemoryArrowStore(CheckpointStore[pa.Table]):
@@ -113,22 +256,8 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
         self.done_ids: set[Any] = set()
 
     def _normalize_id_column(self, table: pa.Table) -> pa.Table:
-        """Ensure the id column is named `self.id_col`.
-
-        Args:
-            table: Input Arrow table.
-
-        Returns:
-            Table with the id column normalized.
-        """
-        if self.id_col in table.column_names:
-            return table
-        for candidate in ("__index_level_0__", "index", "level_0"):
-            if candidate in table.column_names:
-                return table.rename_columns(
-                    [self.id_col if c == candidate else c for c in table.column_names]
-                )
-        raise ValueError(f"Merged parquet is missing id column {self.id_col!r}")
+        """Ensure the id column is named `self.id_col`."""
+        return _normalize_id_column(table, self.id_col)
 
     def prepare(self, data: pa.Table, id_col: str) -> pa.Table:
         """Filter the input table to rows not yet in checkpoints.
@@ -156,7 +285,7 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
                 if col is None:
                     raise ValueError(f"Parquet file missing id column {self.id_col!r}: {path}")
                 t = pf.read(columns=[col])
-            return set(t.column(0).combine_chunks().to_pylist())
+            return set(t.column(0).to_pylist())
 
         if self.fs.exists(self.base_path):
             done_ids.update(_read_ids(self.base_path))
@@ -241,12 +370,13 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
             with self.fs.open(p, "rb") as f:
                 tables.append(pq.read_table(f))
 
-        table = pa.concat_tables(tables, promote_options="default")
+        tables = [self._normalize_id_column(t) for t in tables]
+        table = _concat_tables_with_variable_width_fallback(tables)
         table = self._normalize_id_column(table)
-        ids = table.column(self.id_col).combine_chunks().to_pylist()
+        ids = table.column(self.id_col).to_pylist()
         last: dict[Any, int] = {v: i for i, v in enumerate(ids)}
         keep_indices = sorted(last.values())
-        table = table.take(pa.array(keep_indices, type=pa.int64()))
+        table = _take_with_offset_overflow_fallback(table, keep_indices)
 
         with self.fs.open(self.base_path, "wb") as f:
             pq.write_table(table, f, use_dictionary=False)
