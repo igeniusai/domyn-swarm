@@ -226,6 +226,19 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         ckp_base = Path(args.checkpoint_dir) / f"{store_name}.parquet"
         store_uri = f"file://{ckp_base}"
 
+    logger.info(
+        "Running job %s with model %s on backend %s (native_backend=%s) "
+        "with checkpointing=%s (store_uri=%s, no_resume=%s)",
+        job_cls.__name__,
+        job_kwargs.get("model"),
+        backend.name,
+        native_backend,
+        checkpointing,
+        store_uri,
+        no_resume,
+    )
+    logger.info("Checkpoint will be stored in %s", store_uri)
+
     result = await run_job_unified(
         make_job,
         data_in,
