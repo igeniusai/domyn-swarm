@@ -89,6 +89,14 @@ def parse_args(cli_args=None):
         default=1,
         help="How many threads should be used when executing this job",
     )
+    parser.add_argument(
+        "--shard-mode",
+        choices=["id", "index"],
+        default="id",
+        help="How to split input when --nthreads > 1. "
+        "'id' uses stable id hashing (resume-friendly), "
+        "'index' uses legacy row order sharding.",
+    )
     parser.add_argument("--limit", default=None, type=int, required=False)
     parser.add_argument(
         "--checkpoint-dir",
@@ -245,6 +253,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         input_col=job_kwargs.get("input_column_name", "messages"),
         output_cols=output_cols,
         nshards=nshards,
+        shard_mode=args.shard_mode,
         store_uri=store_uri,  # used by new-style
         checkpoint_every=args.checkpoint_interval,
         data_backend=backend.name,
