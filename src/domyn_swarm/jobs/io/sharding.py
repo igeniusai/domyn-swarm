@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from pandas.util import hash_pandas_object
+from pandas.util import hash_array
 
 
 def shard_indices_by_id(
@@ -23,8 +23,8 @@ def shard_indices_by_id(
     if nshards <= 1:
         return [np.arange(len(ids))]
 
-    ids_index = ids if isinstance(ids, pd.Index) else pd.Index(ids)
-    hashed = hash_pandas_object(pd.Series(ids_index, copy=False), index=False)  # type: ignore[arg-type]
-    hashed_arr = np.asarray(hashed, dtype=np.uint64)
+    arr = np.asarray(ids)
+    _hash_array = cast(Callable[[np.ndarray], np.ndarray], hash_array)
+    hashed_arr = _hash_array(arr)
     shard_ids = (hashed_arr % np.uint64(nshards)).astype(np.int64, copy=False)
     return [np.flatnonzero(shard_ids == i) for i in range(nshards)]
