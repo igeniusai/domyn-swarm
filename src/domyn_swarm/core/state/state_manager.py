@@ -14,7 +14,7 @@
 
 from collections.abc import Iterable
 import dataclasses
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -315,7 +315,7 @@ class SwarmStateManager:
             if error is not None:
                 rec.error = error
 
-            rec.update_dt = datetime.now(UTC).replace(tzinfo=None)
+            rec.update_dt = datetime.now(timezone.utc).replace(tzinfo=None)
             s.commit()
 
     @classmethod
