@@ -203,6 +203,11 @@ def _read_step_id_from_stream(stdout, *, timeout_s: float) -> str | None:
 
 
 def _try_cleanup_fifo(path: Path) -> None:
+    """Try to delete a FIFO file.
+
+    Args:
+        path: Path to the FIFO file.
+    """
     with contextlib.suppress(Exception):
         path.unlink(missing_ok=True)
 
