@@ -82,7 +82,7 @@ def upgrade() -> None:
                 existing_type=sa.DATETIME(),
                 nullable=False,
                 server_default=sa.text("(CURRENT_TIMESTAMP)"),
-                existing_server_default=True,
+                existing_server_default="(CURRENT_TIMESTAMP)",
             )
     # ### end Alembic commands ###
 
