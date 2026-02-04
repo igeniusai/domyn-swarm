@@ -346,6 +346,49 @@ class DomynLLMSwarm(BaseModel):
         """
         self._state_mgr.delete_record(self.name)
 
+    def _record_job_submission(
+        self,
+        *,
+        name: str,
+        command: list[str],
+        resources: dict | None,
+        job_handle,
+        kind: str,
+    ) -> str | None:
+        """Persist job metadata in the local swarm DB.
+
+        Args:
+            name: Job name.
+            command: Command argv list (no secrets).
+            resources: Resource dict (if any).
+            job_handle: Compute backend job handle.
+            kind: Job kind (e.g., "step", "script").
+
+        Returns:
+            Job record ID if created, else None.
+        """
+        try:
+            status_value = (
+                job_handle.status.value
+                if hasattr(job_handle.status, "value")
+                else str(job_handle.status)
+            )
+            job_id = SwarmStateManager.create_job(
+                deployment_name=self.name,
+                provider=self._platform,
+                kind=kind,
+                status=status_value,
+                external_id=job_handle.meta.get("external_id"),
+                name=name,
+                command=command,
+                resources=resources,
+            )
+            job_handle.meta["job_id"] = job_id
+            return job_id
+        except Exception as exc:
+            logger.warning("Failed to persist job record: %s", exc)
+            return None
+
     def submit_job(
         self,
         job: SwarmJob,
@@ -539,6 +582,14 @@ class DomynLLMSwarm(BaseModel):
         if job_handle is None:
             raise RuntimeError("Failed to submit job to compute backend.")
 
+        self._record_job_submission(
+            name=job_name[:36],  # type: ignore[arg-type]
+            command=[*map(str, exe)],
+            resources=resources,
+            job_handle=job_handle,
+            kind="step",
+        )
+
         return job_handle.meta.get("pid") if detach else None
 
     def _compose_runtime(self, extra_env: dict | None = None):
@@ -654,6 +705,14 @@ class DomynLLMSwarm(BaseModel):
         )
         if job_handle is None:
             raise RuntimeError("Failed to submit script to compute backend.")
+
+        self._record_job_submission(
+            name=f"{self.name.lower()}-script",
+            command=[*map(str, command)],
+            resources=resources,
+            job_handle=job_handle,
+            kind="script",
+        )
 
         return job_handle.meta.get("pid") if detach else None
 

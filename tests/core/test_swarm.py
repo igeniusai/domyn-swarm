@@ -31,6 +31,8 @@ class FakeStateMgr:
         self.swarm = swarm
         self.saved = 0
         self.deleted = 0
+        self.created_jobs = []
+        self.updated_jobs = []
 
     def save(self, deployment_name: str):
         self.saved += 1
@@ -41,6 +43,15 @@ class FakeStateMgr:
 
     def delete_record(self, name: str):
         self.deleted += 1
+
+    @classmethod
+    def create_job(cls, **kwargs):
+        cls.last_created = kwargs
+        return "job-1"
+
+    @classmethod
+    def update_job(cls, job_id: str, **kwargs):
+        cls.last_updated = {"job_id": job_id, **kwargs}
 
 
 class FakeDeployment:
