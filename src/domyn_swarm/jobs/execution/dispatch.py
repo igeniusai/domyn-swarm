@@ -161,6 +161,7 @@ async def run_job_unified(
     output_path: Path | None = None,
     shard_output: bool = False,
     shard_mode: str = "id",
+    global_resume: bool = False,
 ) -> Any:
     """Run a SwarmJob with backend-aware execution and checkpointing.
 
@@ -183,6 +184,7 @@ async def run_job_unified(
             (based on `nshards`) using checkpoint outputs as the source of truth when supported
             by the runner/backend (currently Polars).
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
+        global_resume: Resume by filtering inputs with global done ids across shards.
 
     Returns:
         Backend-native result for non-ray runs, or the Ray runner result.
@@ -229,6 +231,7 @@ async def run_job_unified(
             require_id=require_id,
             nshards=nshards,
             shard_mode=shard_mode,
+            global_resume=global_resume,
             store_uri=store_uri,
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
@@ -247,6 +250,7 @@ async def run_job_unified(
             require_id=require_id,
             nshards=nshards,
             shard_mode=shard_mode,
+            global_resume=global_resume,
             store_uri=store_uri,
             checkpoint_every=checkpoint_every,
             checkpointing=checkpointing,
@@ -264,6 +268,7 @@ async def run_job_unified(
         require_id=require_id,
         nshards=nshards,
         shard_mode=shard_mode,
+        global_resume=global_resume,
         store_uri=store_uri,
         checkpoint_every=checkpoint_every,
         checkpointing=checkpointing,
