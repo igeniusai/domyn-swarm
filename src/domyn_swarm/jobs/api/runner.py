@@ -15,7 +15,7 @@
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,7 @@ import pandas as pd
 from domyn_swarm.checkpoint.store import CheckpointStore, FlushBatch, ParquetShardStore
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs.api.base import OutputJoinMode, SwarmJob
+from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 logger = setup_logger(__name__)
 
@@ -180,7 +181,7 @@ class JobRunner:
         todo = self.store.prepare(df, self.cfg.id_col)
         logger.debug("Number of items to process after checkpointing: %d", len(todo))
         ids: list[Any] = todo[self.cfg.id_col].tolist()
-        items: list[Any] = todo[input_col].tolist()
+        items: list[Any] = todo[input_col].tolist()  # type: ignore[index]
 
         # Normalize a batch of outputs to what flush expects
         # Returns (rows, cols_for_flush) where cols_for_flush can be None => dict path
@@ -243,7 +244,23 @@ async def run_sharded(
     store_uri: str,  # e.g. file:///..., s3://...
     nshards: int = 1,
     cfg: RunnerConfig | None = None,
+    shard_mode: str = "id",
 ) -> pd.DataFrame:
+    """Run a job in sharded mode using the streaming runner.
+
+    Args:
+        job_factory: Callable producing a job instance.
+        df: Input DataFrame.
+        input_col: Column name for inputs.
+        output_cols: Output column names (None for dict outputs).
+        store_uri: Base checkpoint store URI.
+        nshards: Number of shards to split the input into.
+        cfg: Optional RunnerConfig override.
+        shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
+
+    Returns:
+        DataFrame with merged outputs.
+    """
     cfg = cfg or RunnerConfig()
     if nshards <= 1:
         store = ParquetShardStore(store_uri)
@@ -251,12 +268,29 @@ async def run_sharded(
             job_factory(), df, input_col=input_col, output_cols=output_cols
         )
 
-    # split by index and process concurrently
-    indices = np.array_split(df.index, nshards)
+    if shard_mode not in {"id", "index"}:
+        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+    if shard_mode == "index":
+        indices = np.array_split(df.index, nshards)
+
+        def _slice(idx):
+            return df.loc[idx].copy(deep=False)
+
+    else:
+        id_col = cfg.id_col
+        if id_col not in df.columns:
+            df = df.copy(deep=False)
+            df[id_col] = df.index
+        ids = cast(pd.Series, df[id_col])
+        indices = shard_indices_by_id(ids, nshards)
+
+        def _slice(idx):
+            return df.iloc[idx].copy(deep=False)
+
     import asyncio
 
     async def _one_shard(shard_id: int, idx):
-        sub = df.loc[idx].copy(deep=False)
+        sub = _slice(idx)
         su = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
         store = ParquetShardStore(su)
         runner = JobRunner(store, cfg)

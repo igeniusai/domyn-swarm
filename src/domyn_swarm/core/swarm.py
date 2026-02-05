@@ -362,6 +362,7 @@ class DomynLLMSwarm(BaseModel):
         no_resume: bool = False,
         no_checkpointing: bool = False,
         runner: str = "pandas",
+        shard_mode: str = "id",
         job_resources: dict | None = None,
         checkpoint_tag: str | None = None,
         ray_address: str | None = None,
@@ -388,6 +389,9 @@ class DomynLLMSwarm(BaseModel):
         shard_output : bool, default False
             If True and `output_path` is a directory, emit one parquet file per shard using
             checkpoint outputs as the source of truth (supported by the polars runner).
+        shard_mode : str, default "id"
+            Sharding strategy for `num_threads` > 1 ("id" for stable id hashing, "index" for
+            legacy row order sharding).
         detach : bool, default False
             If *True*, start the job in a new process group and return
             immediately with its PID; if *False* (default) the call blocks
@@ -433,31 +437,152 @@ class DomynLLMSwarm(BaseModel):
         if checkpoint_dir is None:
             checkpoint_dir = self.swarm_dir / "checkpoints"
 
-        self._deployment.ensure_ready()
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)
 
         job_class = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
         job_kwargs = json.dumps(job.to_kwargs())
 
-        compute = self._deployment.compute
-        assert compute is not None, "Compute backend not initialized"
-        python_interpreter = compute.default_python(self.cfg)
-        image = (
-            self._plan.image
-            if self._plan and self._plan.image
-            else compute.default_image(self.cfg.backend)
+        python_interpreter, image, resources, env = self._compose_runtime()
+        resources = self._merge_resources(resources, None, job_resources)
+        env = self._augment_job_env(env, job, job_class, ray_address=ray_address)
+        exe = self._build_job_command(
+            job=job,
+            job_class=job_class,
+            job_kwargs=job_kwargs,
+            input_parquet=input_parquet,
+            output_parquet=output_parquet,
+            num_threads=num_threads,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_interval=checkpoint_interval,
+            runner=runner,
+            no_resume=no_resume,
+            no_checkpointing=no_checkpointing,
+            checkpoint_tag=checkpoint_tag,
+            shard_output=shard_output,
+            shard_mode=shard_mode,
+            limit=limit,
+            ray_address=env.get("DOMYN_SWARM_RAY_ADDRESS"),
+            python_interpreter=python_interpreter,
         )
 
-        resources = self._merge_resources(
-            compute.default_resources(self.cfg.backend),
-            self._plan.job_resources if self._plan else None,
-            job_resources,
-        )
-        env_overrides = compute.default_env(self.cfg)
+        job_name = job.name.lower() if job.name else f"{self.name}-job"
+        job_name = f"{self.name}-{job_name}"
 
+        logger.info(
+            f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "
+            f"to swarm {self.name} on {self._platform}"
+        )
+
+        job_handle = self._deployment.run(
+            name=job_name[:36],  # type: ignore[arg-type]
+            image=image,
+            command=exe,
+            env=env,
+            resources=resources,
+            detach=detach,
+        )
+
+        if job_handle is None:
+            raise RuntimeError("Failed to submit job to compute backend.")
+
+        return job_handle.meta.get("pid") if detach else None
+
+    def _augment_job_env(
+        self,
+        env: dict,
+        job: SwarmJob,
+        job_class: str,
+        *,
+        ray_address: str | None,
+    ) -> dict:
+        """Augment the base environment for job submission.
+
+        Args:
+            env: Base environment variables.
+            job: Job instance being submitted.
+            job_class: Fully qualified job class name.
+            ray_address: Optional Ray address override.
+
+        Returns:
+            Environment dictionary for the job.
+        """
+        env = dict(env)
+        env.update(
+            {
+                "ENDPOINT": self.endpoint,
+                "MODEL": self.model,
+                "JOB_CLASS": job_class,
+            }
+        )
+        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
+        if token:
+            env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
+            env["VLLM_API_KEY"] = token.get_secret_value()
+
+        if getattr(job, "data_backend", None) == "ray":
+            resolved_ray_address = (
+                ray_address
+                or env.get("DOMYN_SWARM_RAY_ADDRESS")
+                or env.get("RAY_ADDRESS")
+                or os.environ.get("DOMYN_SWARM_RAY_ADDRESS")
+                or os.environ.get("RAY_ADDRESS")
+            )
+            if not resolved_ray_address:
+                raise ValueError(
+                    "Ray backend requires an explicit ray address. Provide --ray-address or set "
+                    "DOMYN_SWARM_RAY_ADDRESS/RAY_ADDRESS in the swarm environment."
+                )
+            env["DOMYN_SWARM_RAY_ADDRESS"] = resolved_ray_address
+        return env
+
+    def _build_job_command(
+        self,
+        *,
+        job: SwarmJob,
+        job_class: str,
+        job_kwargs: str,
+        input_parquet: Path,
+        output_parquet: Path,
+        num_threads: int,
+        checkpoint_dir: str | Path,
+        checkpoint_interval: int | None,
+        runner: str,
+        no_resume: bool,
+        no_checkpointing: bool,
+        checkpoint_tag: str | None,
+        shard_output: bool,
+        shard_mode: str,
+        limit: int | None,
+        ray_address: str | None,
+        python_interpreter: str,
+    ) -> list[str]:
+        """Build the job runner command to execute inside the swarm.
+
+        Args:
+            job: Job instance being submitted.
+            job_class: Fully qualified job class name.
+            job_kwargs: Serialized job kwargs JSON.
+            input_parquet: Input dataset path.
+            output_parquet: Output dataset path.
+            num_threads: Worker thread count.
+            checkpoint_dir: Checkpoint directory.
+            checkpoint_interval: Checkpoint interval override.
+            runner: Runner implementation name.
+            no_resume: Whether to ignore existing checkpoints.
+            no_checkpointing: Whether to disable checkpointing.
+            checkpoint_tag: Optional checkpoint tag override.
+            shard_output: Whether to write shard outputs to a directory.
+            shard_mode: Sharding strategy.
+            limit: Optional input row limit.
+            ray_address: Optional Ray address override.
+            python_interpreter: Python interpreter path to use.
+
+        Returns:
+            Command list for job execution.
+        """
         exe = [
-            str(python_interpreter),
+            python_interpreter,
             "-m",
             "domyn_swarm.jobs.cli.run",
             f"--job-class={job_class}",
@@ -481,65 +606,13 @@ class DomynLLMSwarm(BaseModel):
             exe.append(f"--checkpoint-tag={checkpoint_tag}")
         if shard_output:
             exe.append("--shard-output")
-
+        if shard_mode:
+            exe.append(f"--shard-mode={shard_mode}")
         if limit:
             exe.append(f"--limit={limit}")
-
-        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
-
-        env = {
-            "ENDPOINT": self.endpoint,
-            "MODEL": self.model,
-            "JOB_CLASS": job_class,
-        }
-
-        if self._plan and self._plan.shared_env:
-            env.update(self._plan.shared_env)
-        if self.cfg.backend and self.cfg.backend.env:
-            env.update(self.cfg.backend.env)
-        if env_overrides:
-            env.update(env_overrides)
-        if token:
-            env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
-            env["VLLM_API_KEY"] = token.get_secret_value()
-
-        if getattr(job, "data_backend", None) == "ray":
-            resolved_ray_address = (
-                ray_address
-                or env.get("DOMYN_SWARM_RAY_ADDRESS")
-                or env.get("RAY_ADDRESS")
-                or os.environ.get("DOMYN_SWARM_RAY_ADDRESS")
-                or os.environ.get("RAY_ADDRESS")
-            )
-            if not resolved_ray_address:
-                raise ValueError(
-                    "Ray backend requires an explicit ray address. Provide --ray-address or set "
-                    "DOMYN_SWARM_RAY_ADDRESS/RAY_ADDRESS in the swarm environment."
-                )
-            env["DOMYN_SWARM_RAY_ADDRESS"] = resolved_ray_address
-            exe.append(f"--ray-address={resolved_ray_address}")
-
-        job_name = job.name.lower() if job.name else f"{self.name}-job"
-        job_name = f"{self.name}-{job_name}"
-
-        logger.info(
-            f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "
-            f"to swarm {self.name} on {self._platform}"
-        )
-
-        job_handle = self._deployment.run(
-            name=job_name[:36],  # type: ignore[arg-type]
-            image=image,
-            command=exe,
-            env=env,
-            resources=resources,
-            detach=detach,
-        )
-
-        if job_handle is None:
-            raise RuntimeError("Failed to submit job to compute backend.")
-
-        return job_handle.meta.get("pid") if detach else None
+        if ray_address:
+            exe.append(f"--ray-address={ray_address}")
+        return exe
 
     def _compose_runtime(self, extra_env: dict | None = None):
         """Build interpreter/image/resources/env in one place."""

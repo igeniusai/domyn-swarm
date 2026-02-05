@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
+from typing import Literal
 
 import typer
 
@@ -100,6 +101,7 @@ class JobRunSpec:
         detach: Whether to detach job execution from the CLI.
         mail_user: Optional email address for job notifications.
         ray_address: Optional Ray cluster address override.
+        shard_mode: Sharding strategy for multi-threaded runs.
     """
 
     input_path: Path
@@ -115,6 +117,7 @@ class JobRunSpec:
     mail_user: str | None
     ray_address: str | None
     checkpoint_tag: str | None = None
+    shard_mode: Literal["id", "index"] = "id"
 
 
 @dataclass(frozen=True)
@@ -196,6 +199,7 @@ def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> No
         runner=request.run.runner,
         ray_address=request.run.ray_address,
         checkpoint_tag=request.run.checkpoint_tag,
+        shard_mode=request.run.shard_mode,
     )
 
 
@@ -356,6 +360,13 @@ def submit_job(
         help="Limit the size to be read from the input dataset. "
         "Useful when debugging and testing to reduce the size of the dataset",
     ),
+    shard_mode: Literal["id", "index"] = typer.Option(
+        "id",
+        "--shard-mode",
+        help="How to split input when --num-threads > 1. "
+        "'id' uses stable id hashing (resume-friendly), "
+        "'index' uses legacy row order sharding.",
+    ),
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Detach the job from the current terminal"
     ),
@@ -413,9 +424,11 @@ def submit_job(
         runner=runner,
         num_threads=num_threads,
         limit=limit,
+        shard_mode=shard_mode,
         detach=detach,
         mail_user=mail_user,
         ray_address=ray_address,
+        checkpoint_tag=checkpoint_tag,
     )
 
     if config:

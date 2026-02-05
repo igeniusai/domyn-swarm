@@ -15,7 +15,7 @@
 import asyncio
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,7 @@ from domyn_swarm.jobs.io.checkpointing import (
     _validate_sharded_execution,
 )
 from domyn_swarm.jobs.io.columns import _validate_required_id
+from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 
 async def _run_pandas(
@@ -44,6 +45,7 @@ async def _run_pandas(
     id_col: str,
     require_id: bool,
     nshards: int,
+    shard_mode: str,
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
@@ -61,6 +63,7 @@ async def _run_pandas(
         id_col: Column name used for stable row ids.
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
+        shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -89,10 +92,27 @@ async def _run_pandas(
         return out if backend.name == "pandas" else backend.from_pandas(out)
 
     _validate_sharded_execution(checkpointing)
-    indices = np.array_split(df.index, nshards)
+    if shard_mode not in {"id", "index"}:
+        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+
+    if shard_mode == "index":
+        indices = np.array_split(df.index, nshards)
+
+        def _slice(idx):
+            return df.loc[idx].copy(deep=False)
+
+    else:
+        if id_col not in df.columns:
+            df = df.copy(deep=False)
+            df[id_col] = df.index
+        ids = cast(pd.Series, df[id_col])
+        indices = shard_indices_by_id(ids, nshards)
+
+        def _slice(idx):
+            return df.iloc[idx].copy(deep=False)
 
     async def _run_shard(i: int, idx):
-        sub = df.loc[idx].copy(deep=False)
+        sub = _slice(idx)
         assert store_uri is not None
         su = _shard_store_uri(store_uri, i)
         store = ParquetShardStore(su)

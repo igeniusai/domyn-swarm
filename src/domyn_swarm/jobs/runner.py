@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 import warnings
 
 import numpy as np
@@ -25,6 +26,7 @@ import pandas as pd
 from domyn_swarm.checkpoint.store import ParquetShardStore
 from domyn_swarm.jobs.api.base import OutputJoinMode
 from domyn_swarm.jobs.api.runner import JobRunner, RunnerConfig, normalize_batch_outputs
+from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 warnings.warn(
     "domyn_swarm.jobs.runner is deprecated; use domyn_swarm.jobs.api.runner",
@@ -51,6 +53,7 @@ async def run_sharded(
     store_uri: str,
     nshards: int = 1,
     cfg: RunnerConfig | None = None,
+    shard_mode: str = "id",
 ):
     """Run a job in sharded mode using the legacy runner facade.
 
@@ -62,6 +65,7 @@ async def run_sharded(
         store_uri: Base checkpoint store URI.
         nshards: Number of shards to split the input into.
         cfg: Optional RunnerConfig override.
+        shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
 
     Returns:
         DataFrame with merged outputs.
@@ -73,10 +77,27 @@ async def run_sharded(
             job_factory(), df, input_col=input_col, output_cols=output_cols
         )
 
-    indices = np.array_split(df.index, nshards)
+    if shard_mode not in {"id", "index"}:
+        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+    if shard_mode == "index":
+        indices = np.array_split(df.index, nshards)
+
+        def _slice(idx):
+            return df.loc[idx].copy(deep=False)
+
+    else:
+        id_col = cfg.id_col
+        if id_col not in df.columns:
+            df = df.copy(deep=False)
+            df[id_col] = df.index
+        ids = cast(pd.Series, df[id_col])
+        indices = shard_indices_by_id(ids, nshards)
+
+        def _slice(idx):
+            return df.iloc[idx].copy(deep=False)
 
     async def _one_shard(shard_id: int, idx):
-        sub = df.loc[idx].copy(deep=False)
+        sub = _slice(idx)
         su = store_uri.replace(".parquet", f"_shard{shard_id}.parquet")
         store = ParquetShardStore(su)
         runner = JobRunner(store, cfg)

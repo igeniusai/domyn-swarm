@@ -33,6 +33,7 @@ from domyn_swarm.jobs.io.checkpointing import (
     _validate_checkpoint_store,
     _validate_sharded_execution,
 )
+from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,7 @@ async def _run_arrow(
     id_col: str,
     require_id: bool,
     nshards: int,
+    shard_mode: str,
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
@@ -238,6 +240,7 @@ async def _run_arrow(
         id_col: Column name used for stable row ids.
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
+        shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -270,10 +273,16 @@ async def _run_arrow(
             id_col=id_col,
         )
     _validate_sharded_execution(checkpointing)
+    if shard_mode not in {"id", "index"}:
+        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
 
     if id_col not in table.column_names:
         table = _ensure_arrow_id(table, id_col)
-    indices = np.array_split(np.arange(table.num_rows), nshards)
+    if shard_mode == "index":
+        indices = np.array_split(np.arange(table.num_rows), nshards)
+    else:
+        ids = table[id_col].to_pylist()
+        indices = shard_indices_by_id(ids, nshards)
 
     async def _one(i, idx):
         assert store_uri is not None

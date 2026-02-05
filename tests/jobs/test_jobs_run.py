@@ -243,6 +243,44 @@ async def test_run_job_unified_polars_runner_lazy(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_shard_mode_id_resume_with_input_change(tmp_path):
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"messages": list(range(6))})
+
+    await run_job_unified(
+        DummySwarmJob,
+        data.head(4),
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="id",
+    )
+
+    class GuardJob(DummySwarmJob):
+        def __init__(self, cutoff: int, **kwargs):
+            super().__init__(**kwargs)
+            self.cutoff = cutoff
+
+        async def transform_items(self, items: list):
+            if any(i < self.cutoff for i in items):
+                raise RuntimeError("unexpected recompute")
+            return [f"test_shard_{i}" for i in items]
+
+    out_df = await run_job_unified(
+        lambda: GuardJob(cutoff=4),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="id",
+    )
+    assert out_df["messages"].tolist() == list(range(6))
+    assert out_df["output"].tolist() == [f"test_shard_{i}" for i in range(6)]
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_polars_runner_lazy_resume_skips_done_ids(tmp_path):
     pytest.importorskip("polars")
 
