@@ -440,7 +440,6 @@ class DomynLLMSwarm(BaseModel):
         if checkpoint_dir is None:
             checkpoint_dir = self.swarm_dir / "checkpoints"
 
-        self._deployment.ensure_ready()
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)
 
@@ -448,6 +447,7 @@ class DomynLLMSwarm(BaseModel):
         job_kwargs = json.dumps(job.to_kwargs())
 
         python_interpreter, image, resources, env = self._compose_runtime()
+        resources = self._merge_resources(resources, None, job_resources)
         env = self._augment_job_env(env, job, job_class, ray_address=ray_address)
 
         exe = self._build_job_command(
