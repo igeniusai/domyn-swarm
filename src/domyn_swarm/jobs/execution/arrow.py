@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from domyn_swarm.checkpoint.arrow_store import ArrowShardStore, InMemoryArrowStore
 from domyn_swarm.checkpoint.store import FlushBatch
@@ -32,6 +33,7 @@ from domyn_swarm.jobs.io.checkpointing import (
     _shard_store_uri,
     _validate_checkpoint_store,
     _validate_sharded_execution,
+    load_global_done_ids,
 )
 from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
@@ -225,6 +227,7 @@ async def _run_arrow(
     require_id: bool,
     nshards: int,
     shard_mode: str,
+    global_resume: bool,
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
@@ -241,6 +244,7 @@ async def _run_arrow(
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
+        global_resume: Whether to resume using global done ids across shards.
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -278,6 +282,20 @@ async def _run_arrow(
 
     if id_col not in table.column_names:
         table = _ensure_arrow_id(table, id_col)
+
+    if global_resume and checkpointing:
+        if store_uri is None:
+            raise ValueError("store_uri is required when global_resume is enabled.")
+        done_ids = load_global_done_ids(
+            store_uri=store_uri,
+            id_col=id_col,
+            nshards=nshards,
+            store_factory=ArrowShardStore,
+            empty_data_factory=lambda: pa.Table.from_pydict({id_col: []}),
+        )
+        if done_ids:
+            mask = pc.invert(pc.is_in(table[id_col], value_set=pa.array(list(done_ids))))  # type: ignore[arg-type]
+            table = table.filter(mask)
     if shard_mode == "index":
         indices = np.array_split(np.arange(table.num_rows), nshards)
     else:

@@ -34,6 +34,7 @@ from domyn_swarm.jobs.io.checkpointing import (
     _shard_store_uri,
     _validate_checkpoint_store,
     _validate_sharded_execution,
+    load_global_done_ids,
 )
 from domyn_swarm.jobs.io.columns import _require_column_names, _validate_required_id
 from domyn_swarm.jobs.io.sharding import shard_indices_by_id
@@ -663,6 +664,7 @@ async def _run_polars(
     require_id: bool,
     nshards: int,
     shard_mode: str,
+    global_resume: bool,
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
@@ -681,6 +683,7 @@ async def _run_polars(
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
+        global_resume: Whether to resume using global done ids across shards.
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -736,6 +739,21 @@ async def _run_polars(
         raise ValueError(f"Unsupported shard_mode: {shard_mode}")
     data = _ensure_polars_id(data, id_col)
     data = _collect_polars_data(data)
+
+    if global_resume and checkpointing:
+        if store_uri is None:
+            raise ValueError("store_uri is required when global_resume is enabled.")
+        done_ids = load_global_done_ids(
+            store_uri=store_uri,
+            id_col=id_col,
+            nshards=nshards,
+            store_factory=ArrowShardStore,
+            empty_data_factory=lambda: pa.Table.from_pydict({id_col: []}),
+        )
+        if done_ids:
+            import polars as pl
+
+            data = data.filter(~pl.col(id_col).is_in(list(done_ids)))
     return await _run_polars_sharded(
         job_factory=job_factory,
         backend=backend,

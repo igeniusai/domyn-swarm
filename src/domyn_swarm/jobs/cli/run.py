@@ -97,6 +97,12 @@ def parse_args(cli_args=None):
         "'id' uses stable id hashing (resume-friendly), "
         "'index' uses legacy row order sharding.",
     )
+    parser.add_argument(
+        "--global-resume",
+        action="store_true",
+        help="When resuming with sharded execution, filter inputs using global "
+        "done ids across all shards (useful if --limit changed).",
+    )
     parser.add_argument("--limit", default=None, type=int, required=False)
     parser.add_argument(
         "--checkpoint-dir",
@@ -254,6 +260,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         output_cols=output_cols,
         nshards=nshards,
         shard_mode=args.shard_mode,
+        global_resume=bool(getattr(args, "global_resume", False)),
         store_uri=store_uri,  # used by new-style
         checkpoint_every=args.checkpoint_interval,
         data_backend=backend.name,
