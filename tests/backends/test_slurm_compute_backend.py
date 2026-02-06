@@ -23,6 +23,7 @@ import pytest
 # SUT module (adjust path if your file lives elsewhere)
 import domyn_swarm.backends.compute.slurm as mod
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
+import domyn_swarm.backends.compute.slurm_helpers as helpers
 from domyn_swarm.platform.protocols import JobStatus
 
 
@@ -82,10 +83,36 @@ def _mk_swarm_cfg():
 
 
 # ----------------------------
+# FIFO helpers
+# ----------------------------
+def test_create_step_id_fifo_uses_swarm_jobs_dir(tmp_path, monkeypatch):
+    created = {}
+
+    def fake_mkfifo(path, mode):
+        created["path"] = Path(path)
+        created["mode"] = mode
+        Path(path).write_text("")
+
+    monkeypatch.setattr(helpers.os, "mkfifo", fake_mkfifo)
+
+    swarm_dir = tmp_path / "swarms" / "demo"
+    extras = {"swarm_directory": str(swarm_dir)}
+    step_name = "my-step"
+
+    fifo = mod._create_step_id_fifo(extras, step_name)
+
+    assert fifo == swarm_dir / "jobs" / f"{step_name}.fifo"
+    assert created["path"] == fifo
+    assert created["mode"] == 0o600
+    assert fifo.exists()
+
+
+# ----------------------------
 # submit(detach=True)
 # ----------------------------
 def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     popen_calls = {}
+    wait_calls = {}
 
     class FakePopen:
         def __init__(self, cmd, stdin, stdout, stderr, text, start_new_session, close_fds):
@@ -97,8 +124,15 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
             popen_calls["start_new_session"] = start_new_session
             popen_calls["close_fds"] = close_fds
             self.pid = 5555
+            self.stdout = None
 
     monkeypatch.setattr(mod.subprocess, "Popen", FakePopen)
+
+    def fake_wait_for_step_id(**kwargs):
+        wait_calls["kwargs"] = kwargs
+        return "123.0"
+
+    monkeypatch.setattr(helpers, "_wait_for_step_id", fake_wait_for_step_id)
 
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=123, lb_node="nodeA")
 
@@ -114,17 +148,20 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     b = FakeBuilder.last
     assert b is not None
     assert b.env == {"A": "B"}
-    assert b._exe == ["python", "-c", "print(1)"]
+    assert b._exe[0:2] == ["bash", "-lc"]
+    assert 'echo "${SLURM_JOB_ID}.${SLURM_STEP_ID}"' in b._exe[2]
 
-    # Popen got the cmd returned by build
-    assert popen_calls["cmd"] == [
+    # Popen got the cmd returned by build (wrapped with bash -lc)
+    assert popen_calls["cmd"][:4] == [
         "srun",
         "--jobid=123",
         "--nodelist=nodeA",
-        "python",
-        "-c",
-        "print(1)",
+        b.extra_args[0],
     ]
+    assert popen_calls["cmd"][4] == "bash"
+    assert popen_calls["cmd"][5] == "-lc"
+    assert 'echo "${SLURM_JOB_ID}.${SLURM_STEP_ID}"' in popen_calls["cmd"][6]
+    assert "exec python -c 'print(1)'" in popen_calls["cmd"][6]
     # sanity on flags passed
     assert popen_calls["start_new_session"] is True
     assert popen_calls["close_fds"] is True
@@ -133,8 +170,11 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     # Handle fields
     assert handle.status is JobStatus.RUNNING
     assert handle.meta["pid"] == 5555
-    assert handle.id == "5555"
+    assert handle.meta["external_id"] == "123.0"
+    assert handle.id == "123.0"
     assert handle.meta["cmd"] == shlex.join(popen_calls["cmd"])  # joined string
+    assert wait_calls["kwargs"]["job_id"] == 123
+    assert wait_calls["kwargs"]["step_name"] == b.extra_args[0].split("=", 1)[1]
 
 
 # ----------------------------
@@ -245,6 +285,13 @@ def test_wait_returns_status_if_no_pid():
     assert be.wait(handle) is JobStatus.PENDING
 
 
+def test_wait_with_external_id_uses_slurm_poll(monkeypatch):
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"external_id": "123.0"})
+    monkeypatch.setattr(mod, "_wait_for_slurm", lambda *a, **k: JobStatus.SUCCEEDED)
+    assert be.wait(handle) is JobStatus.SUCCEEDED
+
+
 def test_wait_with_pid_but_no_popen_returns_running_if_pid_exists(monkeypatch):
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 123})
@@ -295,6 +342,16 @@ def test_cancel_terminates_process_group(monkeypatch):
     handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 777})
     be.cancel(handle)
     assert calls == [777]
+    assert handle.status is JobStatus.CANCELLED
+
+
+def test_cancel_external_id_calls_scancel(monkeypatch):
+    calls = []
+    monkeypatch.setattr(mod, "_cancel_slurm", lambda ext: calls.append(ext))
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"external_id": "123.0"})
+    be.cancel(handle)
+    assert calls == ["123.0"]
     assert handle.status is JobStatus.CANCELLED
 
 

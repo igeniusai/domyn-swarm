@@ -14,7 +14,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -58,6 +58,50 @@ class ReplicaStatus(Base):
 
     agent_version: Mapped[str | None] = mapped_column(String, nullable=True)
     last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+
+
+class JobRecord(Base):
+    """Database record for a compute job targeting a swarm.
+
+    This table lives in the local `swarm.db` state database and is meant to provide
+    reconnectable job semantics across process boundaries.
+    """
+
+    __tablename__ = "jobs"
+
+    job_id: Mapped[str] = mapped_column(String, primary_key=True)
+    deployment_name: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("swarm.deployment_name"),
+        nullable=False,
+        index=True,
+    )
+
+    provider: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "slurm"
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "step" | "sbatch"
+
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    raw_status: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    external_id: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g. "12345.0"
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    command: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    resources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    log_paths: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    creation_dt: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+    update_dt: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         server_default=func.current_timestamp(),
         nullable=False,

@@ -185,12 +185,10 @@ def test_wait_ready_constructs_probe_with_cfg_values(monkeypatch):
 def test_delete_scancels_both(monkeypatch):
     calls = []
 
-    def fake_run(argv, check=False):
-        calls.append((tuple(argv), check))
-        return SimpleNamespace(returncode=0)
+    def fake_cancel(job_id):
+        calls.append(("scancel", str(job_id)))
 
-    monkeypatch.setattr(mod, "subprocess", SimpleNamespace(run=fake_run))
-
+    monkeypatch.setattr(mod, "_cancel_slurm", fake_cancel)
     driver = FakeDriver()
     cfg = mk_cfg()
     be = SlurmServingBackend(driver=driver, cfg=cfg)
@@ -198,28 +196,23 @@ def test_delete_scancels_both(monkeypatch):
     h = ServingHandle(id="202", url="", meta={"jobid": 101, "lb_jobid": 202})
     be.delete(h)
 
-    assert calls == [
-        (("scancel", "101"), False),
-        (("scancel", "202"), False),
-    ]
+    assert calls == [("scancel", "101"), ("scancel", "202")]
 
 
 def test_delete_ignores_missing_ids(monkeypatch):
     calls = []
 
-    def fake_run(argv, check=False):
-        calls.append((tuple(argv), check))
-        return SimpleNamespace(returncode=0)
+    def fake_cancel(job_id):
+        calls.append(("scancel", str(job_id)))
 
-    monkeypatch.setattr(mod, "subprocess", SimpleNamespace(run=fake_run))
-
+    monkeypatch.setattr(mod, "_cancel_slurm", fake_cancel)
     be = SlurmServingBackend(driver=FakeDriver(), cfg=mk_cfg())
 
     # Only lb_jobid present
     h = ServingHandle(id="x", url="", meta={"lb_jobid": 555})
     be.delete(h)
 
-    assert calls == [(("scancel", "555"), False)]
+    assert calls == [("scancel", "555")]
 
 
 def test_ensure_ready_raises_when_handle_none():
