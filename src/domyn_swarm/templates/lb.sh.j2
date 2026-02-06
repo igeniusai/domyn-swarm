@@ -159,7 +159,17 @@ CONF
     }
 }
 
-generate_nginx_conf > $HOST_DIR/serving/nginx.conf
+write_nginx_conf() {
+  local tmp_conf="$SERVING_DIR/nginx.conf.tmp"
+  if ! generate_nginx_conf > "$tmp_conf"; then
+    echo "[lb] ERROR: failed to generate nginx config" >&2
+    rm -f "$tmp_conf"
+    return 1
+  fi
+  mv "$tmp_conf" "$SERVING_DIR/nginx.conf"
+}
+
+write_nginx_conf || exit 1
 
 CACHE_DIR="$TMPDIR/cache"
 mkdir -p "$CACHE_DIR" "$HOST_DIR/run"
@@ -171,7 +181,14 @@ singularity instance start --writable-tmpfs \
     -B "$HOST_DIR/logs/endpoint:/var/log/nginx" \
     "$NGINX_IMG" "$INSTANCE_NAME"
 
-generate_nginx_conf > $SERVING_DIR/nginx.conf
+singularity exec instance://"$INSTANCE_NAME" bash -lc '
+  PATH=/usr/sbin:$PATH
+  if nginx -t; then
+    echo "[lb] nginx config test OK"
+  else
+    echo "[lb] ERROR: nginx config test failed" >&2
+  fi
+'
 
 echo "[lb] started nginx instance '$INSTANCE_NAME'"
 trap 'echo "[lb] caught SIGTERM → shutting down"; singularity instance stop "$INSTANCE_NAME" || true; exit 0' SIGTERM
