@@ -320,6 +320,94 @@ async def test_run_job_unified_global_resume_with_index_sharding(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_global_resume_arrow_runner(tmp_path):
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"messages": list(range(6))})
+
+    await run_job_unified(
+        DummySwarmJob,
+        data.head(4),
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        runner="arrow",
+    )
+
+    class GuardJob(DummySwarmJob):
+        def __init__(self, cutoff: int, **kwargs):
+            super().__init__(**kwargs)
+            self.cutoff = cutoff
+
+        async def transform_items(self, items: list):
+            if any(i < self.cutoff for i in items):
+                raise RuntimeError("unexpected recompute")
+            return [f"test_shard_{i}" for i in items]
+
+    out_df = await run_job_unified(
+        lambda: GuardJob(cutoff=4),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        runner="arrow",
+        global_resume=True,
+    )
+    assert out_df["messages"].tolist() == list(range(6))
+    assert out_df["output"].tolist() == [f"test_shard_{i}" for i in range(6)]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_global_resume_polars_runner(tmp_path):
+    pytest.importorskip("polars")
+
+    import polars as pl
+
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pl.DataFrame({"messages": list(range(6))})
+
+    await run_job_unified(
+        DummySwarmJob,
+        data.head(4),
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        data_backend="polars",
+        runner="arrow",
+    )
+
+    class GuardJob(DummySwarmJob):
+        def __init__(self, cutoff: int, **kwargs):
+            super().__init__(**kwargs)
+            self.cutoff = cutoff
+
+        async def transform_items(self, items: list):
+            if any(i < self.cutoff for i in items):
+                raise RuntimeError("unexpected recompute")
+            return [f"test_shard_{i}" for i in items]
+
+    out_df = await run_job_unified(
+        lambda: GuardJob(cutoff=4),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        data_backend="polars",
+        runner="arrow",
+        global_resume=True,
+    )
+    assert out_df["messages"].to_list() == list(range(6))
+    assert out_df["output"].to_list() == [f"test_shard_{i}" for i in range(6)]
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_polars_runner_lazy_resume_skips_done_ids(tmp_path):
     pytest.importorskip("polars")
 
@@ -1120,6 +1208,47 @@ async def test_amain_ray_backend_forwards_ray_address(monkeypatch, tmp_path):
 
     await run_mod._amain(args)
     assert seen["ray_address"] == "ray://head:10001"
+
+
+@pytest.mark.asyncio
+async def test_amain_forwards_global_resume(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "output.parquet"
+    pd.DataFrame({"messages": [1, 2]}).to_parquet(input_path)
+
+    monkeypatch.setattr(
+        run_mod,
+        "build_job_from_args",
+        lambda args: (DummySwarmJob, {"data_backend": "pandas"}),
+    )
+
+    seen: dict[str, object] = {}
+
+    async def _fake_run_job_unified(*args, **kwargs):
+        seen.update(kwargs)
+        return pd.DataFrame({"messages": [1, 2], "output": ["a", "b"]})
+
+    monkeypatch.setattr(run_mod, "run_job_unified", _fake_run_job_unified)
+    monkeypatch.setattr(run_mod, "_write_result", lambda *a, **k: None)
+
+    args = run_mod.parse_args(
+        [
+            "--job-class",
+            "domyn_swarm.jobs.cli.run:DummySwarmJob",
+            "--model",
+            "m",
+            "--endpoint",
+            "http://e",
+            "--input-parquet",
+            str(input_path),
+            "--output-parquet",
+            str(output_path),
+            "--global-resume",
+        ]
+    )
+
+    await run_mod._amain(args)
+    assert seen["global_resume"] is True
 
 
 def test_main_wrapper(monkeypatch):
