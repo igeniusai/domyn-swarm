@@ -36,6 +36,7 @@ from domyn_swarm.jobs.io.checkpointing import (
     _validate_sharded_execution,
 )
 from domyn_swarm.jobs.io.columns import _require_column_names, _validate_required_id
+from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 if TYPE_CHECKING:
     import polars as pl
@@ -661,6 +662,7 @@ async def _run_polars(
     id_col: str,
     require_id: bool,
     nshards: int,
+    shard_mode: str,
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
@@ -678,6 +680,7 @@ async def _run_polars(
         id_col: Column name used for stable row ids.
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
+        shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -729,6 +732,8 @@ async def _run_polars(
             )
 
     _validate_sharded_execution(checkpointing)
+    if shard_mode not in {"id", "index"}:
+        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
     data = _ensure_polars_id(data, id_col)
     data = _collect_polars_data(data)
     return await _run_polars_sharded(
@@ -744,6 +749,7 @@ async def _run_polars(
         nshards=nshards,
         output_path=output_path,
         shard_output=shard_output,
+        shard_mode=shard_mode,
     )
 
 
@@ -808,6 +814,7 @@ async def _run_polars_sharded(
     nshards: int,
     output_path: Path | None,
     shard_output: bool = False,
+    shard_mode: str = "id",
 ) -> Any:
     """Run a sharded polars job with checkpointing.
 
@@ -825,6 +832,7 @@ async def _run_polars_sharded(
         output_path: Optional output directory.
         shard_output: If True, write one parquet output per shard into output_path using
             checkpoint outputs as the source of truth.
+        shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
 
     Returns:
         Polars DataFrame containing job outputs, or None when outputs are written directly
@@ -848,11 +856,31 @@ async def _run_polars_sharded(
             shard_output=False,
         )
 
-    chunk_size = math.ceil(total_rows / nshards)
+    if shard_mode not in {"id", "index"}:
+        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+
+    if shard_mode == "index":
+        chunk_size = math.ceil(total_rows / nshards)
+
+        def _slice(start: int):
+            return data.slice(start, chunk_size)
+
+        shard_starts = [shard_id * chunk_size for shard_id in range(nshards)]
+    else:
+        ids = data.get_column(id_col).to_list()
+        indices = shard_indices_by_id(ids, nshards)
+
+        def _slice(start: int):
+            idx = indices[start]
+            if len(idx) == 0:
+                return data.head(0)
+            return data[idx.tolist()]
+
+        shard_starts = list(range(len(indices)))
 
     async def _one(i: int, start: int):
         assert store_uri is not None
-        sub = data.slice(start, chunk_size)
+        sub = _slice(start)
         su = _shard_store_uri(store_uri, i)
         out_file = None
         if shard_output:
@@ -875,9 +903,8 @@ async def _run_polars_sharded(
         )
 
     tasks = []
-    for shard_id in range(nshards):
-        start = shard_id * chunk_size
-        if start >= total_rows:
+    for shard_id, start in enumerate(shard_starts):
+        if shard_mode == "index" and start >= total_rows:
             break
         tasks.append(_one(shard_id, start))
     parts = await asyncio.gather(*tasks)
