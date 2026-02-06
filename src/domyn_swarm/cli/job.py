@@ -365,7 +365,8 @@ def submit_job(
         "--shard-mode",
         help="How to split input when --num-threads > 1. "
         "'id' uses stable id hashing (resume-friendly), "
-        "'index' uses legacy row order sharding.",
+        "'index' uses legacy row order sharding. "
+        "Keep --num-threads fixed across resumes to avoid reshuffling shards.",
     ),
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Detach the job from the current terminal"
