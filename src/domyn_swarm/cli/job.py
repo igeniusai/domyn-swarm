@@ -12,279 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
-from dataclasses import dataclass
-import json
 import logging
 from pathlib import Path
 from typing import Literal
 
 import typer
 
+from domyn_swarm.cli import job_helpers as helpers
 from domyn_swarm.config.swarm import _load_swarm_config
+from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.jobs.api import JobBuilder
-from domyn_swarm.jobs.api.base import SwarmJob
-from domyn_swarm.platform.protocols import JobHandle, JobStatus
 import domyn_swarm.utils as utils
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
 job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
-
-
-def _parse_json_object(value: str, *, param_name: str) -> dict:
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise typer.BadParameter(f"{param_name} must be a valid JSON object.") from exc
-    if not isinstance(parsed, dict):
-        raise typer.BadParameter(f"{param_name} must be a JSON object.")
-    return parsed
-
-
-def _maybe_parse_json_object(value: str | None, *, param_name: str) -> dict | None:
-    if value is None:
-        return None
-    return _parse_json_object(value, param_name=param_name)
-
-
-def _build_job_kwargs_json(
-    *,
-    job_kwargs: str,
-    data_backend: str | None,
-    native_backend: bool | None,
-    native_batch_size: int | None,
-    id_column_name: str | None,
-    backend_read_kwargs: str | None,
-    backend_write_kwargs: str | None,
-) -> str:
-    job_kwargs_dict = _parse_json_object(job_kwargs, param_name="job_kwargs")
-
-    if data_backend:
-        job_kwargs_dict["data_backend"] = data_backend
-    if native_backend is not None:
-        job_kwargs_dict["native_backend"] = native_backend
-    if native_batch_size is not None:
-        job_kwargs_dict["native_batch_size"] = native_batch_size
-    if id_column_name is not None:
-        job_kwargs_dict["id_column_name"] = id_column_name
-
-    read_kwargs = _maybe_parse_json_object(backend_read_kwargs, param_name="backend_read_kwargs")
-    if read_kwargs is not None:
-        job_kwargs_dict["backend_read_kwargs"] = read_kwargs
-
-    write_kwargs = _maybe_parse_json_object(backend_write_kwargs, param_name="backend_write_kwargs")
-    if write_kwargs is not None:
-        job_kwargs_dict["backend_write_kwargs"] = write_kwargs
-
-    resolved_backend = job_kwargs_dict.get("data_backend")
-    if resolved_backend == "ray" and not job_kwargs_dict.get("id_column_name"):
-        raise typer.BadParameter("--id-column is required when --data-backend=ray.")
-
-    return json.dumps(job_kwargs_dict)
-
-
-@dataclass(frozen=True)
-class JobRunSpec:
-    """Run-time parameters for a job submission.
-
-    Args:
-        input_path: Path to the input parquet file.
-        output_path: Path to the output parquet file.
-        shard_output: Whether to write one output file per shard when output is a directory.
-        checkpoint_dir: Optional checkpoint directory override.
-        no_resume: Whether to ignore existing checkpoints.
-        no_checkpointing: Whether to disable checkpointing entirely.
-        runner: Runner implementation name for non-ray backends.
-        num_threads: Worker thread count for the job runner.
-        limit: Optional row limit for input reads.
-        shard_mode: Sharding strategy for multi-threaded runs.
-        global_resume: Whether to resume using global done ids across shards.
-        detach: Whether to detach job execution from the CLI.
-        mail_user: Optional email address for job notifications.
-        ray_address: Optional Ray cluster address override.
-        shard_mode: Sharding strategy for multi-threaded runs.
-    """
-
-    input_path: Path
-    output_path: Path
-    shard_output: bool
-    checkpoint_dir: Path | None
-    no_resume: bool
-    no_checkpointing: bool
-    runner: str
-    num_threads: int
-    limit: int | None
-    detach: bool
-    mail_user: str | None
-    ray_address: str | None
-    global_resume: bool = False
-    checkpoint_tag: str | None = None
-    shard_mode: Literal["id", "index"] = "id"
-
-
-@dataclass(frozen=True)
-class JobSubmitRequest:
-    """Job submission parameters for the CLI helper.
-
-    Args:
-        job: Pre-built job instance for submission.
-        run: Run-time parameters for the job execution.
-    """
-
-    job: SwarmJob
-    run: JobRunSpec
-
-
-def _build_job_for_swarm(
-    *,
-    swarm: DomynLLMSwarm,
-    job_class: str,
-    job_kwargs: str,
-    job_name: str | None,
-    input_column: str,
-    output_column: str,
-    checkpoint_interval: int,
-    max_concurrency: int,
-    retries: int,
-    timeout: float,
-) -> SwarmJob:
-    """Build a SwarmJob instance using the active swarm context.
-
-    Args:
-        swarm: Active swarm instance providing endpoint and model info.
-        job_class: Job class to instantiate (module:ClassName).
-        job_kwargs: JSON-encoded job kwargs string.
-        job_name: Optional job name for logging.
-        input_column: Input column name in the dataset.
-        output_column: Output column name(s) for job results.
-        checkpoint_interval: Batch size for checkpoint flushes.
-        max_concurrency: Max concurrent in-flight requests.
-        retries: Retry count for failed requests.
-        timeout: Per-request timeout in seconds.
-
-    Returns:
-        Initialized SwarmJob instance.
-    """
-    return JobBuilder.from_class_path(
-        job_class,
-        job_kwargs,
-        name=job_name,
-        endpoint=swarm.endpoint,
-        model=swarm.model,
-        checkpoint_interval=checkpoint_interval,
-        max_concurrency=max_concurrency,
-        retries=retries,
-        timeout=timeout,
-        input_column_name=input_column,
-        output_cols=output_column,
-    )
-
-
-def _normalize_submission_handle(raw_handle: object) -> JobHandle:
-    """Normalize arbitrary submission handles to ``JobHandle``.
-
-    Args:
-        raw_handle: Handle returned by swarm submission methods.
-
-    Returns:
-        Normalized ``JobHandle`` for downstream formatting.
-    """
-    if isinstance(raw_handle, JobHandle):
-        return raw_handle
-
-    raw_meta = getattr(raw_handle, "meta", None)
-    meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
-    raw_status = getattr(raw_handle, "status", "PENDING")
-    status_value = getattr(raw_status, "value", raw_status)
-    status = str(status_value).upper()
-    if status == "CANCELED":
-        status = "CANCELLED"
-
-    try:
-        normalized_status = JobStatus(status)
-    except ValueError:
-        normalized_status = JobStatus.PENDING
-
-    return JobHandle(
-        id=str(getattr(raw_handle, "id", "unknown")),
-        status=normalized_status,
-        meta=meta,
-    )
-
-
-def _emit_submission_json(
-    *,
-    handle: object,
-    command: Literal["submit", "submit-script"],
-    swarm_name: str,
-) -> None:
-    """Emit a single-line JSON payload for submitted jobs.
-
-    Args:
-        handle: Raw submission handle returned by swarm APIs.
-        command: CLI command name emitting the payload.
-        swarm_name: Swarm deployment name.
-    """
-    normalized = _normalize_submission_handle(handle)
-    payload = {
-        "command": command,
-        "swarm": str(swarm_name),
-        "id": normalized.id,
-        "job_id": normalized.meta.get("job_id"),
-        "status": normalized.status.value,
-        "pid": normalized.pid,
-        "external_id": normalized.external_id,
-        "detach": normalized.pid is not None,
-    }
-    typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=True))
-
-
-def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> JobHandle:
-    """Submit a pre-built job object to a swarm.
-
-    Args:
-        swarm: Target swarm instance.
-        request: Submission payload.
-
-    Returns:
-        Submitted ``JobHandle``.
-    """
-    resolved_checkpoint_dir = (
-        swarm.swarm_dir / "checkpoints"
-        if request.run.checkpoint_dir is None
-        else request.run.checkpoint_dir
-    )
-    return swarm.submit_job(
-        request.job,
-        input_path=request.run.input_path,
-        output_path=request.run.output_path,
-        num_threads=request.run.num_threads,
-        shard_output=request.run.shard_output,
-        limit=request.run.limit,
-        detach=request.run.detach,
-        mail_user=request.run.mail_user,
-        checkpoint_dir=resolved_checkpoint_dir,
-        no_resume=request.run.no_resume,
-        no_checkpointing=request.run.no_checkpointing,
-        runner=request.run.runner,
-        ray_address=request.run.ray_address,
-        checkpoint_tag=request.run.checkpoint_tag,
-        shard_mode=request.run.shard_mode,
-        global_resume=request.run.global_resume,
-    )
-
-
-def _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarm) -> None:
-    abort = typer.confirm("KeyboardInterrupt detected. Do you want to cancel the swarm allocation?")
-    if abort:
-        with contextlib.suppress(Exception):
-            swarm_ctx.cleanup()
-        typer.echo("Swarm allocation cancelled by user")
-        raise typer.Abort() from None
-    typer.echo("Continuing to wait for job to complete …")
 
 
 @job_app.command("submit-script")
@@ -311,7 +54,7 @@ def submit_script(
         cfg = _load_swarm_config(config)
         with DomynLLMSwarm(cfg=cfg) as swarm:
             handle = swarm.submit_script(script_file, extra_args=args)
-            _emit_submission_json(
+            helpers.emit_submission_json(
                 handle=handle,
                 command="submit-script",
                 swarm_name=swarm.name,
@@ -323,7 +66,7 @@ def submit_script(
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(deployment_name=name)
         handle = swarm.submit_script(script_file, extra_args=args)
-        _emit_submission_json(
+        helpers.emit_submission_json(
             handle=handle,
             command="submit-script",
             swarm_name=swarm.name,
@@ -496,7 +239,7 @@ def submit_job(
         logger.error("Either --config or --name must be provided, not both.")
         raise typer.Exit(1)
 
-    job_kwargs = _build_job_kwargs_json(
+    job_kwargs = helpers.build_job_kwargs_json(
         job_kwargs=job_kwargs,
         data_backend=data_backend,
         native_backend=native_backend,
@@ -505,7 +248,7 @@ def submit_job(
         backend_read_kwargs=backend_read_kwargs,
         backend_write_kwargs=backend_write_kwargs,
     )
-    run_spec = JobRunSpec(
+    run_spec = helpers.JobRunSpec(
         input_path=input,
         output_path=output,
         shard_output=shard_output,
@@ -528,7 +271,7 @@ def submit_job(
         swarm_ctx = DomynLLMSwarm(cfg=cfg)
         try:
             with swarm_ctx as swarm:
-                job = _build_job_for_swarm(
+                job = helpers.build_job_for_swarm(
                     swarm=swarm,
                     job_class=job_class,
                     job_kwargs=job_kwargs,
@@ -540,23 +283,23 @@ def submit_job(
                     retries=retries,
                     timeout=timeout,
                 )
-                handle = _submit_loaded_job(
+                handle = helpers.submit_loaded_job(
                     swarm=swarm,
-                    request=JobSubmitRequest(job=job, run=run_spec),
+                    request=helpers.JobSubmitRequest(job=job, run=run_spec),
                 )
-                _emit_submission_json(
+                helpers.emit_submission_json(
                     handle=handle,
                     command="submit",
                     swarm_name=swarm.name,
                 )
         except KeyboardInterrupt:
-            _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx)
+            helpers.maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx)
     elif name is None:
         raise RuntimeError("Swarm name is null.")
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
-        job = _build_job_for_swarm(
+        job = helpers.build_job_for_swarm(
             swarm=swarm,
             job_class=job_class,
             job_kwargs=job_kwargs,
@@ -568,12 +311,109 @@ def submit_job(
             retries=retries,
             timeout=timeout,
         )
-        handle = _submit_loaded_job(
+        handle = helpers.submit_loaded_job(
             swarm=swarm,
-            request=JobSubmitRequest(job=job, run=run_spec),
+            request=helpers.JobSubmitRequest(job=job, run=run_spec),
         )
-        _emit_submission_json(
+        helpers.emit_submission_json(
             handle=handle,
             command="submit",
             swarm_name=swarm.name,
         )
+
+
+@job_app.command("wait")
+def wait_job(
+    job_id: str | None = typer.Option(
+        None, "--job-id", help="Internal Domyn job ID from the local state DB."
+    ),
+    external_id: str | None = typer.Option(
+        None, "--external-id", help="Provider external ID (for example Slurm step id)."
+    ),
+    handle_json: str | None = typer.Option(
+        None,
+        "--handle-json",
+        help="JSON handle payload (use '-' to read from stdin). If omitted, stdin is auto-read.",
+    ),
+    name: str | None = typer.Option(
+        None,
+        "-n",
+        "--name",
+        help="Optional deployment name used to disambiguate --external-id or handle payload.",
+    ),
+    stream_logs: bool = typer.Option(
+        True,
+        "--stream-logs/--no-stream-logs",
+        help="Stream backend logs while waiting (when supported by backend).",
+    ),
+) -> None:
+    """Wait for a submitted job to reach a terminal state.
+
+    Args:
+        job_id: Internal job ID selector.
+        external_id: Provider external-id selector.
+        handle_json: Handle JSON selector, literal payload or stdin marker.
+        name: Optional deployment name hint.
+        stream_logs: Whether to stream backend logs while waiting.
+    """
+    target = helpers.resolve_job_target(
+        job_id=job_id,
+        external_id=external_id,
+        handle_json=handle_json,
+        deployment_name=name,
+    )
+    swarm = DomynLLMSwarm.from_state(deployment_name=target.swarm_name)
+    target.handle.status = swarm.wait_job(target.handle, stream_logs=stream_logs)
+    if target.job_id:
+        SwarmStateManager.update_job(
+            target.job_id,
+            status=target.handle.status,
+            external_id=target.handle.external_id,
+        )
+    helpers.emit_job_control_json(command="wait", target=target, status=target.handle.status)
+
+
+@job_app.command("cancel")
+def cancel_job(
+    job_id: str | None = typer.Option(
+        None, "--job-id", help="Internal Domyn job ID from the local state DB."
+    ),
+    external_id: str | None = typer.Option(
+        None, "--external-id", help="Provider external ID (for example Slurm step id)."
+    ),
+    handle_json: str | None = typer.Option(
+        None,
+        "--handle-json",
+        help="JSON handle payload (use '-' to read from stdin). If omitted, stdin is auto-read.",
+    ),
+    name: str | None = typer.Option(
+        None,
+        "-n",
+        "--name",
+        help="Optional deployment name used to disambiguate --external-id or handle payload.",
+    ),
+) -> None:
+    """Cancel a submitted job.
+
+    Args:
+        job_id: Internal job ID selector.
+        external_id: Provider external-id selector.
+        handle_json: Handle JSON selector, literal payload or stdin marker.
+        name: Optional deployment name hint.
+    """
+    target = helpers.resolve_job_target(
+        job_id=job_id,
+        external_id=external_id,
+        handle_json=handle_json,
+        deployment_name=name,
+    )
+    swarm = DomynLLMSwarm.from_state(deployment_name=target.swarm_name)
+    target.handle.status = swarm.cancel_job(target.handle)
+
+    if target.job_id:
+        SwarmStateManager.update_job(
+            target.job_id,
+            status=target.handle.status,
+            external_id=target.handle.external_id,
+        )
+    helpers.emit_job_control_json(command="cancel", target=target, status=target.handle.status)

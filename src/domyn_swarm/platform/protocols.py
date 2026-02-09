@@ -29,6 +29,28 @@ class JobStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+def coerce_job_status(status: object, *, default: JobStatus = JobStatus.PENDING) -> JobStatus:
+    """Normalize arbitrary status payloads to ``JobStatus``.
+
+    Args:
+        status: Raw status value (enum/string/object with ``value``).
+        default: Fallback status when normalization fails.
+
+    Returns:
+        Normalized ``JobStatus`` value.
+    """
+    if isinstance(status, JobStatus):
+        return status
+    raw_status = getattr(status, "value", status)
+    status_str = str(raw_status).strip().upper()
+    if status_str == "CANCELED":
+        status_str = JobStatus.CANCELLED.value
+    try:
+        return JobStatus(status_str)
+    except ValueError:
+        return default
+
+
 class ServingPhase(str, Enum):
     """Standardized serving endpoint lifecycle phases across platforms."""
 

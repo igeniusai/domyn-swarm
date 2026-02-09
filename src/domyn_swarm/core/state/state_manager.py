@@ -366,6 +366,56 @@ class SwarmStateManager:
             }
 
     @classmethod
+    def get_job_by_external_id(
+        cls, external_id: str, *, deployment_name: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch a job record by provider external ID.
+
+        Args:
+            external_id: Provider external ID (e.g. Slurm step id).
+            deployment_name: Optional swarm deployment name to disambiguate.
+
+        Returns:
+            A JSON-serializable dict for the matched job record.
+
+        Raises:
+            ValueError: If no match is found or match is ambiguous.
+        """
+        session_factory = make_session_factory(cls._get_db_path())
+        with session_factory() as s:
+            q = s.query(JobRecord).filter(JobRecord.external_id == external_id)
+            if deployment_name:
+                q = q.filter(JobRecord.deployment_name == deployment_name)
+
+            rows = q.order_by(JobRecord.update_dt.desc(), JobRecord.creation_dt.desc()).all()
+            if not rows:
+                scope = f" in deployment '{deployment_name}'" if deployment_name else ""
+                raise ValueError(f"Job not found for external_id '{external_id}'{scope}.")
+            if len(rows) > 1 and deployment_name is None:
+                raise ValueError(
+                    "Multiple jobs matched external_id "
+                    f"'{external_id}'. Provide --name/--deployment-name to disambiguate."
+                )
+
+            rec = rows[0]
+            return {
+                "job_id": rec.job_id,
+                "deployment_name": rec.deployment_name,
+                "provider": rec.provider,
+                "kind": rec.kind,
+                "status": rec.status,
+                "raw_status": rec.raw_status,
+                "external_id": rec.external_id,
+                "name": rec.name,
+                "command": rec.command,
+                "resources": rec.resources,
+                "log_paths": rec.log_paths,
+                "error": rec.error,
+                "creation_dt": rec.creation_dt.isoformat() if rec.creation_dt else None,
+                "update_dt": rec.update_dt.isoformat() if rec.update_dt else None,
+            }
+
+    @classmethod
     def list_jobs(
         cls,
         deployment_name: str,

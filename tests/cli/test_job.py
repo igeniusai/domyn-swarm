@@ -168,7 +168,7 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
         _ = json.loads(job_kwargs)
         return job_obj
 
-    mocker.patch.object(mod.JobBuilder, "from_class_path", side_effect=_fake_build)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", side_effect=_fake_build)
 
     res = runner.invoke(
         mod.job_app,
@@ -227,7 +227,7 @@ def test_submit_job_with_name_happy_path(mocker, tmp_path: Path):
     mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
 
     job_obj = object()
-    mocker.patch.object(mod.JobBuilder, "from_class_path", return_value=job_obj)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", return_value=job_obj)
 
     res = runner.invoke(
         mod.job_app,
@@ -297,7 +297,7 @@ def test_submit_job_keyboard_interrupt_abort(mocker, tmp_path: Path):
     def _boom(*a, **k):
         raise KeyboardInterrupt()
 
-    mocker.patch.object(mod.JobBuilder, "from_class_path", side_effect=_boom)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", side_effect=_boom)
 
     # User chooses to abort → True; expect cleanup and abort
     mocker.patch.object(mod.typer, "confirm", return_value=True)
@@ -336,7 +336,7 @@ def test_submit_job_keyboard_interrupt_continue(mocker, tmp_path: Path):
     cm.cleanup = mocker.MagicMock()
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
-    mocker.patch.object(mod.JobBuilder, "from_class_path", side_effect=KeyboardInterrupt)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", side_effect=KeyboardInterrupt)
     mocker.patch.object(mod.typer, "confirm", return_value=False)
 
     res = runner.invoke(
@@ -374,7 +374,7 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
     job_obj = object()
-    mocker.patch.object(mod.JobBuilder, "from_class_path", return_value=job_obj)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", return_value=job_obj)
 
     res = runner.invoke(
         mod.job_app,
@@ -427,7 +427,7 @@ def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
     job_obj = object()
-    mocker.patch.object(mod.JobBuilder, "from_class_path", return_value=job_obj)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", return_value=job_obj)
 
     res = runner.invoke(
         mod.job_app,
@@ -452,3 +452,80 @@ def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
     swarm.submit_job.assert_called_once()
     kwargs = swarm.submit_job.call_args.kwargs
     assert kwargs["ray_address"] == "ray://head:10001"
+
+
+def test_wait_job_with_job_id_updates_status_and_emits_json(mocker):
+    handle = JobHandle(id="123.0", status=JobStatus.RUNNING, meta={"job_id": "job-1"})
+    target = mod.helpers.ResolvedJobTarget(
+        swarm_name="my-swarm",
+        handle=handle,
+        job_id="job-1",
+        source="job_id",
+    )
+    resolve = mocker.patch.object(mod.helpers, "resolve_job_target", return_value=target)
+    emit = mocker.patch.object(mod.helpers, "emit_job_control_json")
+    update = mocker.patch.object(mod.SwarmStateManager, "update_job")
+
+    swarm = mocker.MagicMock()
+    swarm.wait_job.return_value = JobStatus.SUCCEEDED
+    mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
+
+    result = runner.invoke(mod.job_app, ["wait", "--job-id", "job-1"])
+
+    assert result.exit_code == 0
+    resolve.assert_called_once_with(
+        job_id="job-1",
+        external_id=None,
+        handle_json=None,
+        deployment_name=None,
+    )
+    swarm.wait_job.assert_called_once_with(handle, stream_logs=True)
+    update.assert_called_once_with(
+        "job-1",
+        status=JobStatus.SUCCEEDED,
+        external_id=None,
+    )
+    emit.assert_called_once()
+    assert target.handle.status == JobStatus.SUCCEEDED
+
+
+def test_cancel_job_with_external_id_sets_cancelled_and_updates_state(mocker):
+    handle = JobHandle(
+        id="123.0",
+        status=JobStatus.RUNNING,
+        meta={"job_id": "job-1", "external_id": "123.0"},
+    )
+    target = mod.helpers.ResolvedJobTarget(
+        swarm_name="my-swarm",
+        handle=handle,
+        job_id="job-1",
+        source="external_id",
+    )
+    resolve = mocker.patch.object(mod.helpers, "resolve_job_target", return_value=target)
+    emit = mocker.patch.object(mod.helpers, "emit_job_control_json")
+    update = mocker.patch.object(mod.SwarmStateManager, "update_job")
+
+    swarm = mocker.MagicMock()
+    swarm.cancel_job.return_value = JobStatus.CANCELLED
+    mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
+
+    result = runner.invoke(
+        mod.job_app,
+        ["cancel", "--external-id", "123.0", "--name", "my-swarm"],
+    )
+
+    assert result.exit_code == 0
+    resolve.assert_called_once_with(
+        job_id=None,
+        external_id="123.0",
+        handle_json=None,
+        deployment_name="my-swarm",
+    )
+    swarm.cancel_job.assert_called_once_with(handle)
+    update.assert_called_once_with(
+        "job-1",
+        status=JobStatus.CANCELLED,
+        external_id="123.0",
+    )
+    emit.assert_called_once()
+    assert target.handle.status == JobStatus.CANCELLED

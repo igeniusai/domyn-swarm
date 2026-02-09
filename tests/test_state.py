@@ -253,6 +253,25 @@ class TestSwarmStateManager:
         assert job2["status"] == "SUCCEEDED"
         assert job2["raw_status"] == "COMPLETED"
 
+    def test_get_job_by_external_id(self, state_manager: SwarmStateManager) -> None:
+        state_manager.save(deployment_name="swarm-1")
+
+        job_id = SwarmStateManager.create_job(
+            deployment_name="swarm-1",
+            provider="slurm",
+            kind="step",
+            status="RUNNING",
+            external_id="12345.0",
+            name="my-job",
+            command=["python", "-m", "mod"],
+            resources={"cpus_per_task": 2},
+        )
+
+        rec = SwarmStateManager.get_job_by_external_id("12345.0")
+        assert rec["job_id"] == job_id
+        assert rec["deployment_name"] == "swarm-1"
+        assert rec["external_id"] == "12345.0"
+
     def test_upgrade_head_creates_jobs_table(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         db_path = tmp_path / "swarm.db"
 

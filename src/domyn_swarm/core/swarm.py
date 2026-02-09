@@ -43,6 +43,7 @@ from domyn_swarm.platform.protocols import (
     ServingHandle,
     ServingPhase,
     ServingStatus,
+    coerce_job_status,
 )
 
 from ..core.state.state_manager import SwarmStateManager
@@ -421,28 +422,6 @@ class DomynLLMSwarm(BaseModel):
         except Exception as exc:
             logger.warning("Failed to update job record %s: %s", job_id, exc)
 
-    @staticmethod
-    def _coerce_job_status(status: object) -> JobStatus:
-        """Normalize a status object to a ``JobStatus`` enum.
-
-        Args:
-            status: Status enum or string.
-
-        Returns:
-            Normalized ``JobStatus`` value.
-        """
-        if isinstance(status, JobStatus):
-            return status
-        raw_status = getattr(status, "value", status)
-        status_str = str(raw_status).strip().upper()
-        if status_str == "CANCELED":
-            status_str = JobStatus.CANCELLED.value
-        try:
-            return JobStatus(status_str)
-        except ValueError:
-            logger.warning("Unknown job status %r, defaulting to PENDING", status)
-            return JobStatus.PENDING
-
     def _submit_with_tracking(
         self,
         *,
@@ -498,11 +477,11 @@ class DomynLLMSwarm(BaseModel):
             raw_meta = getattr(raw_handle, "meta", None)
             job_handle = JobHandle(
                 id=str(getattr(raw_handle, "id", name)),
-                status=self._coerce_job_status(getattr(raw_handle, "status", JobStatus.PENDING)),
+                status=coerce_job_status(getattr(raw_handle, "status", JobStatus.PENDING)),
                 meta=dict(raw_meta) if isinstance(raw_meta, dict) else {},
             )
 
-        normalized_status = self._coerce_job_status(job_handle.status)
+        normalized_status = coerce_job_status(job_handle.status)
         job_handle.status = normalized_status
         self._update_job_submission(
             job_id=job_record_id,
@@ -906,6 +885,53 @@ class DomynLLMSwarm(BaseModel):
                 detach=detach,
             ),
         )
+
+    def _require_compute_backend(self):
+        """Return the initialized compute backend.
+
+        Raises:
+            RuntimeError: If compute backend is not initialized.
+        """
+        compute = self._deployment.compute
+        if compute is None:
+            raise RuntimeError("Compute backend is not initialized for this swarm.")
+        return compute
+
+    def wait_job(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus:
+        """Wait for a submitted compute job to reach a terminal state.
+
+        Args:
+            handle: Job handle to wait on.
+            stream_logs: Whether to stream backend logs while waiting.
+
+        Returns:
+            Normalized terminal job status.
+        """
+        compute = self._require_compute_backend()
+        status = compute.wait(handle, stream_logs=stream_logs)
+        normalized_status = coerce_job_status(status)
+        handle.status = normalized_status
+        return normalized_status
+
+    def cancel_job(self, handle: JobHandle) -> JobStatus:
+        """Cancel a submitted compute job.
+
+        Args:
+            handle: Job handle to cancel.
+
+        Returns:
+            Final normalized status after cancellation.
+        """
+        compute = self._require_compute_backend()
+        compute.cancel(handle)
+        normalized_status = coerce_job_status(
+            getattr(handle, "status", JobStatus.CANCELLED),
+            default=JobStatus.CANCELLED,
+        )
+        if normalized_status != JobStatus.CANCELLED:
+            normalized_status = JobStatus.CANCELLED
+        handle.status = normalized_status
+        return normalized_status
 
     def cleanup(self):
         if self._deployment and self.serving_handle:
