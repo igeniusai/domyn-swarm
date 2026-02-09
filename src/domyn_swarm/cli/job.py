@@ -22,8 +22,9 @@ from typing import Literal
 import typer
 
 from domyn_swarm.config.swarm import _load_swarm_config
-from domyn_swarm.core.swarm import DomynLLMSwarm, _load_job
+from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.jobs.api import JobBuilder
 from domyn_swarm.jobs.api.base import SwarmJob
 from domyn_swarm.platform.protocols import JobHandle, JobStatus
 import domyn_swarm.utils as utils
@@ -167,7 +168,7 @@ def _build_job_for_swarm(
     Returns:
         Initialized SwarmJob instance.
     """
-    return _load_job(
+    return JobBuilder.from_class_path(
         job_class,
         job_kwargs,
         name=job_name,

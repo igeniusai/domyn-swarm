@@ -156,10 +156,10 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     cm.__exit__.return_value = None
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
-    # Mock _load_job to return a job object and assert some inputs
+    # Mock JobBuilder to return a job object and assert some inputs
     job_obj = object()
 
-    def _fake_load_job(job_class, job_kwargs, **kwargs):
+    def _fake_build(job_class, job_kwargs, **kwargs):
         assert job_class == "domyn_swarm.jobs:ChatCompletionJob"
         assert isinstance(job_kwargs, str)
         assert kwargs["endpoint"] == swarm.endpoint
@@ -168,7 +168,7 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
         _ = json.loads(job_kwargs)
         return job_obj
 
-    mocker.patch.object(mod, "_load_job", side_effect=_fake_load_job)
+    mocker.patch.object(mod.JobBuilder, "from_class_path", side_effect=_fake_build)
 
     res = runner.invoke(
         mod.job_app,
@@ -227,7 +227,7 @@ def test_submit_job_with_name_happy_path(mocker, tmp_path: Path):
     mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
 
     job_obj = object()
-    mocker.patch.object(mod, "_load_job", return_value=job_obj)
+    mocker.patch.object(mod.JobBuilder, "from_class_path", return_value=job_obj)
 
     res = runner.invoke(
         mod.job_app,
@@ -293,11 +293,11 @@ def test_submit_job_keyboard_interrupt_abort(mocker, tmp_path: Path):
     cm.cleanup = mocker.MagicMock()
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
-    # Raise KeyboardInterrupt from _load_job
+    # Raise KeyboardInterrupt from job builder
     def _boom(*a, **k):
         raise KeyboardInterrupt()
 
-    mocker.patch.object(mod, "_load_job", side_effect=_boom)
+    mocker.patch.object(mod.JobBuilder, "from_class_path", side_effect=_boom)
 
     # User chooses to abort → True; expect cleanup and abort
     mocker.patch.object(mod.typer, "confirm", return_value=True)
@@ -336,7 +336,7 @@ def test_submit_job_keyboard_interrupt_continue(mocker, tmp_path: Path):
     cm.cleanup = mocker.MagicMock()
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
-    mocker.patch.object(mod, "_load_job", side_effect=KeyboardInterrupt)
+    mocker.patch.object(mod.JobBuilder, "from_class_path", side_effect=KeyboardInterrupt)
     mocker.patch.object(mod.typer, "confirm", return_value=False)
 
     res = runner.invoke(
@@ -374,7 +374,7 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
     job_obj = object()
-    mocker.patch.object(mod, "_load_job", return_value=job_obj)
+    mocker.patch.object(mod.JobBuilder, "from_class_path", return_value=job_obj)
 
     res = runner.invoke(
         mod.job_app,
@@ -427,7 +427,7 @@ def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
     job_obj = object()
-    mocker.patch.object(mod, "_load_job", return_value=job_obj)
+    mocker.patch.object(mod.JobBuilder, "from_class_path", return_value=job_obj)
 
     res = runner.invoke(
         mod.job_app,

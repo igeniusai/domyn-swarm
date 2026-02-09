@@ -13,8 +13,6 @@
 # limitations under the License.
 
 from collections.abc import Callable
-import importlib
-import json
 import logging
 import os
 from pathlib import Path
@@ -38,7 +36,7 @@ from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.helpers.swarm import generate_swarm_name
-from domyn_swarm.jobs import SwarmJob
+from domyn_swarm.jobs import JobBuilder, SwarmJob
 from domyn_swarm.platform.protocols import (
     JobHandle,
     JobStatus,
@@ -610,8 +608,8 @@ class DomynLLMSwarm(BaseModel):
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)
 
-        job_class = f"{job.__class__.__module__}:{job.__class__.__qualname__}"
-        job_kwargs = json.dumps(job.to_kwargs())
+        job_class = JobBuilder.to_class_path(job)
+        job_kwargs = JobBuilder.to_kwargs_json(job)
 
         python_interpreter, image, resources, env = self._compose_runtime()
         resources = self._merge_resources(resources, None, job_resources)
@@ -944,9 +942,3 @@ class DomynLLMSwarm(BaseModel):
             if s is not None:
                 return s
         return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
-
-
-def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
-    mod, cls = job_class.split(":", 1)
-    JobCls = getattr(importlib.import_module(mod), cls)
-    return JobCls(**kwargs, **json.loads(kwargs_json))
