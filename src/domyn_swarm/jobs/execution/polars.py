@@ -29,11 +29,13 @@ from domyn_swarm.checkpoint.store import FlushBatch
 from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.api.base import OutputJoinMode, SwarmJob
 from domyn_swarm.jobs.api.runner import normalize_batch_outputs
+from domyn_swarm.jobs.execution.arrow import _join_arrow_outputs, _merge_shard_outputs
 from domyn_swarm.jobs.io.checkpointing import (
     _shard_filename,
     _shard_store_uri,
     _validate_checkpoint_store,
     _validate_sharded_execution,
+    load_global_done_ids,
 )
 from domyn_swarm.jobs.io.columns import _require_column_names, _validate_required_id
 from domyn_swarm.jobs.io.sharding import shard_indices_by_id
@@ -663,6 +665,7 @@ async def _run_polars(
     require_id: bool,
     nshards: int,
     shard_mode: str,
+    global_resume: bool,
     store_uri: str | None,
     checkpoint_every: int,
     checkpointing: bool,
@@ -681,6 +684,7 @@ async def _run_polars(
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
+        global_resume: Whether to resume using global done ids across shards.
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -736,7 +740,23 @@ async def _run_polars(
         raise ValueError(f"Unsupported shard_mode: {shard_mode}")
     data = _ensure_polars_id(data, id_col)
     data = _collect_polars_data(data)
-    return await _run_polars_sharded(
+    data_full = data
+
+    if global_resume and checkpointing:
+        if store_uri is None:
+            raise ValueError("store_uri is required when global_resume is enabled.")
+        done_ids = load_global_done_ids(
+            store_uri=store_uri,
+            id_col=id_col,
+            nshards=nshards,
+            store_factory=ArrowShardStore,
+            empty_data_factory=lambda: pa.Table.from_pydict({id_col: []}),
+        )
+        if done_ids:
+            import polars as pl
+
+            data = data.filter(~pl.col(id_col).is_in(list(done_ids)))
+    parts = await _run_polars_sharded(
         job_factory=job_factory,
         backend=backend,
         data=data,
@@ -751,6 +771,56 @@ async def _run_polars(
         shard_output=shard_output,
         shard_mode=shard_mode,
     )
+    if shard_output or not (global_resume and checkpointing):
+        return parts
+    output_mode = getattr(job_factory(), "output_mode", OutputJoinMode.APPEND)
+    return _finalize_polars_global_resume(
+        data_full=data_full,
+        store_uri=store_uri,
+        nshards=nshards,
+        id_col=id_col,
+        input_col=input_col,
+        output_mode=output_mode,
+        backend=backend,
+    )
+
+
+def _finalize_polars_global_resume(
+    *,
+    data_full: pl.DataFrame,
+    store_uri: str | None,
+    nshards: int,
+    id_col: str,
+    input_col: str,
+    output_mode: OutputJoinMode | str,
+    backend: DataBackend,
+) -> Any:
+    """Rebuild outputs from all shards and join against the full polars input.
+
+    Args:
+        data_full: Original polars DataFrame before filtering.
+        store_uri: Checkpoint store URI.
+        nshards: Number of shards.
+        id_col: Column name containing stable ids.
+        input_col: Input column name.
+        output_mode: Output join mode (APPEND, REPLACE, IO_ONLY).
+        backend: Data backend used for conversions.
+
+    Returns:
+        Polars DataFrame with outputs merged against the full input.
+    """
+    if store_uri is None:
+        raise ValueError("store_uri is required when global_resume is enabled.")
+    merged = _merge_shard_outputs(store_uri=store_uri, nshards=nshards, id_col=id_col)
+    base_table = backend.to_arrow(data_full)
+    joined = _join_arrow_outputs(
+        table=base_table,
+        out_table=merged,
+        input_col=input_col,
+        output_mode=output_mode,
+        id_col=id_col,
+    )
+    return backend.from_arrow(joined)
 
 
 async def _run_polars_single(

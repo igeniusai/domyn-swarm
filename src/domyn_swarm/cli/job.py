@@ -98,6 +98,8 @@ class JobRunSpec:
         runner: Runner implementation name for non-ray backends.
         num_threads: Worker thread count for the job runner.
         limit: Optional row limit for input reads.
+        shard_mode: Sharding strategy for multi-threaded runs.
+        global_resume: Whether to resume using global done ids across shards.
         detach: Whether to detach job execution from the CLI.
         mail_user: Optional email address for job notifications.
         ray_address: Optional Ray cluster address override.
@@ -116,6 +118,7 @@ class JobRunSpec:
     detach: bool
     mail_user: str | None
     ray_address: str | None
+    global_resume: bool = False
     checkpoint_tag: str | None = None
     shard_mode: Literal["id", "index"] = "id"
 
@@ -200,6 +203,7 @@ def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> No
         ray_address=request.run.ray_address,
         checkpoint_tag=request.run.checkpoint_tag,
         shard_mode=request.run.shard_mode,
+        global_resume=request.run.global_resume,
     )
 
 
@@ -365,7 +369,14 @@ def submit_job(
         "--shard-mode",
         help="How to split input when --num-threads > 1. "
         "'id' uses stable id hashing (resume-friendly), "
-        "'index' uses legacy row order sharding.",
+        "'index' uses legacy row order sharding. "
+        "Keep --num-threads fixed across resumes to avoid reshuffling shards.",
+    ),
+    global_resume: bool = typer.Option(
+        False,
+        "--global-resume",
+        help="When resuming with sharded execution, filter inputs using global "
+        "done ids across all shards (useful if --limit changed).",
     ),
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Detach the job from the current terminal"
@@ -425,6 +436,7 @@ def submit_job(
         num_threads=num_threads,
         limit=limit,
         shard_mode=shard_mode,
+        global_resume=global_resume,
         detach=detach,
         mail_user=mail_user,
         ray_address=ray_address,

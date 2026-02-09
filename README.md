@@ -275,6 +275,10 @@ domyn-swarm job submit \
 * **--retries** — retries for failed requests
 * **--timeout** — per-request timeout in seconds
 * **--num-threads** — shard count for non-ray execution (also used for directory shard outputs)
+* **--shard-mode** — sharding strategy for `--num-threads > 1` (`id` for stable id hashing,
+  `index` for legacy row order sharding)
+* **--global-resume** — when resuming a sharded run, filter inputs using global done ids across
+  all shards (useful if `--limit` or `--num-threads` changed)
 * **--limit** / **-l** - Limit the size to be read from the input dataset. Useful when debugging and testing to reduce the size of the dataset
 * **--detach** - Detach the job from the current terminal, running in a different process (PID will be printed)
 * **--mail-user** — enable job email notifications (when supported by the compute backend)
@@ -290,7 +294,10 @@ domyn-swarm job submit \
 
 Note: if `--id-column` is not provided, pandas uses the DataFrame index and polars uses a generated
 row index (`_row_id`). Resume is stable only if the input ordering/scan is identical across runs;
-for robust resume across restarts or different scan graphs, provide a stable id column.
+for robust resume across restarts or different scan graphs, provide a stable id column. If you
+change `--num-threads` between runs, shard assignment changes and resume can reprocess work; keep
+`--num-threads` fixed, or use `--global-resume` to filter by global done ids (or `--no-resume` to
+recompute).
 
 
 Internally uses checkpointing, batching, and retry logic.

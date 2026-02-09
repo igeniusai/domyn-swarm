@@ -406,6 +406,7 @@ class DomynLLMSwarm(BaseModel):
         no_checkpointing: bool = False,
         runner: str = "pandas",
         shard_mode: str = "id",
+        global_resume: bool = False,
         job_resources: dict | None = None,
         checkpoint_tag: str | None = None,
         ray_address: str | None = None,
@@ -435,6 +436,8 @@ class DomynLLMSwarm(BaseModel):
         shard_mode : str, default "id"
             Sharding strategy for `num_threads` > 1 ("id" for stable id hashing, "index" for
             legacy row order sharding).
+        global_resume : bool, default False
+            When resuming a sharded job, filter inputs using global done ids across shards.
         detach : bool, default False
             If *True*, start the job in a new process group and return
             immediately with its PID; if *False* (default) the call blocks
@@ -489,6 +492,7 @@ class DomynLLMSwarm(BaseModel):
         python_interpreter, image, resources, env = self._compose_runtime()
         resources = self._merge_resources(resources, None, job_resources)
         env = self._augment_job_env(env, job, job_class, ray_address=ray_address)
+
         exe = self._build_job_command(
             job=job,
             job_class=job_class,
@@ -504,9 +508,10 @@ class DomynLLMSwarm(BaseModel):
             checkpoint_tag=checkpoint_tag,
             shard_output=shard_output,
             shard_mode=shard_mode,
+            global_resume=global_resume,
             limit=limit,
             ray_address=env.get("DOMYN_SWARM_RAY_ADDRESS"),
-            python_interpreter=python_interpreter,
+            python_interpreter=str(python_interpreter),
         )
 
         job_name = job.name.lower() if job.name else f"{self.name}-job"
@@ -596,6 +601,7 @@ class DomynLLMSwarm(BaseModel):
         checkpoint_tag: str | None,
         shard_output: bool,
         shard_mode: str,
+        global_resume: bool,
         limit: int | None,
         ray_address: str | None,
         python_interpreter: str,
@@ -617,6 +623,7 @@ class DomynLLMSwarm(BaseModel):
             checkpoint_tag: Optional checkpoint tag override.
             shard_output: Whether to write shard outputs to a directory.
             shard_mode: Sharding strategy.
+            global_resume: Whether to enable global resume.
             limit: Optional input row limit.
             ray_address: Optional Ray address override.
             python_interpreter: Python interpreter path to use.
@@ -651,6 +658,8 @@ class DomynLLMSwarm(BaseModel):
             exe.append("--shard-output")
         if shard_mode:
             exe.append(f"--shard-mode={shard_mode}")
+        if global_resume:
+            exe.append("--global-resume")
         if limit:
             exe.append(f"--limit={limit}")
         if ray_address:

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+from typing import Any
+
 from domyn_swarm.checkpoint.store import InMemoryStore, ParquetShardStore
 
 
@@ -107,3 +110,32 @@ def _build_checkpoint_store(
         store_uri = _require_store_uri(store_uri)
         return ParquetShardStore(store_uri)
     return InMemoryStore()
+
+
+def load_global_done_ids(
+    *,
+    store_uri: str,
+    id_col: str,
+    nshards: int,
+    store_factory: Callable[[str], Any],
+    empty_data_factory: Callable[[], Any],
+) -> set[Any]:
+    """Collect done ids across all shard checkpoint stores.
+
+    Args:
+        store_uri: Base checkpoint store URI.
+        id_col: Column name for row ids.
+        nshards: Number of shards to scan.
+        store_factory: Callable that returns a checkpoint store for a shard URI.
+        empty_data_factory: Callable that returns an empty dataset for store.prepare().
+
+    Returns:
+        Set of ids already present in checkpoint outputs across all shards.
+    """
+    done_ids: set[Any] = set()
+    for shard_id in range(nshards):
+        shard_uri = _shard_store_uri(store_uri, shard_id)
+        store = store_factory(shard_uri)
+        _ = store.prepare(empty_data_factory(), id_col)
+        done_ids.update(getattr(store, "done_ids", set()))
+    return done_ids
