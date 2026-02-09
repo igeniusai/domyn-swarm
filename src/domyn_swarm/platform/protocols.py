@@ -29,6 +29,28 @@ class JobStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+def coerce_job_status(status: object, *, default: JobStatus = JobStatus.PENDING) -> JobStatus:
+    """Normalize arbitrary status payloads to ``JobStatus``.
+
+    Args:
+        status: Raw status value (enum/string/object with ``value``).
+        default: Fallback status when normalization fails.
+
+    Returns:
+        Normalized ``JobStatus`` value.
+    """
+    if isinstance(status, JobStatus):
+        return status
+    raw_status = getattr(status, "value", status)
+    status_str = str(raw_status).strip().upper()
+    if status_str == "CANCELED":
+        status_str = JobStatus.CANCELLED.value
+    try:
+        return JobStatus(status_str)
+    except ValueError:
+        return default
+
+
 class ServingPhase(str, Enum):
     """Standardized serving endpoint lifecycle phases across platforms."""
 
@@ -85,6 +107,43 @@ class JobHandle:
     id: str
     status: JobStatus
     meta: dict[str, Any]
+
+    def get_pid(self) -> int | None:
+        """Return the detached process ID when available.
+
+        Returns:
+            The process ID stored in ``meta["pid"]`` if parseable, else ``None``.
+        """
+        pid = self.meta.get("pid")
+        if isinstance(pid, int):
+            return pid
+        if isinstance(pid, str):
+            try:
+                return int(pid)
+            except ValueError:
+                return None
+        return None
+
+    def get_external_id(self) -> str | None:
+        """Return provider-specific external ID when available.
+
+        Returns:
+            The external identifier from ``meta["external_id"]`` if present.
+        """
+        external_id = self.meta.get("external_id")
+        if external_id is None:
+            return None
+        return str(external_id)
+
+    @property
+    def pid(self) -> int | None:
+        """Convenience property for detached process ID."""
+        return self.get_pid()
+
+    @property
+    def external_id(self) -> str | None:
+        """Convenience property for provider external ID."""
+        return self.get_external_id()
 
 
 @runtime_checkable

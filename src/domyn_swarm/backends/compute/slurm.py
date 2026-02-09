@@ -15,9 +15,7 @@
 from collections.abc import Mapping, Sequence
 import contextlib
 from dataclasses import dataclass, field
-import os
 import shlex
-import signal
 import subprocess
 import sys
 import threading
@@ -27,6 +25,18 @@ from typing import TYPE_CHECKING
 from rich import print as rprint
 from rich.syntax import Syntax
 
+from domyn_swarm.backends.compute.slurm_helpers import (
+    _build_step_name,
+    _cancel_slurm,
+    _create_step_id_fifo,
+    _normalize_returncode,
+    _pid_exists,
+    _resolve_external_id,
+    _stream_text_lines,
+    _terminate_process_group,
+    _wait_for_slurm,
+    _wrap_with_step_echo,
+)
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.logger import setup_logger
@@ -46,12 +56,11 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     -----
     - `image` is unused for Slurm; your venv/python is used directly.
     - `resources` maps to srun flags via your SrunCommandBuilder configuration.
-    - For `detach=True`, we return a JobHandle with local `Popen` PID in `meta["pid"]`.
-      `wait()` and `cancel()` are reliable only within the same process that created the
-      handle (the OS exit status can't be retrieved cross-process without extra machinery).
-    - Cancellation uses `os.killpg(pid, ...)` to terminate the whole `srun` process group
-      (srun + its children). This relies on `start_new_session=True` so the spawned process
-      becomes the leader of its own process group (i.e. pid == pgid), so we only store `pid`.
+    - For `detach=True`, we return a JobHandle with local `Popen` PID in `meta["pid"]` and
+      best-effort resolve the Slurm step id into `meta["external_id"]` using a FIFO channel
+      (preferred) or `squeue`/`sacct` fallback.
+    - Cancellation uses the Slurm external id when available; otherwise it falls back to
+      `os.killpg(pid, ...)` to terminate the whole `srun` process group.
     """
 
     cfg: "SlurmConfig"
@@ -89,7 +98,12 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
                     extra_args.append(f"{flag}={value}")
             builder = builder.with_extra_args(extra_args)
 
-        cmd = builder.build([*map(str, command)])
+        step_name = _build_step_name(name) if detach else None
+        step_id_fifo = _create_step_id_fifo(extras, step_name) if detach else None
+        if step_name:
+            builder = builder.with_extra_args([f"--job-name={step_name}"])
+        wrapped = _wrap_with_step_echo(command, step_id_fifo) if detach else [*map(str, command)]
+        cmd = builder.build(wrapped)
 
         full_cmd = shlex.join(cmd)
 
@@ -116,10 +130,21 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             if proc.pid is None:
                 raise RuntimeError("Detached process did not get a PID.")
             self._procs[proc.pid] = proc
+            external_id = _resolve_external_id(
+                stdout=proc.stdout,
+                job_id=self.lb_jobid,
+                step_name=step_name,
+                step_id_fifo=step_id_fifo,
+            )
             return JobHandle(
-                id=str(proc.pid),
+                id=external_id or str(proc.pid),
                 status=JobStatus.RUNNING,
-                meta={"pid": proc.pid, "cmd": shlex.join(cmd)},
+                meta={
+                    "pid": proc.pid,
+                    "external_id": external_id,
+                    "step_id_fifo": str(step_id_fifo) if step_id_fifo else None,
+                    "cmd": shlex.join(cmd),
+                },
             )
 
         # synchronous
@@ -138,6 +163,17 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         Returns:
             Normalized job status.
         """
+        external_id = handle.meta.get("external_id")
+        if external_id:
+            endpoint_cfg = getattr(self.cfg, "endpoint", None)
+            status = _wait_for_slurm(
+                external_id,
+                timeout=timeout,
+                poll_s=float(getattr(endpoint_cfg, "poll_interval", 10)),
+            )
+            handle.status = status
+            return status
+
         pid_raw = handle.meta.get("pid")
         if pid_raw is None:
             return handle.status
@@ -188,6 +224,14 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         This sends SIGTERM to the detached job's process group (covers `srun` and its children)
         and escalates to SIGKILL after a short grace period.
         """
+        external_id = handle.meta.get("external_id")
+        if external_id:
+            with contextlib.suppress(Exception):
+                _cancel_slurm(external_id)
+            handle.status = JobStatus.CANCELLED
+            handle.meta["cancelled_at"] = time.time()
+            return
+
         pid_raw = handle.meta.get("pid")
         if pid_raw is None:
             return
@@ -218,49 +262,3 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
                 res["mem"] = self.cfg.endpoint.mem
             return res
         return super().default_resources(cfg)
-
-
-def _normalize_returncode(returncode: int) -> JobStatus:
-    """Normalize a `subprocess.Popen.returncode` to `JobStatus`."""
-    if returncode == 0:
-        return JobStatus.SUCCEEDED
-    # Negative returncodes represent termination by signal.
-    if returncode < 0:
-        sig = -returncode
-        if sig in (signal.SIGTERM, signal.SIGINT, signal.SIGKILL):
-            return JobStatus.CANCELLED
-        return JobStatus.FAILED
-    return JobStatus.FAILED
-
-
-def _pid_exists(pid: int) -> bool:
-    """Return True if a PID appears to exist on this host."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _stream_text_lines(src, dst) -> None:
-    """Stream text lines from a readable file-like to a writable file-like."""
-    try:
-        for line in src:
-            dst.write(line)
-            dst.flush()
-    except Exception:
-        pass
-
-
-def _terminate_process_group(pgid: int, *, grace_s: float = 10.0) -> None:
-    """Terminate a POSIX process group, escalating to SIGKILL after a grace period."""
-    os.killpg(pgid, signal.SIGTERM)
-    deadline = time.time() + max(grace_s, 0.0)
-    while time.time() < deadline:
-        # If the group leader is gone, assume the group is gone.
-        if not _pid_exists(pgid):
-            return
-        time.sleep(0.1)
-    os.killpg(pgid, signal.SIGKILL)
