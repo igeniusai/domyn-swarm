@@ -25,6 +25,7 @@ from domyn_swarm.config.swarm import _load_swarm_config
 from domyn_swarm.core.swarm import DomynLLMSwarm, _load_job
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.jobs.api.base import SwarmJob
+from domyn_swarm.platform.protocols import JobHandle, JobStatus
 import domyn_swarm.utils as utils
 
 logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
@@ -181,13 +182,81 @@ def _build_job_for_swarm(
     )
 
 
-def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> None:
+def _normalize_submission_handle(raw_handle: object) -> JobHandle:
+    """Normalize arbitrary submission handles to ``JobHandle``.
+
+    Args:
+        raw_handle: Handle returned by swarm submission methods.
+
+    Returns:
+        Normalized ``JobHandle`` for downstream formatting.
+    """
+    if isinstance(raw_handle, JobHandle):
+        return raw_handle
+
+    raw_meta = getattr(raw_handle, "meta", None)
+    meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
+    raw_status = getattr(raw_handle, "status", "PENDING")
+    status_value = getattr(raw_status, "value", raw_status)
+    status = str(status_value).upper()
+    if status == "CANCELED":
+        status = "CANCELLED"
+
+    try:
+        normalized_status = JobStatus(status)
+    except ValueError:
+        normalized_status = JobStatus.PENDING
+
+    return JobHandle(
+        id=str(getattr(raw_handle, "id", "unknown")),
+        status=normalized_status,
+        meta=meta,
+    )
+
+
+def _emit_submission_json(
+    *,
+    handle: object,
+    command: Literal["submit", "submit-script"],
+    swarm_name: str,
+) -> None:
+    """Emit a single-line JSON payload for submitted jobs.
+
+    Args:
+        handle: Raw submission handle returned by swarm APIs.
+        command: CLI command name emitting the payload.
+        swarm_name: Swarm deployment name.
+    """
+    normalized = _normalize_submission_handle(handle)
+    payload = {
+        "command": command,
+        "swarm": str(swarm_name),
+        "id": normalized.id,
+        "job_id": normalized.meta.get("job_id"),
+        "status": normalized.status.value,
+        "pid": normalized.pid,
+        "external_id": normalized.external_id,
+        "detach": normalized.pid is not None,
+    }
+    typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> JobHandle:
+    """Submit a pre-built job object to a swarm.
+
+    Args:
+        swarm: Target swarm instance.
+        request: Submission payload.
+
+    Returns:
+        Submitted ``JobHandle``.
+    """
     resolved_checkpoint_dir = (
         swarm.swarm_dir / "checkpoints"
         if request.run.checkpoint_dir is None
         else request.run.checkpoint_dir
     )
-    swarm.submit_job(
+    return swarm.submit_job(
         request.job,
         input_path=request.run.input_path,
         output_path=request.run.output_path,
@@ -240,14 +309,24 @@ def submit_script(
     if config:
         cfg = _load_swarm_config(config)
         with DomynLLMSwarm(cfg=cfg) as swarm:
-            swarm.submit_script(script_file, extra_args=args)
+            handle = swarm.submit_script(script_file, extra_args=args)
+            _emit_submission_json(
+                handle=handle,
+                command="submit-script",
+                swarm_name=swarm.name,
+            )
 
     elif name is None:
         raise RuntimeError("State is null")
 
     else:
         swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(deployment_name=name)
-        swarm.submit_script(script_file, extra_args=args)
+        handle = swarm.submit_script(script_file, extra_args=args)
+        _emit_submission_json(
+            handle=handle,
+            command="submit-script",
+            swarm_name=swarm.name,
+        )
 
 
 @job_app.command("submit")
@@ -460,9 +539,14 @@ def submit_job(
                     retries=retries,
                     timeout=timeout,
                 )
-                _submit_loaded_job(
+                handle = _submit_loaded_job(
                     swarm=swarm,
                     request=JobSubmitRequest(job=job, run=run_spec),
+                )
+                _emit_submission_json(
+                    handle=handle,
+                    command="submit",
+                    swarm_name=swarm.name,
                 )
         except KeyboardInterrupt:
             _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx)
@@ -483,7 +567,12 @@ def submit_job(
             retries=retries,
             timeout=timeout,
         )
-        _submit_loaded_job(
+        handle = _submit_loaded_job(
             swarm=swarm,
             request=JobSubmitRequest(job=job, run=run_spec),
+        )
+        _emit_submission_json(
+            handle=handle,
+            command="submit",
+            swarm_name=swarm.name,
         )

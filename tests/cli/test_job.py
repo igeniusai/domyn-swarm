@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 # Adjust this import to where your Typer app lives
 import domyn_swarm.cli.job as mod
+from domyn_swarm.platform.protocols import JobHandle, JobStatus
 
 runner = CliRunner()
 
@@ -19,6 +20,12 @@ def _mk_files(tmp_path: Path):
     out_path = tmp_path / "output.parquet"
     in_path.write_bytes(b"PARQUET_MOCK")
     return in_path, out_path
+
+
+def _parse_last_json_line(text: str) -> dict:
+    lines = [line for line in text.splitlines() if line.strip()]
+    assert lines, "No CLI output lines found."
+    return json.loads(lines[-1])
 
 
 # ---------------------------
@@ -68,6 +75,12 @@ def test_submit_script_with_name_uses_from_state(mocker, tmp_path: Path):
     script.write_text("print('hi')")
 
     swarm = mocker.MagicMock()
+    swarm.name = "my-swarm"
+    swarm.submit_script.return_value = JobHandle(
+        id="123.0",
+        status=JobStatus.RUNNING,
+        meta={"job_id": "job-1", "pid": 4321, "external_id": "123.0"},
+    )
     mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
 
     result = runner.invoke(
@@ -78,6 +91,12 @@ def test_submit_script_with_name_uses_from_state(mocker, tmp_path: Path):
     assert result.exit_code == 0
     swarm.submit_script.assert_called_once()
     assert swarm.submit_script.call_args.kwargs["extra_args"] == ["X", "Y"]
+    payload = _parse_last_json_line(result.stdout)
+    assert payload["command"] == "submit-script"
+    assert payload["swarm"] == "my-swarm"
+    assert payload["job_id"] == "job-1"
+    assert payload["pid"] == 4321
+    assert payload["external_id"] == "123.0"
 
 
 def test_submit_script_mutual_exclusion(mocker, tmp_path: Path):
@@ -126,6 +145,12 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     swarm = mocker.MagicMock()
     swarm.endpoint = "http://host:9000"
     swarm.model = "my-model"
+    swarm.name = "cfg-swarm"
+    swarm.submit_job.return_value = JobHandle(
+        id="123.0",
+        status=JobStatus.PENDING,
+        meta={"job_id": "job-1", "pid": 4321, "external_id": "123.0"},
+    )
     cm = mocker.MagicMock()
     cm.__enter__.return_value = swarm
     cm.__exit__.return_value = None
@@ -185,6 +210,12 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     assert k["limit"] == 100
     assert k["detach"] is True
     assert "checkpoint_dir" in k
+    payload = _parse_last_json_line(res.stdout)
+    assert payload["command"] == "submit"
+    assert payload["swarm"] == "cfg-swarm"
+    assert payload["job_id"] == "job-1"
+    assert payload["pid"] == 4321
+    assert payload["external_id"] == "123.0"
 
 
 def test_submit_job_with_name_happy_path(mocker, tmp_path: Path):

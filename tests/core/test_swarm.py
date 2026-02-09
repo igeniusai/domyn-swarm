@@ -20,6 +20,7 @@ import pytest
 
 import domyn_swarm.core.swarm as mod
 from domyn_swarm.core.swarm import DomynLLMSwarm
+from domyn_swarm.platform.protocols import JobHandle, JobStatus
 
 # ---------------------------
 # Tiny fakes used in tests
@@ -27,6 +28,9 @@ from domyn_swarm.core.swarm import DomynLLMSwarm
 
 
 class FakeStateMgr:
+    last_created = None
+    last_updated = None
+
     def __init__(self, swarm):
         self.swarm = swarm
         self.saved = 0
@@ -281,7 +285,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     dep = swarm._deployment  # type: ignore[attr-defined]
     dep.compute = FakeComputeBackend()  # replace to track calls
 
-    pid = swarm.submit_job(
+    handle = swarm.submit_job(
         job,
         input_path=Path("/tmp/in.parquet"),
         output_path=Path("/tmp/out.parquet"),
@@ -291,8 +295,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
         limit=5,
         checkpoint_dir=Path("/tmp/.ckpt"),
     )
-    # detach=True → returns pid from JobHandle.meta
-    assert pid == 4321
+    assert handle.pid == 4321
 
     # Ensure ensure_ready was invoked
     assert dep.ensure_ready_calls == 2
@@ -350,7 +353,7 @@ def test_submit_job_merges_resources_from_defaults_plan_and_overrides(cfg_stub):
     assert call["resources"] == {"shape": "gpu.2x", "cpu": 8, "mem": "10G"}
 
 
-def test_submit_job_returns_none_when_not_detached(cfg_stub):
+def test_submit_job_returns_handle_when_not_detached(cfg_stub):
     swarm = make_swarm(cfg_stub)
     with swarm:
         pass
@@ -368,7 +371,8 @@ def test_submit_job_returns_none_when_not_detached(cfg_stub):
         output_path=Path("/tmp/out.parquet"),
         detach=False,
     )
-    assert out is None
+    assert isinstance(out, JobHandle)
+    assert out.status == JobStatus.PENDING
 
 
 def test_submit_job_ray_requires_ray_address(cfg_stub, monkeypatch):
@@ -433,6 +437,108 @@ def test_submit_job_ray_forwards_ray_address(cfg_stub, monkeypatch):
     call = dep.run_calls[-1]
     assert call["env"]["DOMYN_SWARM_RAY_ADDRESS"] == "ray://head:10001"
     assert any(arg == "--ray-address=ray://head:10001" for arg in call["command"])
+
+
+def test_submit_job_updates_job_record_success(cfg_stub):
+    FakeStateMgr.last_created = None
+    FakeStateMgr.last_updated = None
+
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class Job:
+        name = "job"
+        checkpoint_interval = 10
+
+        def to_kwargs(self):
+            return {}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.run = lambda **kwargs: SimpleNamespace(
+        id="jid",
+        status="SUCCEEDED",
+        meta={"external_id": "123.0", "pid": 7},
+    )
+
+    out = swarm.submit_job(
+        Job(),
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        detach=False,
+    )
+    assert isinstance(out, JobHandle)
+    assert out.status == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_created is not None
+    assert FakeStateMgr.last_created["status"] == JobStatus.PENDING
+    assert FakeStateMgr.last_updated is not None
+    assert FakeStateMgr.last_updated["job_id"] == "job-1"
+    assert FakeStateMgr.last_updated["status"] == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_updated["external_id"] == "123.0"
+
+
+def test_submit_job_updates_job_record_failed_on_exception(cfg_stub):
+    FakeStateMgr.last_created = None
+    FakeStateMgr.last_updated = None
+
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class Job:
+        name = "job"
+        checkpoint_interval = 10
+
+        def to_kwargs(self):
+            return {}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+
+    def fail_run(**kwargs):
+        raise RuntimeError("boom")
+
+    dep.run = fail_run
+
+    with pytest.raises(RuntimeError, match="boom"):
+        swarm.submit_job(
+            Job(),
+            input_path=Path("/tmp/in.parquet"),
+            output_path=Path("/tmp/out.parquet"),
+            detach=False,
+        )
+
+    assert FakeStateMgr.last_created is not None
+    assert FakeStateMgr.last_updated is not None
+    assert FakeStateMgr.last_updated["status"] == JobStatus.FAILED
+    assert "boom" in FakeStateMgr.last_updated["error"]
+
+
+def test_submit_script_updates_job_record_success(cfg_stub, tmp_path):
+    FakeStateMgr.last_created = None
+    FakeStateMgr.last_updated = None
+
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    script = tmp_path / "script.py"
+    script.write_text("print('ok')\n")
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.run = lambda **kwargs: SimpleNamespace(
+        id="sid",
+        status="SUCCEEDED",
+        meta={"external_id": "456.0", "pid": 8},
+    )
+
+    out = swarm.submit_script(script_path=script, detach=False)
+    assert isinstance(out, JobHandle)
+    assert out.status == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_created is not None
+    assert FakeStateMgr.last_created["kind"] == "script"
+    assert FakeStateMgr.last_updated is not None
+    assert FakeStateMgr.last_updated["status"] == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_updated["external_id"] == "456.0"
 
 
 def test_cleanup_calls_deployment_down_when_handle_present(cfg_stub):

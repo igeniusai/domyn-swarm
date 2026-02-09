@@ -25,7 +25,7 @@ from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.exceptions import JobNotFoundError
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.platform.protocols import ServingHandle
+from domyn_swarm.platform.protocols import JobStatus, ServingHandle
 
 if TYPE_CHECKING:
     from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
@@ -41,6 +41,18 @@ logger = setup_logger(__name__)
 def _escape_like(s: str) -> str:
     # Escape %, _ and \ for SQLite LIKE ... ESCAPE '\'
     return s.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
+def _job_status_value(status: JobStatus | str) -> str:
+    """Normalize persisted job status to its string value.
+
+    Args:
+        status: A ``JobStatus`` enum instance or raw status string.
+
+    Returns:
+        String status value suitable for DB persistence.
+    """
+    return status.value if isinstance(status, JobStatus) else str(status)
 
 
 class SwarmStateManager:
@@ -223,7 +235,7 @@ class SwarmStateManager:
         deployment_name: str,
         provider: str,
         kind: str,
-        status: str,
+        status: JobStatus | str,
         raw_status: str | None = None,
         external_id: str | None = None,
         name: str | None = None,
@@ -238,7 +250,7 @@ class SwarmStateManager:
             deployment_name: Swarm deployment name (FK to `swarm.deployment_name`).
             provider: Backend provider name (e.g., "slurm").
             kind: Job kind (e.g., "step", "sbatch").
-            status: Normalized status string.
+            status: Normalized status value.
             raw_status: Optional backend-specific status.
             external_id: Optional backend-specific identifier (e.g. Slurm job/step id).
             name: Optional user-friendly name.
@@ -257,7 +269,7 @@ class SwarmStateManager:
             deployment_name=deployment_name,
             provider=provider,
             kind=kind,
-            status=status,
+            status=_job_status_value(status),
             raw_status=raw_status,
             external_id=external_id,
             name=name,
@@ -276,7 +288,7 @@ class SwarmStateManager:
         cls,
         job_id: str,
         *,
-        status: str | None = None,
+        status: JobStatus | str | None = None,
         raw_status: str | None = None,
         external_id: str | None = None,
         name: str | None = None,
@@ -287,7 +299,7 @@ class SwarmStateManager:
 
         Args:
             job_id: Internal job ID.
-            status: Optional normalized status string.
+            status: Optional normalized status value.
             raw_status: Optional backend-specific status string.
             external_id: Optional backend-specific identifier.
             name: Optional job name.
@@ -303,7 +315,7 @@ class SwarmStateManager:
             if rec is None:
                 raise ValueError(f"Job not found: {job_id}")
             if status is not None:
-                rec.status = status
+                rec.status = _job_status_value(status)
             if raw_status is not None:
                 rec.raw_status = raw_status
             if external_id is not None:
@@ -359,7 +371,7 @@ class SwarmStateManager:
         deployment_name: str,
         *,
         limit: int = 50,
-        statuses: list[str] | None = None,
+        statuses: list[JobStatus | str] | None = None,
     ) -> list[dict[str, Any]]:
         """List jobs for a deployment, newest first.
 
@@ -379,7 +391,7 @@ class SwarmStateManager:
                 .order_by(JobRecord.creation_dt.desc())
             )
             if statuses:
-                q = q.filter(JobRecord.status.in_(statuses))
+                q = q.filter(JobRecord.status.in_([_job_status_value(st) for st in statuses]))
             rows = q.limit(limit).all()
         return [
             {

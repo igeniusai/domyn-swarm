@@ -86,6 +86,43 @@ class JobHandle:
     status: JobStatus
     meta: dict[str, Any]
 
+    def get_pid(self) -> int | None:
+        """Return the detached process ID when available.
+
+        Returns:
+            The process ID stored in ``meta["pid"]`` if parseable, else ``None``.
+        """
+        pid = self.meta.get("pid")
+        if isinstance(pid, int):
+            return pid
+        if isinstance(pid, str):
+            try:
+                return int(pid)
+            except ValueError:
+                return None
+        return None
+
+    def get_external_id(self) -> str | None:
+        """Return provider-specific external ID when available.
+
+        Returns:
+            The external identifier from ``meta["external_id"]`` if present.
+        """
+        external_id = self.meta.get("external_id")
+        if external_id is None:
+            return None
+        return str(external_id)
+
+    @property
+    def pid(self) -> int | None:
+        """Convenience property for detached process ID."""
+        return self.get_pid()
+
+    @property
+    def external_id(self) -> str | None:
+        """Convenience property for provider external ID."""
+        return self.get_external_id()
+
 
 @runtime_checkable
 class ServingBackend(Protocol):

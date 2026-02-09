@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 import importlib
 import json
 import logging
@@ -19,7 +20,6 @@ import os
 from pathlib import Path
 from typing import Any
 import uuid
-import warnings
 
 from pydantic import (
     BaseModel,
@@ -39,7 +39,13 @@ from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.jobs import SwarmJob
-from domyn_swarm.platform.protocols import ServingHandle, ServingPhase, ServingStatus
+from domyn_swarm.platform.protocols import (
+    JobHandle,
+    JobStatus,
+    ServingHandle,
+    ServingPhase,
+    ServingStatus,
+)
 
 from ..core.state.state_manager import SwarmStateManager
 
@@ -140,12 +146,13 @@ class DomynLLMSwarm(BaseModel):
         )
 
         # Asynchronous execution
-        pid = swarm.submit_job(
+        handle = swarm.submit_job(
             job=LongRunningJob(),
             input_path="large_dataset.parquet",
             output_path="results.parquet",
             detach=True,
         )
+        print(handle.pid, handle.external_id)
     ```
 
     **Script Execution:**
@@ -352,8 +359,10 @@ class DomynLLMSwarm(BaseModel):
         name: str,
         command: list[str],
         resources: dict | None,
-        job_handle,
         kind: str,
+        status: JobStatus,
+        external_id: str | None = None,
+        error: str | None = None,
     ) -> str | None:
         """Persist job metadata in the local swarm DB.
 
@@ -361,33 +370,150 @@ class DomynLLMSwarm(BaseModel):
             name: Job name.
             command: Command argv list (no secrets).
             resources: Resource dict (if any).
-            job_handle: Compute backend job handle.
             kind: Job kind (e.g., "step", "script").
+            status: Job status.
+            external_id: Optional backend external identifier.
+            error: Optional error message.
 
         Returns:
             Job record ID if created, else None.
         """
         try:
-            status_value = (
-                job_handle.status.value
-                if hasattr(job_handle.status, "value")
-                else str(job_handle.status)
-            )
             job_id = SwarmStateManager.create_job(
                 deployment_name=self.name,
                 provider=self._platform,
                 kind=kind,
-                status=status_value,
-                external_id=job_handle.meta.get("external_id"),
+                status=status,
+                external_id=external_id,
                 name=name,
                 command=command,
                 resources=resources,
+                error=error,
             )
-            job_handle.meta["job_id"] = job_id
             return job_id
         except Exception as exc:
             logger.warning("Failed to persist job record: %s", exc)
             return None
+
+    def _update_job_submission(
+        self,
+        *,
+        job_id: str | None,
+        status: JobStatus,
+        external_id: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Update job submission state in the local swarm DB.
+
+        Args:
+            job_id: Internal persisted job ID.
+            status: Job status.
+            external_id: Optional backend external identifier.
+            error: Optional error message.
+        """
+        if not job_id:
+            return
+        try:
+            SwarmStateManager.update_job(
+                job_id,
+                status=status,
+                external_id=external_id,
+                error=error,
+            )
+        except Exception as exc:
+            logger.warning("Failed to update job record %s: %s", job_id, exc)
+
+    @staticmethod
+    def _coerce_job_status(status: object) -> JobStatus:
+        """Normalize a status object to a ``JobStatus`` enum.
+
+        Args:
+            status: Status enum or string.
+
+        Returns:
+            Normalized ``JobStatus`` value.
+        """
+        if isinstance(status, JobStatus):
+            return status
+        raw_status = getattr(status, "value", status)
+        status_str = str(raw_status).strip().upper()
+        if status_str == "CANCELED":
+            status_str = JobStatus.CANCELLED.value
+        try:
+            return JobStatus(status_str)
+        except ValueError:
+            logger.warning("Unknown job status %r, defaulting to PENDING", status)
+            return JobStatus.PENDING
+
+    def _submit_with_tracking(
+        self,
+        *,
+        name: str,
+        command: list[str],
+        resources: dict | None,
+        kind: str,
+        submit: Callable[[], object | None],
+    ) -> JobHandle:
+        """Submit a compute job and persist lifecycle transitions.
+
+        Args:
+            name: Job name.
+            command: Command argv list to persist.
+            resources: Optional resource requirements.
+            kind: Job kind (for persistence).
+            submit: Backend submission callable.
+
+        Returns:
+            Submitted job handle.
+
+        Raises:
+            RuntimeError: If backend submission returns ``None``.
+            Exception: Re-raises backend submission errors.
+        """
+        job_record_id = self._record_job_submission(
+            name=name,
+            command=command,
+            resources=resources,
+            kind=kind,
+            status=JobStatus.PENDING,
+        )
+        try:
+            raw_handle = submit()
+        except Exception as exc:
+            self._update_job_submission(
+                job_id=job_record_id,
+                status=JobStatus.FAILED,
+                error=str(exc),
+            )
+            raise
+        if raw_handle is None:
+            error_msg = "Failed to submit job to compute backend."
+            self._update_job_submission(
+                job_id=job_record_id,
+                status=JobStatus.FAILED,
+                error=error_msg,
+            )
+            raise RuntimeError(error_msg)
+        if isinstance(raw_handle, JobHandle):
+            job_handle = raw_handle
+        else:
+            raw_meta = getattr(raw_handle, "meta", None)
+            job_handle = JobHandle(
+                id=str(getattr(raw_handle, "id", name)),
+                status=self._coerce_job_status(getattr(raw_handle, "status", JobStatus.PENDING)),
+                meta=dict(raw_meta) if isinstance(raw_meta, dict) else {},
+            )
+
+        normalized_status = self._coerce_job_status(job_handle.status)
+        job_handle.status = normalized_status
+        self._update_job_submission(
+            job_id=job_record_id,
+            status=normalized_status,
+            external_id=job_handle.external_id,
+        )
+        if job_record_id:
+            job_handle.meta["job_id"] = job_record_id
+        return job_handle
 
     def submit_job(
         self,
@@ -410,7 +536,7 @@ class DomynLLMSwarm(BaseModel):
         job_resources: dict | None = None,
         checkpoint_tag: str | None = None,
         ray_address: str | None = None,
-    ) -> int | None:
+    ) -> JobHandle:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
         SLURM swarm allocation.
@@ -439,9 +565,8 @@ class DomynLLMSwarm(BaseModel):
         global_resume : bool, default False
             When resuming a sharded job, filter inputs using global done ids across shards.
         detach : bool, default False
-            If *True*, start the job in a new process group and return
-            immediately with its PID; if *False* (default) the call blocks
-            until completion.
+            If *True*, start the job in a new process group and return immediately;
+            if *False* (default), the call blocks until completion.
         limit : int or None, optional
             Maximum number of rows to read from *input_path* — handy for
             dry-runs and debugging.  When *None* (default) the entire
@@ -449,9 +574,8 @@ class DomynLLMSwarm(BaseModel):
 
         Returns
         -------
-        int or None
-            *detach=True*  → PID of the spawned process.
-            *detach=False* → ``None`` (the call blocks).
+        JobHandle
+            Compute job handle with normalized status and metadata.
 
         Raises
         ------
@@ -522,19 +646,20 @@ class DomynLLMSwarm(BaseModel):
             f"to swarm {self.name} on {self._platform}"
         )
 
-        job_handle = self._deployment.run(
+        return self._submit_with_tracking(
             name=job_name[:36],  # type: ignore[arg-type]
-            image=image,
-            command=exe,
-            env=env,
+            command=[*map(str, exe)],
             resources=resources,
-            detach=detach,
+            kind="step",
+            submit=lambda: self._deployment.run(
+                name=job_name[:36],  # type: ignore[arg-type]
+                image=image,
+                command=exe,
+                env=env,
+                resources=resources,
+                detach=detach,
+            ),
         )
-
-        if job_handle is None:
-            raise RuntimeError("Failed to submit job to compute backend.")
-
-        return job_handle.meta.get("pid") if detach else None
 
     def _augment_job_env(
         self,
@@ -725,7 +850,7 @@ class DomynLLMSwarm(BaseModel):
         script_path: Path,
         detach: bool = False,
         extra_args: list[str] | None = None,
-    ) -> int | None:
+    ) -> JobHandle:
         """Submit a Python script to the compute backend for execution.
 
         This method validates the script path, composes the runtime environment,
@@ -733,14 +858,13 @@ class DomynLLMSwarm(BaseModel):
 
         Args:
             script_path (Path): Path to the Python script to be executed.
-            detach (bool, optional): If True, run the script in detached mode and return
-                the process ID. If False, run synchronously. Defaults to False.
+            detach (bool, optional): If True, run the script in detached mode.
+                If False, run synchronously. Defaults to False.
             extra_args (list[str] | None, optional): Additional command-line arguments
                 to pass to the script. Defaults to None.
 
         Returns:
-            int | None: If detach is True, returns the process ID of the submitted job.
-                If detach is False, returns None after synchronous execution.
+            JobHandle: Submitted job handle with normalized status and metadata.
 
         Raises:
             FileNotFoundError: If the script file does not exist (only checked for SLURM platform).
@@ -752,9 +876,10 @@ class DomynLLMSwarm(BaseModel):
             >>> swarm.submit_script(Path("my_script.py"))
 
             >>> # Submit script in detached mode with arguments
-            >>> pid = swarm.submit_script(
+            >>> handle = swarm.submit_script(
             ...     Path("my_script.py"), detach=True, extra_args=["--config", "config.yaml"]
             ... )
+            >>> handle.pid
         """
 
         # Basic validation
@@ -768,27 +893,21 @@ class DomynLLMSwarm(BaseModel):
         args = extra_args or []
         command = [python_interpreter, str(script_path), *args]
 
-        # Submit via the compute backend
-        job_handle = self._deployment.run(
-            name=f"{self.name.lower()}-script",  # type: ignore[arg-type]
-            image=image,
-            command=command,
-            env=env,
-            resources=resources,
-            detach=detach,
-        )
-        if job_handle is None:
-            raise RuntimeError("Failed to submit script to compute backend.")
-
-        self._record_job_submission(
-            name=f"{self.name.lower()}-script",
+        script_name = f"{self.name.lower()}-script"
+        return self._submit_with_tracking(
+            name=script_name,
             command=[*map(str, command)],
             resources=resources,
-            job_handle=job_handle,
             kind="script",
+            submit=lambda: self._deployment.run(
+                name=script_name,  # type: ignore[arg-type]
+                image=image,
+                command=command,
+                env=env,
+                resources=resources,
+                detach=detach,
+            ),
         )
-
-        return job_handle.meta.get("pid") if detach else None
 
     def cleanup(self):
         if self._deployment and self.serving_handle:
@@ -831,34 +950,3 @@ def _load_job(job_class: str, kwargs_json: str, **kwargs) -> SwarmJob:
     mod, cls = job_class.split(":", 1)
     JobCls = getattr(importlib.import_module(mod), cls)
     return JobCls(**kwargs, **json.loads(kwargs_json))
-
-
-def _start_swarm(
-    cfg: "DomynLLMSwarmConfig",
-    *,
-    reverse_proxy: bool = False,
-) -> None:
-    """Common context-manager + reverse proxy logic."""
-    with DomynLLMSwarm(cfg=cfg) as _:
-        if reverse_proxy:
-            warnings.warn("This feature is not currently enabled", stacklevel=2)
-            # from domyn_swarm.helpers.reverse_proxy import launch_reverse_proxy
-
-            # # TODO check this
-            # if not isinstance(cfg.nginx_image, utils.EnvPath):
-            #     raise RuntimeError("Nginx image is not an env path.")
-
-            # if swarm.lb_node is None:
-            #     raise RuntimeError("LB Node is null.")
-
-            # if swarm.endpoint is None:
-            #     raise RuntimeError("Endpoint is null.")
-
-            # launch_reverse_proxy(
-            #     cfg.nginx_template_path,
-            #     cfg.nginx_image,
-            #     swarm.lb_node,
-            #     swarm._get_head_node(),
-            #     int(swarm.endpoint.split(":")[2]),
-            #     cfg.ray_dashboard_port,
-            # )
