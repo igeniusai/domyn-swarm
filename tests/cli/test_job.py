@@ -529,3 +529,137 @@ def test_cancel_job_with_external_id_sets_cancelled_and_updates_state(mocker):
     )
     emit.assert_called_once()
     assert target.handle.status == JobStatus.CANCELLED
+
+
+def test_list_jobs_json_output(mocker):
+    rows = [
+        {
+            "job_id": "job-1",
+            "deployment_name": "my-swarm",
+            "provider": "slurm",
+            "kind": "step",
+            "status": "RUNNING",
+            "raw_status": "RUNNING",
+            "external_id": "123.0",
+            "name": "my-job",
+            "command": ["python", "-m", "x"],
+            "resources": {"cpus_per_task": 4},
+            "log_paths": {"stdout": "/tmp/out.log"},
+            "error": None,
+            "creation_dt": "2026-02-10T10:00:00",
+            "update_dt": "2026-02-10T10:05:00",
+        }
+    ]
+    list_jobs = mocker.patch.object(mod.SwarmStateManager, "list_jobs", return_value=rows)
+
+    result = runner.invoke(
+        mod.job_app,
+        [
+            "list",
+            "-n",
+            "my-swarm",
+            "--status",
+            "running",
+            "--status",
+            "cancelled",
+            "--limit",
+            "20",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    list_jobs.assert_called_once_with(
+        "my-swarm",
+        limit=20,
+        statuses=[JobStatus.RUNNING, JobStatus.CANCELLED],
+    )
+    payload = _parse_last_json_line(result.stdout)
+    assert payload["command"] == "list"
+    assert payload["swarm"] == "my-swarm"
+    assert payload["count"] == 1
+    assert payload["statuses"] == ["RUNNING", "CANCELLED"]
+    assert payload["jobs"][0]["job_id"] == "job-1"
+
+
+def test_list_jobs_tui_uses_renderer(mocker):
+    rows = [
+        {
+            "job_id": "job-1",
+            "deployment_name": "my-swarm",
+            "provider": "slurm",
+            "kind": "step",
+            "status": "RUNNING",
+            "raw_status": None,
+            "external_id": "123.0",
+            "name": "my-job",
+            "command": None,
+            "resources": None,
+            "log_paths": None,
+            "error": None,
+            "creation_dt": "2026-02-10T10:00:00",
+            "update_dt": "2026-02-10T10:05:00",
+        }
+    ]
+    mocker.patch.object(mod.SwarmStateManager, "list_jobs", return_value=rows)
+    render = mocker.patch("domyn_swarm.cli.tui.job_view.render_job_list")
+
+    result = runner.invoke(mod.job_app, ["list", "-n", "my-swarm"])
+
+    assert result.exit_code == 0
+    render.assert_called_once()
+
+
+def test_status_job_json_output(mocker):
+    row = {
+        "job_id": "job-1",
+        "deployment_name": "my-swarm",
+        "provider": "slurm",
+        "kind": "step",
+        "status": "SUCCEEDED",
+        "raw_status": "COMPLETED",
+        "external_id": "123.0",
+        "name": "my-job",
+        "command": ["python", "-m", "x"],
+        "resources": {"cpus_per_task": 4},
+        "log_paths": {"stdout": "/tmp/out.log"},
+        "error": None,
+        "creation_dt": "2026-02-10T10:00:00",
+        "update_dt": "2026-02-10T10:07:00",
+    }
+    get_job = mocker.patch.object(mod.SwarmStateManager, "get_job", return_value=row)
+
+    result = runner.invoke(mod.job_app, ["status", "job-1", "--json"])
+
+    assert result.exit_code == 0
+    get_job.assert_called_once_with("job-1")
+    payload = _parse_last_json_line(result.stdout)
+    assert payload["command"] == "status"
+    assert payload["swarm"] == "my-swarm"
+    assert payload["job"]["job_id"] == "job-1"
+
+
+def test_status_job_tui_uses_renderer(mocker):
+    row = {
+        "job_id": "job-1",
+        "deployment_name": "my-swarm",
+        "provider": "slurm",
+        "kind": "step",
+        "status": "FAILED",
+        "raw_status": "FAILED",
+        "external_id": "123.0",
+        "name": "my-job",
+        "command": ["python", "-m", "x"],
+        "resources": None,
+        "log_paths": None,
+        "error": "boom",
+        "creation_dt": "2026-02-10T10:00:00",
+        "update_dt": "2026-02-10T10:08:00",
+    }
+    mocker.patch.object(mod.SwarmStateManager, "get_job", return_value=row)
+    render = mocker.patch("domyn_swarm.cli.tui.job_view.render_job_status")
+
+    result = runner.invoke(mod.job_app, ["status", "job-1"])
+
+    assert result.exit_code == 0
+    render.assert_called_once()

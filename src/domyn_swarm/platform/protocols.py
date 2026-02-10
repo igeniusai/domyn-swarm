@@ -43,8 +43,6 @@ def coerce_job_status(status: object, *, default: JobStatus = JobStatus.PENDING)
         return status
     raw_status = getattr(status, "value", status)
     status_str = str(raw_status).strip().upper()
-    if status_str == "CANCELED":
-        status_str = JobStatus.CANCELLED.value
     try:
         return JobStatus(status_str)
     except ValueError:

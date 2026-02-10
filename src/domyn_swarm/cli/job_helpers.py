@@ -288,6 +288,74 @@ def emit_submission_json(
     typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 
 
+def parse_status_filters(statuses: list[str] | None) -> list[JobStatus] | None:
+    """Parse status filter values from CLI options.
+
+    Args:
+        statuses: Optional raw status strings.
+
+    Returns:
+        Normalized ``JobStatus`` list or ``None`` when not provided.
+
+    Raises:
+        typer.BadParameter: If any status value is invalid.
+    """
+    if not statuses:
+        return None
+
+    normalized: list[JobStatus] = []
+    allowed = ", ".join(status.value for status in JobStatus)
+    for raw in statuses:
+        value = str(raw).strip().upper()
+        try:
+            normalized.append(JobStatus(value))
+        except ValueError as exc:
+            raise typer.BadParameter(
+                f"Invalid --status value '{raw}'. Allowed values: {allowed}."
+            ) from exc
+    return normalized
+
+
+def emit_job_list_json(
+    *,
+    swarm_name: str,
+    jobs: list[dict[str, Any]],
+    limit: int,
+    statuses: list[JobStatus] | None,
+) -> None:
+    """Emit parseable JSON payload for ``job list``.
+
+    Args:
+        swarm_name: Swarm deployment name.
+        jobs: Jobs list payload.
+        limit: Requested row limit.
+        statuses: Optional status filters.
+    """
+    payload = {
+        "command": "list",
+        "swarm": swarm_name,
+        "limit": limit,
+        "statuses": [status.value for status in statuses] if statuses else None,
+        "count": len(jobs),
+        "jobs": jobs,
+    }
+    typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+def emit_job_status_json(*, job: dict[str, Any]) -> None:
+    """Emit parseable JSON payload for ``job status``.
+
+    Args:
+        job: Job record payload.
+    """
+    payload = {
+        "command": "status",
+        "swarm": job.get("deployment_name"),
+        "job": job,
+    }
+    typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
 def submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> JobHandle:
     """Submit an already-instantiated job.
 

@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
+from rich.console import Console
 import typer
 
 from domyn_swarm.cli import job_helpers as helpers
@@ -320,6 +321,77 @@ def submit_job(
             command="submit",
             swarm_name=swarm.name,
         )
+
+
+@job_app.command("list")
+def list_jobs(
+    name: str = typer.Option(..., "-n", "--name", help="Swarm deployment name."),
+    status: list[str] | None = typer.Option(
+        None,
+        "--status",
+        help="Filter by status (repeatable). Values: PENDING,RUNNING,SUCCEEDED,FAILED,CANCELLED.",
+    ),
+    limit: int = typer.Option(50, "--limit", min=1, help="Maximum number of jobs to return."),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output machine-parseable JSON instead of the default TUI view.",
+    ),
+) -> None:
+    """List jobs for a swarm.
+
+    Args:
+        name: Swarm deployment name.
+        status: Optional status filter list.
+        limit: Maximum number of jobs to show.
+        json_output: Whether to emit JSON output.
+    """
+    statuses = helpers.parse_status_filters(status)
+    status_values = [status_value.value for status_value in statuses] if statuses else None
+    rows = SwarmStateManager.list_jobs(name, limit=limit, statuses=status_values)
+    if json_output:
+        helpers.emit_job_list_json(
+            swarm_name=name,
+            jobs=rows,
+            limit=limit,
+            statuses=statuses,
+        )
+        return
+
+    from domyn_swarm.cli.tui.job_view import render_job_list
+
+    console = Console()
+    render_job_list(rows, swarm_name=name, console=console)
+
+
+@job_app.command("status")
+def status_job(
+    job_id: str = typer.Argument(..., help="Internal Domyn job ID from the local state DB."),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output machine-parseable JSON instead of the default TUI view.",
+    ),
+) -> None:
+    """Show details for a recorded job.
+
+    Args:
+        job_id: Internal job ID.
+        json_output: Whether to emit JSON output.
+    """
+    try:
+        row = SwarmStateManager.get_job(job_id)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    if json_output:
+        helpers.emit_job_status_json(job=row)
+        return
+
+    from domyn_swarm.cli.tui.job_view import render_job_status
+
+    console = Console()
+    render_job_status(row, console=console)
 
 
 @job_app.command("wait")
