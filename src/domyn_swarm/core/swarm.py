@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -39,6 +40,7 @@ from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.jobs import JobBuilder, SwarmJob
 from domyn_swarm.platform.protocols import (
     JobHandle,
+    JobProbe,
     JobStatus,
     ServingHandle,
     ServingPhase,
@@ -932,6 +934,63 @@ class DomynLLMSwarm(BaseModel):
             normalized_status = JobStatus.CANCELLED
         handle.status = normalized_status
         return normalized_status
+
+    def refresh_job_status(self, job_id: str) -> dict[str, Any]:
+        """Refresh a persisted job status via backend probe (best effort).
+
+        Args:
+            job_id: Internal persisted job identifier.
+
+        Returns:
+            Updated job record payload, including transient refresh metadata:
+            ``refresh_source`` and ``refresh_error``.
+        """
+        record = SwarmStateManager.get_job(job_id)
+        external_id = record.get("external_id")
+        status = coerce_job_status(record.get("status", JobStatus.PENDING))
+        handle = JobHandle(
+            id=str(external_id or job_id),
+            status=status,
+            meta={
+                "job_id": job_id,
+                "external_id": external_id,
+            },
+        )
+
+        if not external_id:
+            record["refresh_source"] = "db"
+            record["refresh_error"] = "Missing external_id; backend probe skipped."
+            return record
+
+        compute = self._require_compute_backend()
+        probe: JobProbe
+        try:
+            probe = compute.probe(handle)
+        except Exception as exc:
+            refresh_error = str(exc)
+            logger.warning("Job status probe failed for %s: %s", job_id, refresh_error)
+            with contextlib.suppress(Exception):
+                SwarmStateManager.update_job(job_id, error=refresh_error)
+            refreshed = SwarmStateManager.get_job(job_id)
+            refreshed["refresh_source"] = "backend"
+            refreshed["refresh_error"] = refresh_error
+            return refreshed
+
+        try:
+            SwarmStateManager.update_job(
+                job_id,
+                status=probe.status,
+                raw_status=probe.raw_status,
+                external_id=handle.external_id or external_id,
+                error=probe.error,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist probed status for %s: %s", job_id, exc)
+
+        refreshed = SwarmStateManager.get_job(job_id)
+        refreshed["refresh_source"] = probe.source
+        refreshed["refresh_error"] = probe.error
+        return refreshed
 
     def cleanup(self):
         if self._deployment and self.serving_handle:

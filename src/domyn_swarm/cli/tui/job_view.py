@@ -104,6 +104,10 @@ def render_job_status(job: Mapping[str, Any], *, console: Console) -> None:
     details.add_row("Updated", str(job.get("update_dt") or "—"))
     details.add_row("Raw Status", str(job.get("raw_status") or "—"))
     details.add_row("Error", str(job.get("error") or "—"))
+    if "refresh_source" in job:
+        details.add_row("Refresh Source", str(job.get("refresh_source") or "—"))
+    if "refresh_error" in job:
+        details.add_row("Refresh Error", str(job.get("refresh_error") or "—"))
     details.add_row("Command", _fmt_command(job.get("command")))
     console.print(details)
 

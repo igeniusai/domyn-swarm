@@ -31,6 +31,7 @@ from domyn_swarm.backends.compute.slurm_helpers import (
     _create_step_id_fifo,
     _normalize_returncode,
     _pid_exists,
+    _probe_slurm,
     _resolve_external_id,
     _stream_text_lines,
     _terminate_process_group,
@@ -40,7 +41,7 @@ from domyn_swarm.backends.compute.slurm_helpers import (
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
+from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobProbe, JobStatus
 
 if TYPE_CHECKING:
     from domyn_swarm.config.slurm import SlurmConfig
@@ -150,6 +151,58 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         # synchronous
         subprocess.run(cmd, check=True)
         return JobHandle(id=name, status=JobStatus.SUCCEEDED, meta={"cmd": shlex.join(cmd)})
+
+    def probe(self, handle: JobHandle) -> JobProbe:
+        """Probe detached job status without blocking.
+
+        Args:
+            handle: Job handle to probe.
+
+        Returns:
+            Best-effort status probe payload.
+        """
+        external_id = handle.meta.get("external_id")
+        if external_id:
+            probe = _probe_slurm(str(external_id))
+            handle.status = probe.status
+            return probe
+
+        pid_raw = handle.meta.get("pid")
+        if pid_raw is None:
+            return JobProbe(status=handle.status, source="local")
+
+        try:
+            pid = int(pid_raw)
+        except (TypeError, ValueError):
+            handle.status = JobStatus.FAILED
+            return JobProbe(
+                status=JobStatus.FAILED,
+                raw_status="INVALID_PID",
+                source="pid",
+                error=f"Invalid pid in job handle: {pid_raw!r}",
+            )
+
+        proc = self._procs.get(pid)
+        if proc is not None:
+            rc = proc.poll()
+            if rc is None:
+                handle.status = JobStatus.RUNNING
+                return JobProbe(status=JobStatus.RUNNING, raw_status="RUNNING", source="pid")
+            status = _normalize_returncode(rc)
+            handle.status = status
+            return JobProbe(status=status, raw_status=f"RETURNCODE={rc}", source="pid")
+
+        if _pid_exists(pid):
+            handle.status = JobStatus.RUNNING
+            return JobProbe(status=JobStatus.RUNNING, raw_status="PID_EXISTS", source="pid")
+
+        handle.status = JobStatus.FAILED
+        return JobProbe(
+            status=JobStatus.FAILED,
+            raw_status="PID_MISSING",
+            source="pid",
+            error=f"Process {pid} not found and backend handle is unavailable.",
+        )
 
     def wait(
         self, handle: JobHandle, *, stream_logs: bool = True, timeout: float | None = None

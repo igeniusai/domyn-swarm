@@ -24,7 +24,7 @@ import pytest
 import domyn_swarm.backends.compute.slurm as mod
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 import domyn_swarm.backends.compute.slurm_helpers as helpers
-from domyn_swarm.platform.protocols import JobStatus
+from domyn_swarm.platform.protocols import JobProbe, JobStatus
 
 
 # ----------------------------
@@ -279,6 +279,22 @@ def test_default_python_falls_back_to_mixin(monkeypatch):
 # ----------------------------
 # wait()
 # ----------------------------
+def test_probe_with_external_id_uses_slurm_probe(monkeypatch):
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"external_id": "123.0"})
+    monkeypatch.setattr(
+        mod,
+        "_probe_slurm",
+        lambda external_id: JobProbe(
+            status=JobStatus.SUCCEEDED, raw_status="COMPLETED", source="slurm"
+        ),
+    )
+    probe = be.probe(handle)
+    assert probe.status is JobStatus.SUCCEEDED
+    assert probe.raw_status == "COMPLETED"
+    assert handle.status is JobStatus.SUCCEEDED
+
+
 def test_wait_returns_status_if_no_pid():
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.PENDING, meta={})

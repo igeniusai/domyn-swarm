@@ -144,6 +144,28 @@ class JobHandle:
         return self.get_external_id()
 
 
+@dataclass
+class JobProbe:
+    """Best-effort non-blocking job status probe result.
+
+    Attributes
+    ----------
+    status : JobStatus
+        Normalized job status reported by the backend.
+    raw_status : str | None
+        Optional provider-specific raw state string.
+    source : str
+        Source that produced this probe (for example, ``slurm`` or ``lepton``).
+    error : str | None
+        Optional error string when probing failed.
+    """
+
+    status: JobStatus
+    raw_status: str | None = None
+    source: str = "backend"
+    error: str | None = None
+
+
 @runtime_checkable
 class ServingBackend(Protocol):
     """Create/update/delete a serving endpoint.
@@ -187,6 +209,8 @@ class ComputeBackend(Protocol):
 
     def cancel(self, handle: JobHandle) -> None: ...
 
+    def probe(self, handle: JobHandle) -> JobProbe: ...
+
     def default_python(self, cfg) -> str: ...
 
     def default_image(self, cfg) -> str | None: ...
@@ -208,3 +232,14 @@ class DefaultComputeMixin:
 
     def default_env(self, cfg) -> dict[str, str]:
         return {}
+
+    def probe(self, handle: JobHandle) -> JobProbe:
+        """Return current handle status when backend probing is unavailable.
+
+        Args:
+            handle: Job handle to probe.
+
+        Returns:
+            A best-effort probe payload based on current handle state.
+        """
+        return JobProbe(status=handle.status, source="local")

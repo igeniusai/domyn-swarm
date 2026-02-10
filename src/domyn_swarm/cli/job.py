@@ -384,6 +384,18 @@ def status_job(
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
+    deployment_name = str(row.get("deployment_name") or "")
+    if deployment_name:
+        try:
+            swarm = DomynLLMSwarm.from_state(deployment_name=deployment_name)
+            row = swarm.refresh_job_status(job_id)
+        except Exception as exc:
+            row["refresh_source"] = "backend"
+            row["refresh_error"] = str(exc)
+    else:
+        row["refresh_source"] = "db"
+        row["refresh_error"] = "Missing deployment_name; backend probe skipped."
+
     if json_output:
         helpers.emit_job_status_json(job=row)
         return

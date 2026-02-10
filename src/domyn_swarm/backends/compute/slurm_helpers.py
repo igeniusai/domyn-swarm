@@ -23,7 +23,7 @@ import signal
 import subprocess
 import time
 
-from domyn_swarm.platform.protocols import JobStatus
+from domyn_swarm.platform.protocols import JobProbe, JobStatus
 
 STEP_ID_STDOUT_TIMEOUT_S = 1.0
 STEP_ID_POLL_TIMEOUT_S = 10.0
@@ -412,6 +412,23 @@ def _wait_for_slurm(
         if timeout is not None and (time.time() - start) >= timeout:
             return last_status
         time.sleep(poll_s)
+
+
+def _probe_slurm(external_id: str) -> JobProbe:
+    """Probe Slurm once for a job/step state without blocking.
+
+    Args:
+        external_id: Slurm job or step identifier.
+
+    Returns:
+        Probe result with normalized and raw status.
+    """
+    raw_state = _slurm_query_state(external_id)
+    return JobProbe(
+        status=_normalize_slurm_state(raw_state),
+        raw_status=raw_state or None,
+        source="slurm",
+    )
 
 
 def _cancel_slurm(external_id: str) -> None:

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
+from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobProbe, JobStatus
 from domyn_swarm.utils.imports import _require_lepton, make_lepton_client
 
 settings = get_settings()
@@ -112,24 +112,48 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             raise RuntimeError("Failed to create Lepton job")
         return JobHandle(id=job_id, status=JobStatus.PENDING, meta={"raw": created})
 
-    def wait(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus:
+    @staticmethod
+    def _status_from_lepton_state(state) -> JobStatus:
+        """Map Lepton state to normalized job status.
+
+        Args:
+            state: Lepton job/deployment state.
+
+        Returns:
+            Normalized job status.
+        """
         _require_lepton()
-        from leptonai.api.v1.types.deployment import (
-            LeptonDeploymentState,
-        )
-        from leptonai.api.v1.types.job import (
-            LeptonJobState,
-        )
+        from leptonai.api.v1.types.deployment import LeptonDeploymentState
 
-        client = self._client()
-
-        job = client.job.get(handle.id)
-        state: LeptonJobState | None = job.status.state if job.status else None
         if state in {LeptonDeploymentState.Stopped, LeptonDeploymentState.Stopping}:
             return JobStatus.FAILED
         if state == LeptonDeploymentState.Ready:
             return JobStatus.RUNNING
         return JobStatus.SUCCEEDED
+
+    def probe(self, handle: JobHandle) -> JobProbe:
+        """Probe Lepton job status without blocking.
+
+        Args:
+            handle: Job handle to probe.
+
+        Returns:
+            Best-effort status probe payload.
+        """
+        _require_lepton()
+        from leptonai.api.v1.types.job import LeptonJobState
+
+        client = self._client()
+        job = client.job.get(handle.id)
+        state: LeptonJobState | None = job.status.state if job.status else None
+        status = self._status_from_lepton_state(state)
+        handle.status = status
+        raw_status = None if state is None else str(getattr(state, "value", state))
+        return JobProbe(status=status, raw_status=raw_status, source="lepton")
+
+    def wait(self, handle: JobHandle, *, stream_logs: bool = True) -> JobStatus:
+        probe = self.probe(handle)
+        return probe.status
 
     def cancel(self, handle: JobHandle) -> None:
         client = self._client()
