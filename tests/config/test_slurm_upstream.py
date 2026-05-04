@@ -5,7 +5,7 @@ from domyn_swarm.config.slurm import SlurmEndpointConfig, UpstreamConfig
 
 
 def test_default_is_least_conn():
-    cfg = SlurmEndpointConfig()
+    cfg = SlurmEndpointConfig(nginx_image="nginx.sif")
     assert cfg.upstream.strategy == "least_conn"
     assert cfg.upstream.key is None
 
