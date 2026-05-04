@@ -114,6 +114,25 @@ backend:
 
 > **Note**: `model` can be an HF ID or a local path. If HF, ensure it’s downloaded to your `HF_HOME`.
 
+> **Prefix-cache-sensitive workloads.** The load balancer defaults to
+> `least_conn`, which is correct for uniform / unkeyed traffic. If the served
+> model benefits from vLLM prefix caching and clients send a stable
+> per-request key (e.g. `X-Repo`), pin requests to a replica with consistent
+> hashing:
+>
+> ```yaml
+> backend:
+>   type: slurm
+>   # ...
+>   endpoint:
+>     upstream:
+>       strategy: hash
+>       key: $http_x_repo   # any nginx variable: $http_*, $arg_*, $request_uri, ...
+> ```
+>
+> `least_conn` actively spreads same-key requests across replicas, which
+> collapses prefix-cache hit rate; `hash <key> consistent` pins them together.
+
 ### 2) Launch a swarm
 
 ```bash

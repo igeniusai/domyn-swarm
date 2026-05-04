@@ -77,7 +77,14 @@ generate_nginx_conf() {
 
     {
         echo "  upstream llm {"
+        {%- set up = cfg.backend.endpoint.upstream %}
+        {%- if up.strategy == "least_conn" %}
         echo "    least_conn;"
+        {%- elif up.strategy == "ip_hash" %}
+        echo "    ip_hash;"
+        {%- elif up.strategy == "hash" %}
+        echo '    hash {{ up.key }} consistent;'
+        {%- endif %}
 
         # Backends: one server line per replica, sorted for stable config
         for f in "${files[@]}"; do

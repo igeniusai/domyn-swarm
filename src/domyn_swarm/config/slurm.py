@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from domyn_swarm import utils
 from domyn_swarm.config.defaults import default_for
@@ -22,6 +23,35 @@ from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
 
 settings = get_settings()
+
+_NGINX_VAR_RE = re.compile(r"^\$[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class UpstreamConfig(BaseModel):
+    """nginx upstream load-balancing strategy for the swarm load balancer.
+
+    `least_conn` (default) suits uniform / unkeyed traffic. `hash` with a
+    stable per-request key (e.g. `$http_x_repo`) pins requests to the same
+    replica — needed for prefix-cache-sensitive workloads.
+    """
+
+    strategy: Literal["least_conn", "ip_hash", "hash"] = "least_conn"
+    key: str | None = None
+
+    @model_validator(mode="after")
+    def _check_key(self) -> "UpstreamConfig":
+        if self.strategy == "hash":
+            if not self.key:
+                raise ValueError("upstream.key is required when strategy='hash'")
+            if not _NGINX_VAR_RE.match(self.key):
+                raise ValueError(
+                    f"upstream.key must be an nginx variable like $http_x_repo, got {self.key!r}"
+                )
+        elif self.key is not None:
+            raise ValueError(
+                f"upstream.key is only valid when strategy='hash' (got strategy={self.strategy!r})"
+            )
+        return self
 
 
 class SlurmEndpointConfig(BaseModel):
@@ -37,6 +67,7 @@ class SlurmEndpointConfig(BaseModel):
     )
     poll_interval: int = 10  # sacct polling cadence (s)
     require_allocated_node: bool = False  # refuse srun if not inside a Slurm allocation
+    upstream: UpstreamConfig = Field(default_factory=UpstreamConfig)
 
 
 class SlurmConfig(BaseModel):
