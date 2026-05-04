@@ -26,6 +26,7 @@ from pydantic import (
     PrivateAttr,
     computed_field,
 )
+from ulid import ULID
 
 from domyn_swarm import utils
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
@@ -402,6 +403,7 @@ class DomynLLMSwarm(BaseModel):
         job_id: str | None,
         status: JobStatus,
         external_id: str | None = None,
+        log_paths: dict | None = None,
         error: str | None = None,
     ) -> None:
         """Update job submission state in the local swarm DB.
@@ -410,6 +412,7 @@ class DomynLLMSwarm(BaseModel):
             job_id: Internal persisted job ID.
             status: Job status.
             external_id: Optional backend external identifier.
+            log_paths: Optional backend log path dictionary.
             error: Optional error message.
         """
         if not job_id:
@@ -419,6 +422,7 @@ class DomynLLMSwarm(BaseModel):
                 job_id,
                 status=status,
                 external_id=external_id,
+                log_paths=log_paths,
                 error=error,
             )
         except Exception as exc:
@@ -489,6 +493,7 @@ class DomynLLMSwarm(BaseModel):
             job_id=job_record_id,
             status=normalized_status,
             external_id=job_handle.external_id,
+            log_paths=job_handle.meta.get("log_paths"),
         )
         if job_record_id:
             job_handle.meta["job_id"] = job_record_id
@@ -618,7 +623,8 @@ class DomynLLMSwarm(BaseModel):
         )
 
         job_name = job.name.lower() if job.name else f"{self.name}-job"
-        job_name = f"{self.name}-{job_name}"
+        ulid = str(ULID())
+        job_name = f"{self.name}-{job_name}-{ulid.lower()}"
 
         logger.info(
             f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "

@@ -425,10 +425,13 @@ def _job_record_to_handle(record: dict[str, Any], *, pid: int | None = None) -> 
     external_id = record.get("external_id")
     job_id = record.get("job_id")
     handle_id = str(external_id or job_id or "unknown")
+    log_paths = record.get("log_paths")
     meta: dict[str, Any] = {
         "job_id": job_id,
         "external_id": external_id,
     }
+    if isinstance(log_paths, dict):
+        meta["log_paths"] = dict(log_paths)
     if pid is not None:
         meta["pid"] = pid
     return JobHandle(

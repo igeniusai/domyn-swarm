@@ -21,7 +21,9 @@ import select
 import shlex
 import signal
 import subprocess
+import sys
 import time
+from typing import TextIO
 
 from domyn_swarm.platform.protocols import JobProbe, JobStatus
 
@@ -151,6 +153,30 @@ def _create_step_id_fifo(extras: dict | None, step_name: str | None) -> Path | N
     except Exception:
         return None
     return fifo_path
+
+
+def _build_step_log_paths(extras: dict | None, step_name: str | None) -> dict[str, str] | None:
+    """Build detached Slurm step log file paths.
+
+    Args:
+        extras: Backend extras payload.
+        step_name: Resolved Slurm step name.
+
+    Returns:
+        Dictionary containing ``stdout`` and ``stderr`` paths, or ``None``
+        when no swarm directory context is available.
+    """
+    if not extras or not step_name:
+        return None
+    swarm_dir = extras.get("swarm_directory")
+    if not swarm_dir:
+        return None
+    jobs_dir = Path(swarm_dir) / "jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "stdout": str(jobs_dir / f"{step_name}.out"),
+        "stderr": str(jobs_dir / f"{step_name}.err"),
+    }
 
 
 def _read_step_id_from_fifo(path: Path, *, timeout_s: float) -> str | None:
@@ -412,6 +438,83 @@ def _wait_for_slurm(
         if timeout is not None and (time.time() - start) >= timeout:
             return last_status
         time.sleep(poll_s)
+
+
+def _wait_for_slurm_with_log_stream(
+    external_id: str,
+    *,
+    stdout_path: str | None,
+    stderr_path: str | None,
+    timeout: float | None,
+    poll_s: float,
+    stdout_stream: TextIO | None = None,
+    stderr_stream: TextIO | None = None,
+) -> JobStatus:
+    """Poll Slurm while streaming detached log files.
+
+    Args:
+        external_id: Slurm job/step identifier.
+        stdout_path: Optional stdout log path.
+        stderr_path: Optional stderr log path.
+        timeout: Optional timeout in seconds.
+        poll_s: Poll interval in seconds.
+        stdout_stream: Optional stream for stdout log lines.
+        stderr_stream: Optional stream for stderr log lines.
+
+    Returns:
+        Last observed normalized job status.
+    """
+    out = stdout_stream or sys.stdout
+    err = stderr_stream or sys.stderr
+    start = time.time()
+    last_status = JobStatus.PENDING
+    stdout_offset = 0
+    stderr_offset = 0
+
+    def _drain_logs() -> None:
+        nonlocal stdout_offset, stderr_offset
+        if stdout_path:
+            stdout_offset = _drain_log_file(stdout_path, stdout_offset, out)
+        if stderr_path:
+            stderr_offset = _drain_log_file(stderr_path, stderr_offset, err)
+
+    while True:
+        _drain_logs()
+        state = _slurm_query_state(external_id)
+        status = _normalize_slurm_state(state)
+        last_status = status
+        if status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
+            _drain_logs()
+            return status
+        if timeout is not None and (time.time() - start) >= timeout:
+            _drain_logs()
+            return last_status
+        time.sleep(poll_s)
+
+
+def _drain_log_file(path: str, offset: int, stream: TextIO) -> int:
+    """Write newly appended log content from a file.
+
+    Args:
+        path: Log file path.
+        offset: Current read offset.
+        stream: Output text stream.
+
+    Returns:
+        Updated read offset.
+    """
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            handle.seek(offset)
+            chunk = handle.read()
+            new_offset = handle.tell()
+    except OSError:
+        return offset
+
+    if chunk:
+        stream.write(chunk)
+        stream.flush()
+    return new_offset
 
 
 def _probe_slurm(external_id: str) -> JobProbe:

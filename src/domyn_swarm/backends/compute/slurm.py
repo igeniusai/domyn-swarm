@@ -14,11 +14,9 @@
 
 from collections.abc import Mapping, Sequence
 import contextlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import shlex
 import subprocess
-import sys
-import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -26,16 +24,15 @@ from rich import print as rprint
 from rich.syntax import Syntax
 
 from domyn_swarm.backends.compute.slurm_helpers import (
+    _build_step_log_paths,
     _build_step_name,
     _cancel_slurm,
     _create_step_id_fifo,
-    _normalize_returncode,
-    _pid_exists,
     _probe_slurm,
     _resolve_external_id,
-    _stream_text_lines,
     _terminate_process_group,
     _wait_for_slurm,
+    _wait_for_slurm_with_log_stream,
     _wrap_with_step_echo,
 )
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
@@ -57,17 +54,17 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     -----
     - `image` is unused for Slurm; your venv/python is used directly.
     - `resources` maps to srun flags via your SrunCommandBuilder configuration.
-    - For `detach=True`, we return a JobHandle with local `Popen` PID in `meta["pid"]` and
-      best-effort resolve the Slurm step id into `meta["external_id"]` using a FIFO channel
-      (preferred) or `squeue`/`sacct` fallback.
-    - Cancellation uses the Slurm external id when available; otherwise it falls back to
-      `os.killpg(pid, ...)` to terminate the whole `srun` process group.
+    - For `detach=True`, we return a JobHandle with local launcher PID in `meta["pid"]`
+      (diagnostic only) and required Slurm step id in `meta["external_id"]`.
+    - Reconnect semantics (`wait/cancel/probe`) are external-id only and therefore stable
+      across CLI invocations and process boundaries.
+    - If step-id resolution fails at submit time, the detached process is terminated and submit
+      fails to avoid orphaned non-reconnectable jobs.
     """
 
     cfg: "SlurmConfig"
     lb_jobid: int
     lb_node: str
-    _procs: dict[int, subprocess.Popen[str]] = field(default_factory=dict, init=False, repr=False)
 
     def submit(
         self,
@@ -101,8 +98,16 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         step_name = _build_step_name(name) if detach else None
         step_id_fifo = _create_step_id_fifo(extras, step_name) if detach else None
+        step_log_paths = _build_step_log_paths(extras, step_name) if detach else None
         if step_name:
             builder = builder.with_extra_args([f"--job-name={step_name}"])
+        if step_log_paths:
+            builder = builder.with_extra_args(
+                [
+                    f"--output={step_log_paths['stdout']}",
+                    f"--error={step_log_paths['stderr']}",
+                ]
+            )
         wrapped = _wrap_with_step_echo(command, step_id_fifo) if detach else [*map(str, command)]
         cmd = builder.build(wrapped)
 
@@ -122,27 +127,34 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 text=True,
                 start_new_session=True,
                 close_fds=True,
             )
             if proc.pid is None:
                 raise RuntimeError("Detached process did not get a PID.")
-            self._procs[proc.pid] = proc
             external_id = _resolve_external_id(
-                stdout=proc.stdout,
+                stdout=None,
                 job_id=self.lb_jobid,
                 step_name=step_name,
                 step_id_fifo=step_id_fifo,
             )
+            if not external_id:
+                with contextlib.suppress(Exception):
+                    _terminate_process_group(proc.pid, grace_s=3.0)
+                raise RuntimeError(
+                    "Failed to resolve detached Slurm step id (external_id); "
+                    "job was terminated to preserve reconnect semantics."
+                )
             return JobHandle(
-                id=external_id or str(proc.pid),
+                id=external_id,
                 status=JobStatus.RUNNING,
                 meta={
                     "pid": proc.pid,
                     "external_id": external_id,
+                    "log_paths": step_log_paths or _extract_log_paths(cmd),
                     "step_id_fifo": str(step_id_fifo) if step_id_fifo else None,
                     "cmd": shlex.join(cmd),
                 },
@@ -167,41 +179,18 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             handle.status = probe.status
             return probe
 
-        pid_raw = handle.meta.get("pid")
-        if pid_raw is None:
+        if handle.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
             return JobProbe(status=handle.status, source="local")
-
-        try:
-            pid = int(pid_raw)
-        except (TypeError, ValueError):
-            handle.status = JobStatus.FAILED
-            return JobProbe(
-                status=JobStatus.FAILED,
-                raw_status="INVALID_PID",
-                source="pid",
-                error=f"Invalid pid in job handle: {pid_raw!r}",
-            )
-
-        proc = self._procs.get(pid)
-        if proc is not None:
-            rc = proc.poll()
-            if rc is None:
-                handle.status = JobStatus.RUNNING
-                return JobProbe(status=JobStatus.RUNNING, raw_status="RUNNING", source="pid")
-            status = _normalize_returncode(rc)
-            handle.status = status
-            return JobProbe(status=status, raw_status=f"RETURNCODE={rc}", source="pid")
-
-        if _pid_exists(pid):
-            handle.status = JobStatus.RUNNING
-            return JobProbe(status=JobStatus.RUNNING, raw_status="PID_EXISTS", source="pid")
 
         handle.status = JobStatus.FAILED
         return JobProbe(
             status=JobStatus.FAILED,
-            raw_status="PID_MISSING",
-            source="pid",
-            error=f"Process {pid} not found and backend handle is unavailable.",
+            raw_status="MISSING_EXTERNAL_ID",
+            source="local",
+            error=(
+                "Cannot probe job without external_id. "
+                "Use a reconnectable handle containing Slurm step id."
+            ),
         )
 
     def wait(
@@ -211,7 +200,7 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         Args:
             handle: Job handle returned by `submit(detach=True)`.
-            stream_logs: If True, stream combined stdout/stderr while waiting.
+            stream_logs: If True, stream detached log files when `log_paths` metadata is available.
 
         Returns:
             Normalized job status.
@@ -219,56 +208,36 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         external_id = handle.meta.get("external_id")
         if external_id:
             endpoint_cfg = getattr(self.cfg, "endpoint", None)
-            status = _wait_for_slurm(
-                external_id,
-                timeout=timeout,
-                poll_s=float(getattr(endpoint_cfg, "poll_interval", 10)),
-            )
+            poll_s = float(getattr(endpoint_cfg, "poll_interval", 10))
+            log_paths = handle.meta.get("log_paths")
+            if stream_logs and isinstance(log_paths, dict):
+                status = _wait_for_slurm_with_log_stream(
+                    external_id,
+                    stdout_path=_coerce_log_path(log_paths.get("stdout")),
+                    stderr_path=_coerce_log_path(log_paths.get("stderr")),
+                    timeout=timeout,
+                    poll_s=poll_s,
+                )
+            else:
+                status = _wait_for_slurm(
+                    external_id,
+                    timeout=timeout,
+                    poll_s=poll_s,
+                )
             handle.status = status
             return status
 
-        pid_raw = handle.meta.get("pid")
-        if pid_raw is None:
+        if stream_logs:
+            logger.debug("Slurm detached wait ignores stream_logs and uses scheduler polling.")
+
+        if handle.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
             return handle.status
 
-        try:
-            pid = int(pid_raw)
-        except (TypeError, ValueError):
-            logger.warning("Invalid pid in job handle meta: %r", pid_raw)
-            handle.status = JobStatus.FAILED
-            return handle.status
-
-        proc = self._procs.get(pid)
-        if proc is None:
-            # If we don't have the Popen object, we can't observe the exit code. Provide
-            # best-effort "still running?" detection and otherwise mark as FAILED.
-            if _pid_exists(pid):
-                return JobStatus.RUNNING
-            logger.warning(
-                "Cannot wait() for pid=%s: process is gone and exit status is unknown "
-                "(likely created in a different process).",
-                pid,
-            )
-            handle.status = JobStatus.FAILED
-            return handle.status
-
-        streamer: threading.Thread | None = None
-        if stream_logs and proc.stdout is not None:
-            streamer = threading.Thread(
-                target=_stream_text_lines,
-                args=(proc.stdout, sys.stdout),
-                daemon=True,
-            )
-            streamer.start()
-
-        rc = proc.wait(timeout=timeout)
-        if streamer is not None:
-            streamer.join(timeout=2.0)
-
-        self._procs.pop(pid, None)
-
-        handle.meta["returncode"] = rc
-        handle.status = _normalize_returncode(rc)
+        logger.warning(
+            "Cannot wait() without external_id for non-terminal job; "
+            "use a reconnectable handle containing Slurm step id."
+        )
+        handle.status = JobStatus.FAILED
         return handle.status
 
     def cancel(self, handle: JobHandle) -> None:
@@ -285,21 +254,10 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             handle.meta["cancelled_at"] = time.time()
             return
 
-        pid_raw = handle.meta.get("pid")
-        if pid_raw is None:
-            return
-
-        try:
-            pid = int(pid_raw)
-        except (TypeError, ValueError):
-            logger.warning("Invalid pid in job handle meta: pid=%r", pid_raw)
-            return
-
-        with contextlib.suppress(Exception):
-            _terminate_process_group(pid, grace_s=10.0)
-
-        handle.status = JobStatus.CANCELLED
-        handle.meta["cancelled_at"] = time.time()
+        logger.warning(
+            "Cannot cancel job without external_id; "
+            "use a reconnectable handle containing Slurm step id."
+        )
 
     def default_python(self, cfg: "DomynLLMSwarmConfig") -> str:
         if self.cfg.venv_path and self.cfg.venv_path.is_dir():
@@ -315,3 +273,36 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
                 res["mem"] = self.cfg.endpoint.mem
             return res
         return super().default_resources(cfg)
+
+
+def _extract_log_paths(cmd: Sequence[str]) -> dict[str, str]:
+    """Extract Slurm log paths from rendered ``srun`` arguments.
+
+    Args:
+        cmd: Final command list passed to ``subprocess``.
+
+    Returns:
+        Dictionary containing optional ``stdout`` and ``stderr`` file paths.
+    """
+    log_paths: dict[str, str] = {}
+    for arg in cmd:
+        if arg.startswith("--output="):
+            log_paths["stdout"] = arg.split("=", 1)[1]
+        elif arg.startswith("--error="):
+            log_paths["stderr"] = arg.split("=", 1)[1]
+    return log_paths
+
+
+def _coerce_log_path(value: object) -> str | None:
+    """Normalize optional log path payload.
+
+    Args:
+        value: Raw value from handle metadata.
+
+    Returns:
+        Log path string when valid, else ``None``.
+    """
+    if value is None:
+        return None
+    path = str(value).strip()
+    return path or None

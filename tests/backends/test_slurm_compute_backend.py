@@ -14,8 +14,6 @@
 
 from pathlib import Path
 import shlex
-import sys
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -110,7 +108,7 @@ def test_create_step_id_fifo_uses_swarm_jobs_dir(tmp_path, monkeypatch):
 # ----------------------------
 # submit(detach=True)
 # ----------------------------
-def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
+def test_submit_detach_uses_popen_and_returns_running(monkeypatch, tmp_path: Path):
     popen_calls = {}
     wait_calls = {}
 
@@ -142,6 +140,7 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
         command=["python", "-c", "print(1)"],
         env={"A": "B"},
         detach=True,
+        extras={"swarm_directory": str(tmp_path / "swarm")},
     )
 
     # Builder captured env & exe
@@ -158,10 +157,13 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
         "--nodelist=nodeA",
         b.extra_args[0],
     ]
-    assert popen_calls["cmd"][4] == "bash"
-    assert popen_calls["cmd"][5] == "-lc"
-    assert 'echo "${SLURM_JOB_ID}.${SLURM_STEP_ID}"' in popen_calls["cmd"][6]
-    assert "exec python -c 'print(1)'" in popen_calls["cmd"][6]
+    assert "--output=" in b.extra_args[1]
+    assert "--error=" in b.extra_args[2]
+    bash_idx = 3 + len(b.extra_args)
+    assert popen_calls["cmd"][bash_idx] == "bash"
+    assert popen_calls["cmd"][bash_idx + 1] == "-lc"
+    assert 'echo "${SLURM_JOB_ID}.${SLURM_STEP_ID}"' in popen_calls["cmd"][bash_idx + 2]
+    assert "exec python -c 'print(1)'" in popen_calls["cmd"][bash_idx + 2]
     # sanity on flags passed
     assert popen_calls["start_new_session"] is True
     assert popen_calls["close_fds"] is True
@@ -171,10 +173,40 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch):
     assert handle.status is JobStatus.RUNNING
     assert handle.meta["pid"] == 5555
     assert handle.meta["external_id"] == "123.0"
+    assert "log_paths" in handle.meta
+    assert handle.meta["log_paths"]["stdout"].endswith(".out")
+    assert handle.meta["log_paths"]["stderr"].endswith(".err")
     assert handle.id == "123.0"
     assert handle.meta["cmd"] == shlex.join(popen_calls["cmd"])  # joined string
     assert wait_calls["kwargs"]["job_id"] == 123
     assert wait_calls["kwargs"]["step_name"] == b.extra_args[0].split("=", 1)[1]
+
+
+def test_submit_detach_fails_if_external_id_unresolved(monkeypatch):
+    class FakePopen:
+        def __init__(self, cmd, stdin, stdout, stderr, text, start_new_session, close_fds):
+            self.pid = 5555
+            self.stdout = None
+
+    terminate_calls = []
+    monkeypatch.setattr(mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(mod, "_resolve_external_id", lambda **kwargs: None)
+    monkeypatch.setattr(
+        mod, "_terminate_process_group", lambda pid, grace_s=3.0: terminate_calls.append(pid)
+    )
+
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=123, lb_node="nodeA")
+
+    with pytest.raises(RuntimeError, match="Failed to resolve detached Slurm step id"):
+        be.submit(
+            name="my-job",
+            image=None,
+            command=["python", "-c", "print(1)"],
+            env={"A": "B"},
+            detach=True,
+        )
+
+    assert terminate_calls == [5555]
 
 
 # ----------------------------
@@ -295,10 +327,16 @@ def test_probe_with_external_id_uses_slurm_probe(monkeypatch):
     assert handle.status is JobStatus.SUCCEEDED
 
 
-def test_wait_returns_status_if_no_pid():
+def test_wait_without_external_id_or_pid_returns_failed_for_non_terminal():
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.PENDING, meta={})
-    assert be.wait(handle) is JobStatus.PENDING
+    assert be.wait(handle) is JobStatus.FAILED
+
+
+def test_wait_without_external_id_or_pid_keeps_terminal_status():
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
+    handle = SimpleNamespace(status=JobStatus.SUCCEEDED, meta={})
+    assert be.wait(handle) is JobStatus.SUCCEEDED
 
 
 def test_wait_with_external_id_uses_slurm_poll(monkeypatch):
@@ -308,57 +346,43 @@ def test_wait_with_external_id_uses_slurm_poll(monkeypatch):
     assert be.wait(handle) is JobStatus.SUCCEEDED
 
 
-def test_wait_with_pid_but_no_popen_returns_running_if_pid_exists(monkeypatch):
+def test_wait_with_external_id_streams_log_files(monkeypatch):
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 123})
-    monkeypatch.setattr(mod, "_pid_exists", lambda pid: True)
-    assert be.wait(handle) is JobStatus.RUNNING
-
-
-def test_wait_with_pid_but_no_popen_returns_failed_if_pid_missing(monkeypatch):
-    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 123})
-    monkeypatch.setattr(mod, "_pid_exists", lambda pid: False)
-    assert be.wait(handle) is JobStatus.FAILED
-
-
-def test_wait_tracks_detached_popen_and_returns_succeeded():
-    cfg = _mk_cfg()
-    be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n")
-
-    proc = mod.subprocess.Popen(
-        [sys.executable, "-c", "print('ok')"],
-        stdout=mod.subprocess.PIPE,
-        stderr=mod.subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-        close_fds=True,
+    handle = SimpleNamespace(
+        status=JobStatus.RUNNING,
+        meta={
+            "external_id": "123.0",
+            "log_paths": {"stdout": "/tmp/job.out", "stderr": "/tmp/job.err"},
+        },
     )
-    assert proc.pid is not None
-    be._procs[proc.pid] = proc
+    calls = {}
 
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid})
-    status = be.wait(handle, stream_logs=False)
-    assert status is JobStatus.SUCCEEDED
-    assert handle.meta["returncode"] == 0
-    assert proc.pid not in be._procs
+    def _fake_wait_stream(*args, **kwargs):
+        calls["kwargs"] = kwargs
+        return JobStatus.SUCCEEDED
+
+    monkeypatch.setattr(mod, "_wait_for_slurm_with_log_stream", _fake_wait_stream)
+    assert be.wait(handle, stream_logs=True) is JobStatus.SUCCEEDED
+    assert calls["kwargs"]["stdout_path"] == "/tmp/job.out"
+    assert calls["kwargs"]["stderr_path"] == "/tmp/job.err"
+
+
+def test_probe_without_external_id_returns_failed():
+    be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={})
+    probe = be.probe(handle)
+    assert probe.status is JobStatus.FAILED
+    assert probe.raw_status == "MISSING_EXTERNAL_ID"
 
 
 # ----------------------------
 # cancel()
 # ----------------------------
-def test_cancel_terminates_process_group(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        mod,
-        "_terminate_process_group",
-        lambda pgid, grace_s=10.0: calls.append(pgid),
-    )
+def test_cancel_without_external_id_is_noop():
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 777})
     be.cancel(handle)
-    assert calls == [777]
-    assert handle.status is JobStatus.CANCELLED
+    assert handle.status is JobStatus.RUNNING
 
 
 def test_cancel_external_id_calls_scancel(monkeypatch):
@@ -371,36 +395,11 @@ def test_cancel_external_id_calls_scancel(monkeypatch):
     assert handle.status is JobStatus.CANCELLED
 
 
-def test_cancel_swallows_errors(monkeypatch):
-    def fake_killpg(pgid, grace_s=10.0):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(mod, "_terminate_process_group", fake_killpg)
-
+def test_cancel_then_wait_returns_cancelled(monkeypatch):
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
-    # Should not raise
-    be.cancel(SimpleNamespace(meta={"pid": 888}))
-
-
-def test_cancel_then_wait_returns_cancelled():
-    cfg = _mk_cfg()
-    be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n")
-
-    proc = mod.subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(60)"],
-        stdout=mod.subprocess.PIPE,
-        stderr=mod.subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-        close_fds=True,
-    )
-    assert proc.pid is not None
-    be._procs[proc.pid] = proc
-
-    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": proc.pid})
+    handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"external_id": "123.0"})
+    monkeypatch.setattr(mod, "_cancel_slurm", lambda ext: None)
+    monkeypatch.setattr(mod, "_wait_for_slurm", lambda *a, **k: JobStatus.CANCELLED)
     be.cancel(handle)
-
-    # Give the signal a moment to land on slower CI boxes.
-    time.sleep(0.1)
     status = be.wait(handle, stream_logs=False)
     assert status is JobStatus.CANCELLED
