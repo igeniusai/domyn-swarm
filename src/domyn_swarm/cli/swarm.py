@@ -17,13 +17,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 import json
+import logging
 from typing import Any, Literal
 
-from rich.console import Console
 import typer
-
-from domyn_swarm.core.state.state_manager import SwarmStateManager
-from domyn_swarm.helpers.logger import setup_logger
 
 
 # DTO for the view layer
@@ -37,8 +34,43 @@ class SwarmSummary:
     extra: dict[str, Any] | None = None
 
 
-logger = setup_logger(__name__)
+class _LazySwarmStateManager:
+    """Proxy for state-manager methods used by swarm CLI commands."""
+
+    def load(self, *args, **kwargs):
+        """Load a saved swarm record."""
+        from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.load(*args, **kwargs)
+
+
+class _LazyLogger:
+    """Logger proxy that avoids importing Rich logging during CLI discovery."""
+
+    def __init__(self) -> None:
+        self._logger: logging.Logger | None = None
+
+    def _get(self) -> logging.Logger:
+        if self._logger is None:
+            from domyn_swarm.helpers.logger import setup_logger
+
+            self._logger = setup_logger(__name__)
+        return self._logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+SwarmStateManager = _LazySwarmStateManager()
+logger = _LazyLogger()
 swarm_app = typer.Typer(help="List existing swarms with a compact status view.")
+
+
+def _get_console():
+    """Create the Rich console only for commands that render Rich output."""
+    from rich.console import Console
+
+    return Console()
 
 
 def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
@@ -104,7 +136,7 @@ def list_swarms(
     """
     from domyn_swarm.cli.tui.list_view import render_swarm_list
 
-    console = Console()
+    console = _get_console()
     rows = list(_iter_summaries(probe=probe))
     if not rows:
         console.print("[yellow]No swarms found.[/]")
@@ -142,7 +174,7 @@ def describe_swarm(
         # Rich TUI view
         from domyn_swarm.cli.tui.describe_view import render_swarm_description
 
-        console = Console()
+        console = _get_console()
         render_swarm_description(
             name=name,
             backend=backend,
@@ -168,7 +200,7 @@ def describe_swarm(
         # Fallback to table if something odd sneaks in
         from domyn_swarm.cli.tui.describe_view import render_swarm_description
 
-        console = Console()
+        console = _get_console()
         render_swarm_description(
             name=name,
             backend=backend,
