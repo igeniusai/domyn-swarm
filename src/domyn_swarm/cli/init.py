@@ -19,22 +19,44 @@ import re
 from typing import Any, TypeVar, cast
 
 import typer
-import yaml
-
-from domyn_swarm.config.settings import get_settings
-from domyn_swarm.helpers.logger import setup_logger
-
-logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
 
 init_app = typer.Typer(help="Initialize a new Domyn-Swarm configuration.")
 
-settings = get_settings()
+
+class _LazyLogger:
+    """Logger proxy that avoids importing Rich logging during CLI discovery."""
+
+    def __init__(self) -> None:
+        self._logger: logging.Logger | None = None
+
+    def _get(self) -> logging.Logger:
+        if self._logger is None:
+            from domyn_swarm.helpers.logger import setup_logger
+
+            self._logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
+        return self._logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+logger = _LazyLogger()
+
+
+def get_settings(*args, **kwargs):
+    """Load environment settings lazily."""
+    from domyn_swarm.config.settings import get_settings as load_settings
+
+    return load_settings(*args, **kwargs)
 
 
 # ----------------------- tiny helpers -----------------------
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
+    """Load a YAML mapping, returning an empty dict for missing or invalid files."""
+    import yaml
+
     if path.exists():
         try:
             return yaml.safe_load(path.read_text()) or {}
@@ -44,6 +66,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _save_yaml(path: Path, data: dict[str, Any]) -> None:
+    """Write a YAML mapping to disk."""
+    import yaml
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, sort_keys=False))
 
@@ -244,8 +269,8 @@ def _configure_lepton_defaults(existing: dict[str, Any]) -> dict[str, Any]:
 
 @init_app.command("defaults", help="Create a defaults.yaml configuration file to be used later.")
 def create_defaults(
-    output: str = typer.Option(
-        settings.home / "defaults.yaml",
+    output: str | None = typer.Option(
+        None,
         "-o",
         "--output",
         help="Path to save the defaults YAML configuration file.",
@@ -255,7 +280,7 @@ def create_defaults(
     """
     Interactively create a defaults.yaml used by Domyn-Swarm to prefill configuration values.
     """
-    path = Path(output)
+    path = Path(output) if output is not None else get_settings().home / "defaults.yaml"
     if (
         path.exists()
         and not force
@@ -282,6 +307,8 @@ def create_defaults(
         raise typer.Abort()
 
     # Show preview
+    import yaml
+
     typer.secho("\nPreview of defaults.yaml:\n", fg=typer.colors.MAGENTA, bold=True)
     typer.echo(yaml.safe_dump(result, sort_keys=False))
 

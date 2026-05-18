@@ -12,31 +12,77 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import logging
 import sys
 from typing import Annotated
 
-from rich.console import Console
-from rich.table import Table
 import typer
-
-from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
-from domyn_swarm.core.state.watchdog import SwarmReplicaSummary, read_swarm_summary
-from domyn_swarm.runtime.status import read_replica_statuses
-from domyn_swarm.utils.cli import _pick_one
 
 from ..cli.init import init_app
 from ..cli.pool import pool_app
-from ..cli.tui import render_status
-from ..config.swarm import _load_swarm_config
-from ..core.state.autoupgrade import ensure_db_up_to_date
-from ..core.state.state_manager import SwarmStateManager
-from ..core.swarm import DomynLLMSwarm
-from ..helpers.logger import setup_logger
-from ..utils.version import get_version
 from .db import db_app
 from .job import job_app
 from .swarm import swarm_app
+
+
+class _LazyDomynLLMSwarm:
+    """Proxy that imports the swarm implementation only when a command needs it."""
+
+    def __call__(self, *args, **kwargs):
+        from ..core.swarm import DomynLLMSwarm
+
+        return DomynLLMSwarm(*args, **kwargs)
+
+    def from_state(self, *args, **kwargs):
+        """Load a swarm from persisted state."""
+        from ..core.swarm import DomynLLMSwarm
+
+        return DomynLLMSwarm.from_state(*args, **kwargs)
+
+
+class _LazySwarmStateManager:
+    """Proxy for state-manager class methods used by the root CLI commands."""
+
+    def load(self, *args, **kwargs):
+        """Load a saved swarm record."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.load(*args, **kwargs)
+
+    def list_by_base_name(self, *args, **kwargs):
+        """List swarm names matching a configured base name."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.list_by_base_name(*args, **kwargs)
+
+    def get_last_swarm_name(self, *args, **kwargs):
+        """Return the most recently created swarm name."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.get_last_swarm_name(*args, **kwargs)
+
+
+class _LazyLogger:
+    """Logger proxy that avoids importing Rich logging during CLI discovery."""
+
+    def __init__(self) -> None:
+        self._logger: logging.Logger | None = None
+
+    def _get(self) -> logging.Logger:
+        if self._logger is None:
+            from ..helpers.logger import setup_logger
+
+            self._logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
+        return self._logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+DomynLLMSwarm = _LazyDomynLLMSwarm()
+SwarmStateManager = _LazySwarmStateManager()
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
@@ -58,20 +104,51 @@ app.add_typer(
     help="Manage the Domyn-Swarm state database.",
 )
 
-console = Console()
-logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
+logger = _LazyLogger()
+
+
+def _get_console():
+    """Create the Rich console only for commands that render Rich output."""
+    from rich.console import Console
+
+    return Console()
+
+
+def _load_swarm_config(*args, **kwargs):
+    """Load a swarm config while keeping config imports off the CLI startup path."""
+    from ..config.swarm import _load_swarm_config as load_swarm_config
+
+    return load_swarm_config(*args, **kwargs)
+
+
+def _pick_one(*args, **kwargs):
+    """Prompt for one swarm name from a list."""
+    from domyn_swarm.utils.cli import _pick_one as pick_one
+
+    return pick_one(*args, **kwargs)
+
+
+def ensure_db_up_to_date(*args, **kwargs):
+    """Run the database auto-upgrade helper lazily."""
+    from ..core.state.autoupgrade import ensure_db_up_to_date as ensure
+
+    return ensure(*args, **kwargs)
+
+
+def get_version() -> str:
+    """Return the installed package version."""
+    from ..utils.version import get_version as resolve_version
+
+    return resolve_version()
 
 
 @app.callback()
 def main_callback(ctx: typer.Context) -> None:
     """
-    Root callback: runs before any subcommand.
-
-    We use this to transparently auto-upgrade the local swarm.db schema.
+    Main entrypoint
     """
-    # If the user is explicitly running `domyn-swarm db ...`,
-    # let that subcommand control migrations.
-    if ctx.invoked_subcommand == "db":
+    # Commands that do not touch swarm state should not pay for DB migrations.
+    if ctx.invoked_subcommand in {"db", "init", "version"}:
         return
 
     # Safe to call for everything else; it's idempotent and guarded.
@@ -111,10 +188,12 @@ def launch_up(
     Launch a swarm allocation with the given configuration.
     The configuration must be provided as a YAML file.
     """
+    from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
+
     cfg = _load_swarm_config(config, replicas=replicas)
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
 
-    def _safe_down(ctx: DomynLLMSwarm) -> None:
+    def _safe_down(ctx) -> None:
         try:
             ctx.down()
         except Exception as e:
@@ -158,12 +237,17 @@ def check_status(
     This command will read the DB and print the status of the swarm allocation.
     If a name is provided, it will check the status of that specific allocation.
     """
+    from domyn_swarm.core.state.watchdog import read_swarm_summary
+    from domyn_swarm.runtime.status import read_replica_statuses
+
+    from ..cli.tui import render_status
+
     swarm = SwarmStateManager.load(deployment_name=name)
     if swarm.serving_handle is None:
         raise ValueError("Swarm does not have a serving handle.")
 
     serving_status = swarm.status()
-    replica_summary: SwarmReplicaSummary | None = None
+    replica_summary = None
     replica_rows = []
 
     try:
@@ -180,7 +264,7 @@ def check_status(
         (name, swarm._platform, serving_status),
         replica_summary=replica_summary,
         replica_rows=replica_rows,
-        console=console,
+        console=_get_console(),
     )
 
 
@@ -234,12 +318,12 @@ def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) 
     logger.info(f"Found {len(matches)} matching swarms for base name '{base_name}'")
 
     if not matches:
-        console.print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
+        _get_console().print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
         raise typer.Exit(0)
 
     if len(matches) == 1 and not all_:
         name = matches[0]
-        console.print(f"[cyan]Found 1 match:[/] {name}")
+        _get_console().print(f"[cyan]Found 1 match:[/] {name}")
         if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
             raise typer.Abort()
         down_by_name(name=name, yes=yes)  # reuse your existing down logic
@@ -247,11 +331,13 @@ def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) 
 
     if all_:
         if not yes:
+            from rich.table import Table
+
             table = Table(title="Swarms to destroy")
             table.add_column("deployment_name")
             for n in matches:
                 table.add_row(n)
-            console.print(table)
+            _get_console().print(table)
             if not typer.confirm(f"Destroy ALL {len(matches)} swarms above?"):
                 raise typer.Abort()
         for n in matches:
@@ -259,13 +345,14 @@ def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) 
         raise typer.Exit(0)
 
     if select:
-        name = _pick_one(matches, console)
+        name = _pick_one(matches, _get_console())
         if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
             raise typer.Abort()
         down_by_name(name=name, yes=True)
         raise typer.Exit(0)
 
     if matches:
+        console = _get_console()
         console.print(
             f"[red]Multiple swarms found for base name '{base_name}'. "
             "Please specify one using --name, use --select to pick "

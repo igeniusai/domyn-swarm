@@ -32,14 +32,14 @@ class DummyCtx:
         self.invoked_subcommand = invoked_subcommand
 
 
-def test_main_callback_skips_db_subcommand(mocker, cli_main_mod):
+@pytest.mark.parametrize("subcommand", ["db", "init", "version"])
+def test_main_callback_skips_subcommands_without_state_access(mocker, cli_main_mod, subcommand):
     """
-    When the user invokes `domyn-swarm db ...`, we should NOT run
-    the auto-upgrade helper (let the db subcommands manage migrations).
+    Commands without swarm state access should not run the auto-upgrade helper.
     """
     ensure_mock = mocker.patch.object(cli_main_mod, "ensure_db_up_to_date", autospec=True)
 
-    ctx = DummyCtx(invoked_subcommand="db")
+    ctx = DummyCtx(invoked_subcommand=subcommand)
 
     cli_main_mod.main_callback(ctx)
 

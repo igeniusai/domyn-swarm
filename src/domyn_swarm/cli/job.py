@@ -12,24 +12,74 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import contextlib
 from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import typer
 
-from domyn_swarm.config.swarm import _load_swarm_config
-from domyn_swarm.core.swarm import DomynLLMSwarm, _load_job
-from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.jobs.api.base import SwarmJob
-import domyn_swarm.utils as utils
+from domyn_swarm.utils.click_env_path import ClickEnvPath
 
-logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
+if TYPE_CHECKING:
+    from domyn_swarm.core.swarm import DomynLLMSwarm as DomynLLMSwarmType
+    from domyn_swarm.jobs.api.base import SwarmJob
+
+
+class _LazyDomynLLMSwarm:
+    """Proxy that imports the swarm implementation only for job execution."""
+
+    def __call__(self, *args, **kwargs):
+        from domyn_swarm.core.swarm import DomynLLMSwarm
+
+        return DomynLLMSwarm(*args, **kwargs)
+
+    def from_state(self, *args, **kwargs):
+        """Load a swarm from persisted state."""
+        from domyn_swarm.core.swarm import DomynLLMSwarm
+
+        return DomynLLMSwarm.from_state(*args, **kwargs)
+
+
+class _LazyLogger:
+    """Logger proxy that avoids importing Rich logging during CLI discovery."""
+
+    def __init__(self) -> None:
+        self._logger: logging.Logger | None = None
+
+    def _get(self) -> logging.Logger:
+        if self._logger is None:
+            from domyn_swarm.helpers.logger import setup_logger
+
+            self._logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
+        return self._logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+DomynLLMSwarm = _LazyDomynLLMSwarm()
+logger = _LazyLogger()
 
 job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
+
+
+def _load_swarm_config(*args, **kwargs):
+    """Load a swarm config lazily."""
+    from domyn_swarm.config.swarm import _load_swarm_config as load_swarm_config
+
+    return load_swarm_config(*args, **kwargs)
+
+
+def _load_job(*args, **kwargs):
+    """Load a job class lazily."""
+    from domyn_swarm.core.swarm import _load_job as load_job
+
+    return load_job(*args, **kwargs)
 
 
 def _parse_json_object(value: str, *, param_name: str) -> dict:
@@ -138,7 +188,7 @@ class JobSubmitRequest:
 
 def _build_job_for_swarm(
     *,
-    swarm: DomynLLMSwarm,
+    swarm: DomynLLMSwarmType,
     job_class: str,
     job_kwargs: str,
     job_name: str | None,
@@ -181,7 +231,7 @@ def _build_job_for_swarm(
     )
 
 
-def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> None:
+def _submit_loaded_job(*, swarm: DomynLLMSwarmType, request: JobSubmitRequest) -> None:
     resolved_checkpoint_dir = (
         swarm.swarm_dir / "checkpoints"
         if request.run.checkpoint_dir is None
@@ -207,7 +257,7 @@ def _submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> No
     )
 
 
-def _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarm) -> None:
+def _maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarmType) -> None:
     abort = typer.confirm("KeyboardInterrupt detected. Do you want to cancel the swarm allocation?")
     if abort:
         with contextlib.suppress(Exception):
@@ -246,7 +296,7 @@ def submit_script(
         raise RuntimeError("State is null")
 
     else:
-        swarm: DomynLLMSwarm = DomynLLMSwarm.from_state(deployment_name=name)
+        swarm = DomynLLMSwarm.from_state(deployment_name=name)
         swarm.submit_script(script_file, extra_args=args)
 
 
@@ -256,8 +306,8 @@ def submit_job(
         default="domyn_swarm.jobs:ChatCompletionJob",
         help="Job class to run, in the form `module:ClassName`",
     ),
-    input: Path = typer.Option(..., "--input", exists=True, click_type=utils.ClickEnvPath()),
-    output: Path = typer.Option(..., "--output", click_type=utils.ClickEnvPath()),
+    input: Path = typer.Option(..., "--input", exists=True, click_type=ClickEnvPath()),
+    output: Path = typer.Option(..., "--output", click_type=ClickEnvPath()),
     input_column: str = typer.Option("messages", "--input-column"),
     output_column: str = typer.Option("results", "--output-column"),
     id_column: str | None = typer.Option(
