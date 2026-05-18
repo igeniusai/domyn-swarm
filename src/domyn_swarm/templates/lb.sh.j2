@@ -181,14 +181,19 @@ singularity instance start --writable-tmpfs \
     -B "$HOST_DIR/logs/endpoint:/var/log/nginx" \
     "$NGINX_IMG" "$INSTANCE_NAME"
 
-singularity exec instance://"$INSTANCE_NAME" bash -lc '
+if ! singularity exec instance://"$INSTANCE_NAME" bash -lc '
   PATH=/usr/sbin:$PATH
   if nginx -t; then
     echo "[lb] nginx config test OK"
   else
     echo "[lb] ERROR: nginx config test failed" >&2
+    exit 1
   fi
-'
+'; then
+  echo "[lb] ERROR: initial nginx config invalid, stopping instance" >&2
+  singularity instance stop "$INSTANCE_NAME" || true
+  exit 1
+fi
 
 echo "[lb] started nginx instance '$INSTANCE_NAME'"
 trap 'echo "[lb] caught SIGTERM → shutting down"; singularity instance stop "$INSTANCE_NAME" || true; exit 0' SIGTERM
