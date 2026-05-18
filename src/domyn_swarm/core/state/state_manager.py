@@ -50,8 +50,16 @@ class SwarmStateManager:
 
     # --- path helpers ---
     @classmethod
-    def _get_db_path(cls) -> Path:
+    def _resolve_db_path(cls) -> Path:
+        """Compute the DB path without triggering schema upgrade."""
         return get_settings().home / cls.DB_NAME
+
+    @classmethod
+    def _get_db_path(cls) -> Path:
+        from .autoupgrade import ensure_db_up_to_date
+
+        ensure_db_up_to_date(noisy=False)
+        return cls._resolve_db_path()
 
     # --- CRUD ---
     def save(self, deployment_name: str) -> None:

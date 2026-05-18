@@ -56,7 +56,7 @@ def ensure_db_up_to_date(*, noisy: bool = False) -> None:
         _DB_UPGRADED = True
         return
 
-    db_path: Path = SwarmStateManager._get_db_path()
+    db_path: Path = SwarmStateManager._resolve_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db_str = db_path.as_posix()
 
