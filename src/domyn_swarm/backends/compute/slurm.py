@@ -138,6 +138,10 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         Returns:
             Normalized job status.
         """
+        # Idempotent on terminal handles (e.g. cancel() reaped the Popen already).
+        if handle.status in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED):
+            return handle.status
+
         pid_raw = handle.meta.get("pid")
         if pid_raw is None:
             return handle.status
@@ -200,6 +204,16 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         with contextlib.suppress(Exception):
             _terminate_process_group(pid, grace_s=10.0)
+
+        # Reap the local Popen so we don't leak the entry (and its open stdout pipe)
+        # in self._procs when cancel() is called without a follow-up wait().
+        proc = self._procs.pop(pid, None)
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=5.0)
+            if proc.stdout is not None:
+                with contextlib.suppress(Exception):
+                    proc.stdout.close()
 
         handle.status = JobStatus.CANCELLED
         handle.meta["cancelled_at"] = time.time()
