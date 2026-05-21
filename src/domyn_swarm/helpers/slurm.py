@@ -12,7 +12,62 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import timedelta
 import subprocess
+
+
+def parse_slurm_time_limit(value: str) -> timedelta | None:
+    """Parse a Slurm ``time_limit`` string into a ``timedelta``.
+
+    Accepts the formats documented in ``sbatch(1)``:
+    ``minutes``, ``minutes:seconds``, ``hours:minutes:seconds``,
+    ``days-hours``, ``days-hours:minutes``, ``days-hours:minutes:seconds``.
+    Returns ``None`` if the input cannot be parsed.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+
+    days = 0
+    if "-" in s:
+        d_str, _, rest = s.partition("-")
+        try:
+            days = int(d_str)
+        except ValueError:
+            return None
+        s = rest
+
+    parts = s.split(":") if s else []
+    try:
+        nums = [int(p) for p in parts] if parts else []
+    except ValueError:
+        return None
+
+    hours = minutes = seconds = 0
+    if "-" in value:
+        # days-hours[:minutes[:seconds]]
+        if len(nums) == 1:
+            hours = nums[0]
+        elif len(nums) == 2:
+            hours, minutes = nums
+        elif len(nums) == 3:
+            hours, minutes, seconds = nums
+        else:
+            return None
+    else:
+        # minutes | minutes:seconds | hours:minutes:seconds
+        if len(nums) == 1:
+            minutes = nums[0]
+        elif len(nums) == 2:
+            minutes, seconds = nums
+        elif len(nums) == 3:
+            hours, minutes, seconds = nums
+        else:
+            return None
+
+    return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
 
 
 def get_job_status(job_id: int) -> str:

@@ -63,6 +63,12 @@ class _LazySwarmStateManager:
 
         return SwarmStateManager.get_last_swarm_name(*args, **kwargs)
 
+    def get_creation_dt(self, *args, **kwargs):
+        """Return the persisted creation timestamp for a deployment."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.get_creation_dt(*args, **kwargs)
+
 
 class _LazyLogger:
     """Logger proxy that avoids importing Rich logging during CLI discovery."""
@@ -230,6 +236,15 @@ def check_status(
             help="Name of the swarm allocation to check status for. ",
         ),
     ],
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: 'table' (default, Rich TUI) or 'json' (stable, machine-readable).",
+            case_sensitive=False,
+        ),
+    ] = "table",
 ) -> None:
     """
     Check the status of the swarm allocation.
@@ -240,13 +255,22 @@ def check_status(
     from domyn_swarm.core.state.watchdog import read_swarm_summary
     from domyn_swarm.runtime.status import read_replica_statuses
 
-    from ..cli.tui import render_status
+    fmt = output.lower()
+    if fmt not in {"table", "json"}:
+        raise typer.BadParameter("--output must be 'table' or 'json'")
 
     swarm = SwarmStateManager.load(deployment_name=name)
     if swarm.serving_handle is None:
         raise ValueError("Swarm does not have a serving handle.")
 
-    serving_status = swarm.status()
+    errors: list[str] = []
+    serving_status = None
+    try:
+        serving_status = swarm.status()
+    except Exception as e:
+        logger.debug(f"Could not query serving status: {e}")
+        errors.append(f"serving_status: {e}")
+
     replica_summary = None
     replica_rows = []
 
@@ -254,18 +278,161 @@ def check_status(
         replica_summary = read_swarm_summary(swarm.watchdog_db_path, swarm_id=name)
     except Exception as e:
         logger.debug(f"Could not read swarm replica summary: {e}")
+        errors.append(f"replica_summary: {e}")
 
     try:
         replica_rows = read_replica_statuses(swarm.watchdog_db_path, swarm_id=name)
     except Exception as e:
         logger.debug(f"Could not read swarm replica rows: {e}")
+        errors.append(f"replica_rows: {e}")
+
+    if fmt == "json":
+        payload = _build_status_json(
+            name=name,
+            swarm=swarm,
+            serving_status=serving_status,
+            replica_summary=replica_summary,
+            replica_rows=replica_rows,
+            errors=errors,
+        )
+        import json as _json
+
+        typer.echo(_json.dumps(payload, indent=2, default=str))
+        return
+
+    from ..cli.tui import render_status
+    from ..platform.protocols import ServingPhase, ServingStatus
 
     render_status(
-        (name, swarm._platform, serving_status),
+        (
+            name,
+            swarm._platform,
+            serving_status or ServingStatus(phase=ServingPhase.UNKNOWN, url=swarm.endpoint),
+        ),
         replica_summary=replica_summary,
         replica_rows=replica_rows,
         console=_get_console(),
     )
+
+
+def _build_status_json(
+    *,
+    name: str,
+    swarm,
+    serving_status,
+    replica_summary,
+    replica_rows,
+    errors: list[str],
+) -> dict:
+    """Build the stable JSON payload for `ds status -o json`.
+
+    Schema is a public contract — change with care.
+    """
+    from datetime import timezone
+
+    from ..platform.protocols import ServingPhase
+
+    phase = serving_status.phase.value if serving_status is not None else ServingPhase.UNKNOWN.value
+    endpoint = (
+        serving_status.url if serving_status is not None and serving_status.url else swarm.endpoint
+    )
+
+    summary_dict = None
+    if replica_summary is not None:
+        summary_dict = {
+            "total": replica_summary.total,
+            "running": replica_summary.running,
+            "http_ready": replica_summary.http_ready,
+            "failed": replica_summary.failed,
+            "fail_reasons": replica_summary.fail_reasons,
+            "example_fail_reason": replica_summary.example_fail_reason,
+        }
+
+    replicas_list = [
+        {
+            "replica_id": r.replica_id,
+            "node": r.node,
+            "port": r.port,
+            "state": r.state,
+            "http_ready": bool(r.http_ready) if r.http_ready is not None else None,
+            "exit_code": r.exit_code,
+            "exit_signal": r.exit_signal,
+            "fail_reason": r.fail_reason,
+            "last_seen": r.last_seen,
+            "url": (f"http://{r.node}:{r.port}" if r.node and r.port is not None else None),
+        }
+        for r in replica_rows
+    ]
+
+    if replica_summary is not None and replica_summary.total > 0:
+        ready = (
+            phase == ServingPhase.RUNNING.value
+            and replica_summary.http_ready == replica_summary.total
+            and replica_summary.failed == 0
+        )
+    else:
+        ready = phase == ServingPhase.RUNNING.value
+
+    started_at_iso: str | None = None
+    expires_at_iso: str | None = None
+    try:
+        creation_dt = SwarmStateManager.get_creation_dt(name)
+    except Exception as e:
+        logger.debug(f"Could not read creation_dt: {e}")
+        creation_dt = None
+        errors.append(f"creation_dt: {e}")
+
+    if creation_dt is not None:
+        started_at = (
+            creation_dt
+            if creation_dt.tzinfo is not None
+            else creation_dt.replace(tzinfo=timezone.utc)
+        )
+        started_at_iso = started_at.isoformat()
+
+        if swarm._platform == "slurm":
+            from ..helpers.slurm import parse_slurm_time_limit
+
+            time_limit = getattr(swarm.cfg.backend, "time_limit", None)
+            delta = parse_slurm_time_limit(time_limit) if time_limit else None
+            if delta is not None:
+                expires_at_iso = (started_at + delta).isoformat()
+
+    slurm_jobs: list[dict] | None = None
+    if swarm._platform == "slurm" and swarm.serving_handle is not None:
+        meta = swarm.serving_handle.meta or {}
+        jobs: list[dict] = []
+        if meta.get("jobid") is not None:
+            jobs.append({"role": "swarm", "jobid": meta.get("jobid")})
+        if meta.get("lb_jobid") is not None:
+            jobs.append(
+                {
+                    "role": "load_balancer",
+                    "jobid": meta.get("lb_jobid"),
+                    "node": meta.get("lb_node"),
+                }
+            )
+        slurm_jobs = jobs
+
+    payload: dict = {
+        "schema_version": 1,
+        "name": name,
+        "backend": swarm._platform,
+        "phase": phase,
+        "state": phase,
+        "ready": ready,
+        "endpoint": endpoint,
+        "started_at": started_at_iso,
+        "expires_at": expires_at_iso,
+        "replicas": {
+            "summary": summary_dict,
+            "items": replicas_list,
+        },
+        "slurm_jobs": slurm_jobs,
+        "detail": (serving_status.detail if serving_status is not None else None),
+        "errors": errors or None,
+    }
+    return payload
 
 
 def down_by_name(name: str, yes: bool) -> None:
