@@ -42,7 +42,7 @@ maintainers = [
 dependencies = [
     "blake3>=1.0.5",
     "fsspec>=2025.3.0",
-    "huggingface-hub>=0.32.6",
+    "huggingface-hub>=1.16.0",
     "jinja2>=3.1.6",
     "openai>=1.88.0",
     "pandas>=1.5.3",
@@ -50,7 +50,7 @@ dependencies = [
     "pydantic>=2.11.7,<3",
     "pydantic-settings>=2.10.1",
     "pyyaml>=6.0.2",
-    "requests>=2.32.4",
+    "requests>=2.34.2",
     "rich>=14.0.0,<15",
     "tenacity>=9.0.0,<10",
     "typer>=0.16.0",
@@ -79,8 +79,8 @@ dev = [
 ]
 linting = ["pre-commit", "ruff>=0.11.13"]
 bench = [
-    "datasets>=3.6.0",
-    "vllm>=0.14.1",
+    "datasets>=4.8.5",
+    "vllm>=0.21.0",
 ]
 
 [project.urls]
@@ -102,13 +102,13 @@ dswarm = "domyn_swarm.cli:app"
 
 [project.optional-dependencies]
 lepton = [
-    "leptonai>=0.26.2",
+    "leptonai>=0.27.2",
 ]
 polars = [
     "polars>=1.31.0",
 ]
 ray = [
-    "ray[data]>=2.53.0",
+    "ray[data]>=2.55.0",
 ]
 all = [
     "leptonai>=0.26.2",
