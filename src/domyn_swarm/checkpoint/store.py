@@ -14,7 +14,9 @@
 
 import asyncio
 from dataclasses import dataclass
+import itertools
 import logging
+import threading
 from typing import Any, Protocol, TypeVar
 
 import pandas as pd
@@ -65,6 +67,16 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
     >>> await store.flush(FlushBatch(ids=[...], rows=[...]), output_cols=["result"])  # many times
     >>> out = store.finalize()  # merges shards and writes the final parquet
     """
+
+    # Process-wide monotonic counter used as the primary, lexicographically
+    # sortable component of shard filenames. ULID timestamps only have
+    # millisecond resolution and their random component is not monotonic, so
+    # two flushes within the same millisecond can otherwise produce filenames
+    # that sort in the opposite order of the writes — which would break
+    # finalize()'s "last write wins" merge. A single writer process per run is
+    # assumed (resumed runs skip already-done ids in prepare()).
+    _shard_seq = itertools.count()
+    _shard_seq_lock = threading.Lock()
 
     def __init__(self, base_uri: str):
         self.base_uri = base_uri
@@ -192,9 +204,13 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
                 )
 
         table = pa.Table.from_pydict(out)
-        # Use a time-sortable filename to ensure deterministic merge semantics.
-        # This allows finalize() to interpret "last write wins" by lexicographic order.
-        part = self.dir_path + f"part-{str(ULID()).lower()}.parquet"
+        # Filename sorts by write order so finalize() can interpret "last write
+        # wins" by lexicographic order. The monotonic counter is the primary key
+        # (ULID ms-resolution timestamps are insufficient for sub-ms ordering);
+        # the ULID suffix keeps names unique and debuggable.
+        with self._shard_seq_lock:
+            seq = next(self._shard_seq)
+        part = self.dir_path + f"part-{seq:020d}-{str(ULID()).lower()}.parquet"
         with self.fs.open(part, "wb") as f:
             pq.write_table(table, f, use_dictionary=False)
 
