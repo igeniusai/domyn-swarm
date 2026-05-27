@@ -14,7 +14,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from domyn_swarm import utils
 from domyn_swarm.config.defaults import default_for
@@ -60,14 +60,14 @@ class SlurmConfig(BaseModel):
     preamble: list[str] = []  # additional SLURM directives
 
     template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
-        / "templates"
-        / "llm_swarm.sh.j2"
+        default_factory=lambda: (
+            utils.EnvPath(__file__).with_suffix("").parent.parent / "templates" / "llm_swarm.sh.j2"
+        )
     )
     nginx_template_path: utils.EnvPath = Field(
-        default_factory=lambda: utils.EnvPath(__file__).with_suffix("").parent.parent
-        / "templates"
-        / "nginx.conf.j2"
+        default_factory=lambda: (
+            utils.EnvPath(__file__).with_suffix("").parent.parent / "templates" / "nginx.conf.j2"
+        )
     )
 
     time_limit: str = "36:00:00"  # e.g. 36 hours
@@ -78,6 +78,47 @@ class SlurmConfig(BaseModel):
 
     venv_path: utils.EnvPath | None = None
     env: dict[str, str] | None = None  # Additional env vars for all jobs
+
+    mounts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra Singularity bind mounts for the vLLM containers. Each entry is "
+            "either '/path' (bound at the same path inside the container) or "
+            "'/host/path:/container/path' (with an optional ':ro'/':rw' suffix). "
+            "Appended verbatim to the container's bind list."
+        ),
+    )
+
+    @field_validator("mounts")
+    @classmethod
+    def _validate_mounts(cls, value: list[str]) -> list[str]:
+        """Validate the format of each bind mount specification.
+
+        Checks that every entry is non-empty, has at most three colon-separated
+        segments (source[:dest[:opts]]), and uses an absolute source path. Host
+        path existence is intentionally not checked here.
+
+        Args:
+            value: The list of mount specifications.
+
+        Returns:
+            The validated list of mount specifications.
+
+        Raises:
+            ValueError: If any entry is empty, has too many ':' segments, or has
+                a non-absolute source path.
+        """
+        for mount in value:
+            if not mount or not mount.strip():
+                raise ValueError("mount entry must be a non-empty string")
+            segments = mount.split(":")
+            if len(segments) > 3:
+                raise ValueError(
+                    f"invalid mount spec '{mount}': expected at most 'source:dest:opts'"
+                )
+            if not segments[0].startswith("/"):
+                raise ValueError(f"invalid mount spec '{mount}': source must be an absolute path")
+        return value
 
     def build(self, cfg_ctx) -> DeploymentPlan:
         """Builds the deployment plan for SLURM-based deployments."""

@@ -94,6 +94,11 @@ export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DI
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
 
+# User-defined extra mounts (from backend.mounts in the YAML config)
+{% for mount in cfg.backend.mounts | default([], true) %}
+MOUNTS=$MOUNTS,{{ mount }}
+{% endfor %}
+
 {% if cfg.backend.requires_ray %}
 MOUNTS=$MOUNTS,$LOCAL_RAY_LOGS:/tmp/ray
 {% endif %}
