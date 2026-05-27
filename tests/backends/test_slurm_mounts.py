@@ -18,7 +18,7 @@ import jinja2
 import pytest
 
 import domyn_swarm
-from domyn_swarm.config.slurm import SlurmConfig
+from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.runtime import watchdog_args as watchdog_args_mod
 
@@ -62,6 +62,7 @@ def _make_cfg(mounts):
             account="test_account",
             qos="test_qos",
             mounts=mounts,
+            endpoint=SlurmEndpointConfig(nginx_image="/path/to/nginx.sif"),
         ).model_dump(),
     )
 
@@ -88,21 +89,32 @@ def test_no_extra_mounts_renders_no_extra_lines():
     assert appended == []
 
 
+def _slurm_config(**kwargs) -> SlurmConfig:
+    """Build a SlurmConfig with an explicit endpoint so no site defaults are needed."""
+    return SlurmConfig(
+        partition="p",
+        account="a",
+        qos="q",
+        endpoint=SlurmEndpointConfig(nginx_image="/path/to/nginx.sif"),
+        **kwargs,
+    )
+
+
 def test_mounts_field_defaults_to_empty_list():
-    cfg = SlurmConfig(partition="p", account="a", qos="q")
+    cfg = _slurm_config()
     assert cfg.mounts == []
 
 
 def test_relative_mount_source_rejected():
     with pytest.raises(ValueError):
-        SlurmConfig(partition="p", account="a", qos="q", mounts=["relative/path"])
+        _slurm_config(mounts=["relative/path"])
 
 
 def test_empty_mount_entry_rejected():
     with pytest.raises(ValueError):
-        SlurmConfig(partition="p", account="a", qos="q", mounts=["  "])
+        _slurm_config(mounts=["  "])
 
 
 def test_too_many_colon_segments_rejected():
     with pytest.raises(ValueError):
-        SlurmConfig(partition="p", account="a", qos="q", mounts=["/a:/b:ro:extra"])
+        _slurm_config(mounts=["/a:/b:ro:extra"])
