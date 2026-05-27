@@ -66,6 +66,15 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
     >>> todo = store.prepare(df, id_col="_row_id")
     >>> await store.flush(FlushBatch(ids=[...], rows=[...]), output_cols=["result"])  # many times
     >>> out = store.finalize()  # merges shards and writes the final parquet
+
+    Concurrency
+    -----------
+    Exactly one writer process per checkpoint directory is assumed. This holds
+    by construction: a job runs in a single driver process, its concurrent
+    shards each use a distinct directory, and resumed runs skip already-done ids
+    in :meth:`prepare`. "Last write wins" within a directory is ordered by the
+    process-wide ``_shard_seq`` counter; it is not safe for two OS processes to
+    write the same directory simultaneously.
     """
 
     # Process-wide monotonic counter used as the primary, lexicographically
@@ -73,8 +82,8 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
     # millisecond resolution and their random component is not monotonic, so
     # two flushes within the same millisecond can otherwise produce filenames
     # that sort in the opposite order of the writes — which would break
-    # finalize()'s "last write wins" merge. A single writer process per run is
-    # assumed (resumed runs skip already-done ids in prepare()).
+    # finalize()'s "last write wins" merge. See the class docstring for the
+    # single-writer-per-directory invariant this relies on.
     _shard_seq = itertools.count()
     _shard_seq_lock = threading.Lock()
 
