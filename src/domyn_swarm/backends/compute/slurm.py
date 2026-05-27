@@ -14,23 +14,31 @@
 
 from collections.abc import Mapping, Sequence
 import contextlib
-from dataclasses import dataclass, field
-import os
+from dataclasses import dataclass
 import shlex
-import signal
 import subprocess
-import sys
-import threading
 import time
 from typing import TYPE_CHECKING
 
 from rich import print as rprint
 from rich.syntax import Syntax
 
+from domyn_swarm.backends.compute.slurm_helpers import (
+    _build_step_log_paths,
+    _build_step_name,
+    _cancel_slurm,
+    _create_step_id_fifo,
+    _probe_slurm,
+    _resolve_external_id,
+    _terminate_process_group,
+    _wait_for_slurm,
+    _wait_for_slurm_with_log_stream,
+    _wrap_with_step_echo,
+)
 from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobStatus
+from domyn_swarm.platform.protocols import DefaultComputeMixin, JobHandle, JobProbe, JobStatus
 
 if TYPE_CHECKING:
     from domyn_swarm.config.slurm import SlurmConfig
@@ -46,18 +54,17 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
     -----
     - `image` is unused for Slurm; your venv/python is used directly.
     - `resources` maps to srun flags via your SrunCommandBuilder configuration.
-    - For `detach=True`, we return a JobHandle with local `Popen` PID in `meta["pid"]`.
-      `wait()` and `cancel()` are reliable only within the same process that created the
-      handle (the OS exit status can't be retrieved cross-process without extra machinery).
-    - Cancellation uses `os.killpg(pid, ...)` to terminate the whole `srun` process group
-      (srun + its children). This relies on `start_new_session=True` so the spawned process
-      becomes the leader of its own process group (i.e. pid == pgid), so we only store `pid`.
+    - For `detach=True`, we return a JobHandle with local launcher PID in `meta["pid"]`
+      (diagnostic only) and required Slurm step id in `meta["external_id"]`.
+    - Reconnect semantics (`wait/cancel/probe`) are external-id only and therefore stable
+      across CLI invocations and process boundaries.
+    - If step-id resolution fails at submit time, the detached process is terminated and submit
+      fails to avoid orphaned non-reconnectable jobs.
     """
 
     cfg: "SlurmConfig"
     lb_jobid: int
     lb_node: str
-    _procs: dict[int, subprocess.Popen[str]] = field(default_factory=dict, init=False, repr=False)
 
     def submit(
         self,
@@ -89,7 +96,20 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
                     extra_args.append(f"{flag}={value}")
             builder = builder.with_extra_args(extra_args)
 
-        cmd = builder.build([*map(str, command)])
+        step_name = _build_step_name(name) if detach else None
+        step_id_fifo = _create_step_id_fifo(extras, step_name) if detach else None
+        step_log_paths = _build_step_log_paths(extras, step_name) if detach else None
+        if step_name:
+            builder = builder.with_extra_args([f"--job-name={step_name}"])
+        if step_log_paths:
+            builder = builder.with_extra_args(
+                [
+                    f"--output={step_log_paths['stdout']}",
+                    f"--error={step_log_paths['stderr']}",
+                ]
+            )
+        wrapped = _wrap_with_step_echo(command, step_id_fifo) if detach else [*map(str, command)]
+        cmd = builder.build(wrapped)
 
         full_cmd = shlex.join(cmd)
 
@@ -107,24 +127,71 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 text=True,
                 start_new_session=True,
                 close_fds=True,
             )
             if proc.pid is None:
                 raise RuntimeError("Detached process did not get a PID.")
-            self._procs[proc.pid] = proc
+            external_id = _resolve_external_id(
+                stdout=None,
+                job_id=self.lb_jobid,
+                step_name=step_name,
+                step_id_fifo=step_id_fifo,
+            )
+            if not external_id:
+                with contextlib.suppress(Exception):
+                    _terminate_process_group(proc.pid, grace_s=3.0)
+                raise RuntimeError(
+                    "Failed to resolve detached Slurm step id (external_id); "
+                    "job was terminated to preserve reconnect semantics."
+                )
             return JobHandle(
-                id=str(proc.pid),
+                id=external_id,
                 status=JobStatus.RUNNING,
-                meta={"pid": proc.pid, "cmd": shlex.join(cmd)},
+                meta={
+                    "pid": proc.pid,
+                    "external_id": external_id,
+                    "log_paths": step_log_paths or _extract_log_paths(cmd),
+                    "step_id_fifo": str(step_id_fifo) if step_id_fifo else None,
+                    "cmd": shlex.join(cmd),
+                },
             )
 
         # synchronous
         subprocess.run(cmd, check=True)
         return JobHandle(id=name, status=JobStatus.SUCCEEDED, meta={"cmd": shlex.join(cmd)})
+
+    def probe(self, handle: JobHandle) -> JobProbe:
+        """Probe detached job status without blocking.
+
+        Args:
+            handle: Job handle to probe.
+
+        Returns:
+            Best-effort status probe payload.
+        """
+        external_id = handle.meta.get("external_id")
+        if external_id:
+            probe = _probe_slurm(str(external_id))
+            handle.status = probe.status
+            return probe
+
+        if handle.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
+            return JobProbe(status=handle.status, source="local")
+
+        handle.status = JobStatus.FAILED
+        return JobProbe(
+            status=JobStatus.FAILED,
+            raw_status="MISSING_EXTERNAL_ID",
+            source="local",
+            error=(
+                "Cannot probe job without external_id. "
+                "Use a reconnectable handle containing Slurm step id."
+            ),
+        )
 
     def wait(
         self, handle: JobHandle, *, stream_logs: bool = True, timeout: float | None = None
@@ -133,88 +200,66 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
 
         Args:
             handle: Job handle returned by `submit(detach=True)`.
-            stream_logs: If True, stream combined stdout/stderr while waiting.
+            stream_logs: If True, stream detached log files when `log_paths` metadata is available.
 
         Returns:
             Normalized job status.
         """
-        # Idempotent on terminal handles (e.g. cancel() reaped the Popen already).
-        if handle.status in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED):
+        external_id = handle.meta.get("external_id")
+        if external_id:
+            endpoint_cfg = getattr(self.cfg, "endpoint", None)
+            poll_s = float(getattr(endpoint_cfg, "poll_interval", 10))
+            log_paths = handle.meta.get("log_paths")
+            if stream_logs and isinstance(log_paths, dict):
+                status = _wait_for_slurm_with_log_stream(
+                    external_id,
+                    stdout_path=_coerce_log_path(log_paths.get("stdout")),
+                    stderr_path=_coerce_log_path(log_paths.get("stderr")),
+                    timeout=timeout,
+                    poll_s=poll_s,
+                )
+            else:
+                status = _wait_for_slurm(
+                    external_id,
+                    timeout=timeout,
+                    poll_s=poll_s,
+                )
+            handle.status = status
+            return status
+
+        if stream_logs:
+            logger.debug("Slurm detached wait ignores stream_logs and uses scheduler polling.")
+
+        if handle.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
             return handle.status
 
-        pid_raw = handle.meta.get("pid")
-        if pid_raw is None:
-            return handle.status
-
-        try:
-            pid = int(pid_raw)
-        except (TypeError, ValueError):
-            logger.warning("Invalid pid in job handle meta: %r", pid_raw)
-            handle.status = JobStatus.FAILED
-            return handle.status
-
-        proc = self._procs.get(pid)
-        if proc is None:
-            # If we don't have the Popen object, we can't observe the exit code. Provide
-            # best-effort "still running?" detection and otherwise mark as FAILED.
-            if _pid_exists(pid):
-                return JobStatus.RUNNING
-            logger.warning(
-                "Cannot wait() for pid=%s: process is gone and exit status is unknown "
-                "(likely created in a different process).",
-                pid,
-            )
-            handle.status = JobStatus.FAILED
-            return handle.status
-
-        streamer: threading.Thread | None = None
-        if stream_logs and proc.stdout is not None:
-            streamer = threading.Thread(
-                target=_stream_text_lines,
-                args=(proc.stdout, sys.stdout),
-                daemon=True,
-            )
-            streamer.start()
-
-        rc = proc.wait(timeout=timeout)
-        if streamer is not None:
-            streamer.join(timeout=2.0)
-
-        self._procs.pop(pid, None)
-
-        handle.meta["returncode"] = rc
-        handle.status = _normalize_returncode(rc)
+        logger.warning(
+            "Cannot wait() without external_id for non-terminal job; "
+            "use a reconnectable handle containing Slurm step id."
+        )
+        handle.status = JobStatus.FAILED
         return handle.status
 
     def cancel(self, handle: JobHandle) -> None:
-        """Cancel a detached job.
+        """Cancel a detached job via its Slurm step id.
 
-        This sends SIGTERM to the detached job's process group (covers `srun` and its children)
-        and escalates to SIGKILL after a short grace period.
+        Reconnect semantics are external-id only: a detached handle always carries the
+        resolved Slurm step id in ``meta["external_id"]`` (submit fails otherwise), so
+        cancellation is stable across CLI invocations and process boundaries.
+
+        Args:
+            handle: Job handle returned by ``submit(detach=True)``.
         """
-        pid_raw = handle.meta.get("pid")
-        if pid_raw is None:
-            return
-
-        try:
-            pid = int(pid_raw)
-        except (TypeError, ValueError):
-            logger.warning("Invalid pid in job handle meta: pid=%r", pid_raw)
+        external_id = handle.meta.get("external_id")
+        if not external_id:
+            logger.warning(
+                "Cannot cancel job without external_id; "
+                "use a reconnectable handle containing the Slurm step id."
+            )
             return
 
         with contextlib.suppress(Exception):
-            _terminate_process_group(pid, grace_s=10.0)
-
-        # Reap the local Popen so we don't leak the entry (and its open stdout pipe)
-        # in self._procs when cancel() is called without a follow-up wait().
-        proc = self._procs.pop(pid, None)
-        if proc is not None:
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=5.0)
-            if proc.stdout is not None:
-                with contextlib.suppress(Exception):
-                    proc.stdout.close()
-
+            _cancel_slurm(external_id)
         handle.status = JobStatus.CANCELLED
         handle.meta["cancelled_at"] = time.time()
 
@@ -234,47 +279,34 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return super().default_resources(cfg)
 
 
-def _normalize_returncode(returncode: int) -> JobStatus:
-    """Normalize a `subprocess.Popen.returncode` to `JobStatus`."""
-    if returncode == 0:
-        return JobStatus.SUCCEEDED
-    # Negative returncodes represent termination by signal.
-    if returncode < 0:
-        sig = -returncode
-        if sig in (signal.SIGTERM, signal.SIGINT, signal.SIGKILL):
-            return JobStatus.CANCELLED
-        return JobStatus.FAILED
-    return JobStatus.FAILED
+def _extract_log_paths(cmd: Sequence[str]) -> dict[str, str]:
+    """Extract Slurm log paths from rendered ``srun`` arguments.
+
+    Args:
+        cmd: Final command list passed to ``subprocess``.
+
+    Returns:
+        Dictionary containing optional ``stdout`` and ``stderr`` file paths.
+    """
+    log_paths: dict[str, str] = {}
+    for arg in cmd:
+        if arg.startswith("--output="):
+            log_paths["stdout"] = arg.split("=", 1)[1]
+        elif arg.startswith("--error="):
+            log_paths["stderr"] = arg.split("=", 1)[1]
+    return log_paths
 
 
-def _pid_exists(pid: int) -> bool:
-    """Return True if a PID appears to exist on this host."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+def _coerce_log_path(value: object) -> str | None:
+    """Normalize optional log path payload.
 
+    Args:
+        value: Raw value from handle metadata.
 
-def _stream_text_lines(src, dst) -> None:
-    """Stream text lines from a readable file-like to a writable file-like."""
-    try:
-        for line in src:
-            dst.write(line)
-            dst.flush()
-    except Exception:
-        pass
-
-
-def _terminate_process_group(pgid: int, *, grace_s: float = 10.0) -> None:
-    """Terminate a POSIX process group, escalating to SIGKILL after a grace period."""
-    os.killpg(pgid, signal.SIGTERM)
-    deadline = time.time() + max(grace_s, 0.0)
-    while time.time() < deadline:
-        # If the group leader is gone, assume the group is gone.
-        if not _pid_exists(pgid):
-            return
-        time.sleep(0.1)
-    os.killpg(pgid, signal.SIGKILL)
+    Returns:
+        Log path string when valid, else ``None``.
+    """
+    if value is None:
+        return None
+    path = str(value).strip()
+    return path or None

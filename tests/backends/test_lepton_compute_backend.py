@@ -228,6 +228,18 @@ class TestJobStatus:
 
         assert actual_status is expected_status
 
+    def test_probe_returns_status_and_raw_state(self, monkeypatch):
+        backend = LeptonComputeBackend()
+        job_api = MockJobAPI(state=LeptonDeploymentState.Ready)
+        monkeypatch.setattr(backend, "_client", lambda: MockLeptonClient(job_api))
+
+        handle = SimpleNamespace(id="job-xyz", status=JobStatus.PENDING)
+        probe = backend.probe(handle)
+
+        assert probe.status is JobStatus.RUNNING
+        assert probe.raw_status == "Ready"
+        assert probe.source == "lepton"
+
 
 # ------------------------------
 # Job cancellation tests

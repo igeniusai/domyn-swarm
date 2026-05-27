@@ -15,7 +15,7 @@
 import pandas as pd
 import pytest
 
-from domyn_swarm.jobs.base import SwarmJob
+from domyn_swarm.jobs.api.base import SwarmJob
 
 
 class DummyJob(SwarmJob):

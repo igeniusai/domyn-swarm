@@ -15,13 +15,15 @@
 """Test the state persistence."""
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
 from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.state.db import make_session_factory
-from domyn_swarm.core.state.models import SwarmRecord
+from domyn_swarm.core.state.migrate import upgrade_head
+from domyn_swarm.core.state.models import JobRecord, SwarmRecord
 from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.exceptions import JobNotFoundError
@@ -35,6 +37,7 @@ def _init_schema(db_path: Path) -> None:
         engine = s.get_bind()
         # SwarmRecord is a declarative model → its __table__ knows how to create itself
         SwarmRecord.__table__.create(bind=engine, checkfirst=True)
+        JobRecord.__table__.create(bind=engine, checkfirst=True)
 
 
 class TestSwarmStateManager:
@@ -222,3 +225,69 @@ class TestSwarmStateManager:
 
         matches_bar = SwarmStateManager.list_by_base_name("bar")
         assert matches_bar == ["bar-123"]
+
+    def test_jobs_crud(self, state_manager: SwarmStateManager) -> None:
+        state_manager.save(deployment_name="swarm-1")
+
+        job_id = SwarmStateManager.create_job(
+            deployment_name="swarm-1",
+            provider="slurm",
+            kind="step",
+            status="RUNNING",
+            external_id="12345.0",
+            name="my-job",
+            command=["python", "-m", "mod"],
+            resources={"cpus_per_task": 2},
+        )
+
+        rows = SwarmStateManager.list_jobs("swarm-1")
+        assert any(r["job_id"] == job_id for r in rows)
+
+        job = SwarmStateManager.get_job(job_id)
+        assert job["deployment_name"] == "swarm-1"
+        assert job["external_id"] == "12345.0"
+        assert job["status"] == "RUNNING"
+
+        SwarmStateManager.update_job(job_id, status="SUCCEEDED", raw_status="COMPLETED")
+        job2 = SwarmStateManager.get_job(job_id)
+        assert job2["status"] == "SUCCEEDED"
+        assert job2["raw_status"] == "COMPLETED"
+
+    def test_get_job_by_external_id(self, state_manager: SwarmStateManager) -> None:
+        state_manager.save(deployment_name="swarm-1")
+
+        job_id = SwarmStateManager.create_job(
+            deployment_name="swarm-1",
+            provider="slurm",
+            kind="step",
+            status="RUNNING",
+            external_id="12345.0",
+            name="my-job",
+            command=["python", "-m", "mod"],
+            resources={"cpus_per_task": 2},
+        )
+
+        rec = SwarmStateManager.get_job_by_external_id("12345.0")
+        assert rec["job_id"] == job_id
+        assert rec["deployment_name"] == "swarm-1"
+        assert rec["external_id"] == "12345.0"
+
+    def test_upgrade_head_creates_jobs_table(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        db_path = tmp_path / "swarm.db"
+
+        def mock_db_path(cls) -> Path:
+            return db_path
+
+        monkeypatch.setattr(SwarmStateManager, "_get_db_path", classmethod(mock_db_path))
+
+        upgrade_head(db_path.as_posix())
+
+        conn = sqlite3.connect(db_path.as_posix())
+        try:
+            cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = {r[0] for r in cur.fetchall()}
+        finally:
+            conn.close()
+
+        assert "swarm" in tables
+        assert "jobs" in tables

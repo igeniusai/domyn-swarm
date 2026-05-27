@@ -19,6 +19,7 @@ import subprocess
 import requests
 from requests import RequestException
 
+from domyn_swarm.backends.compute.slurm_helpers import _cancel_slurm
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
 from domyn_swarm.backends.serving.slurm_readiness import (
     SLURM_BAD_STATES,
@@ -86,6 +87,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
                 "lb_jobid": lb_jobid,
                 "port": self.cfg.endpoint.port,
                 "name": name,
+                "swarm_directory": str(swarm_directory),
             },
         )
 
@@ -112,9 +114,9 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         jobid = handle.meta.get("jobid")
         lb_jobid = handle.meta.get("lb_jobid")
         if jobid:
-            subprocess.run(["scancel", str(jobid)], check=False)
+            _cancel_slurm(str(jobid))
         if lb_jobid:
-            subprocess.run(["scancel", str(lb_jobid)], check=False)
+            _cancel_slurm(str(lb_jobid))
 
     def ensure_ready(self, handle: ServingHandle | None):
         """Ensure the current serving handle is ready, or raise if not."""

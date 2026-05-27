@@ -20,6 +20,7 @@ import pytest
 
 import domyn_swarm.core.swarm as mod
 from domyn_swarm.core.swarm import DomynLLMSwarm
+from domyn_swarm.platform.protocols import JobHandle, JobProbe, JobStatus
 
 # ---------------------------
 # Tiny fakes used in tests
@@ -27,10 +28,15 @@ from domyn_swarm.core.swarm import DomynLLMSwarm
 
 
 class FakeStateMgr:
+    last_created = None
+    last_updated = None
+
     def __init__(self, swarm):
         self.swarm = swarm
         self.saved = 0
         self.deleted = 0
+        self.created_jobs = []
+        self.updated_jobs = []
 
     def save(self, deployment_name: str):
         self.saved += 1
@@ -41,6 +47,15 @@ class FakeStateMgr:
 
     def delete_record(self, name: str):
         self.deleted += 1
+
+    @classmethod
+    def create_job(cls, **kwargs):
+        cls.last_created = kwargs
+        return "job-1"
+
+    @classmethod
+    def update_job(cls, job_id: str, **kwargs):
+        cls.last_updated = {"job_id": job_id, **kwargs}
 
 
 class FakeDeployment:
@@ -270,7 +285,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
     dep = swarm._deployment  # type: ignore[attr-defined]
     dep.compute = FakeComputeBackend()  # replace to track calls
 
-    pid = swarm.submit_job(
+    handle = swarm.submit_job(
         job,
         input_path=Path("/tmp/in.parquet"),
         output_path=Path("/tmp/out.parquet"),
@@ -280,8 +295,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
         limit=5,
         checkpoint_dir=Path("/tmp/.ckpt"),
     )
-    # detach=True → returns pid from JobHandle.meta
-    assert pid == 4321
+    assert handle.pid == 4321
 
     # Ensure ensure_ready was invoked
     assert dep.ensure_ready_calls == 2
@@ -339,7 +353,7 @@ def test_submit_job_merges_resources_from_defaults_plan_and_overrides(cfg_stub):
     assert call["resources"] == {"shape": "gpu.2x", "cpu": 8, "mem": "10G"}
 
 
-def test_submit_job_returns_none_when_not_detached(cfg_stub):
+def test_submit_job_returns_handle_when_not_detached(cfg_stub):
     swarm = make_swarm(cfg_stub)
     with swarm:
         pass
@@ -357,7 +371,8 @@ def test_submit_job_returns_none_when_not_detached(cfg_stub):
         output_path=Path("/tmp/out.parquet"),
         detach=False,
     )
-    assert out is None
+    assert isinstance(out, JobHandle)
+    assert out.status == JobStatus.PENDING
 
 
 def test_submit_job_ray_requires_ray_address(cfg_stub, monkeypatch):
@@ -422,6 +437,108 @@ def test_submit_job_ray_forwards_ray_address(cfg_stub, monkeypatch):
     call = dep.run_calls[-1]
     assert call["env"]["DOMYN_SWARM_RAY_ADDRESS"] == "ray://head:10001"
     assert any(arg == "--ray-address=ray://head:10001" for arg in call["command"])
+
+
+def test_submit_job_updates_job_record_success(cfg_stub):
+    FakeStateMgr.last_created = None
+    FakeStateMgr.last_updated = None
+
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class Job:
+        name = "job"
+        checkpoint_interval = 10
+
+        def to_kwargs(self):
+            return {}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.run = lambda **kwargs: SimpleNamespace(
+        id="jid",
+        status="SUCCEEDED",
+        meta={"external_id": "123.0", "pid": 7},
+    )
+
+    out = swarm.submit_job(
+        Job(),
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        detach=False,
+    )
+    assert isinstance(out, JobHandle)
+    assert out.status == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_created is not None
+    assert FakeStateMgr.last_created["status"] == JobStatus.PENDING
+    assert FakeStateMgr.last_updated is not None
+    assert FakeStateMgr.last_updated["job_id"] == "job-1"
+    assert FakeStateMgr.last_updated["status"] == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_updated["external_id"] == "123.0"
+
+
+def test_submit_job_updates_job_record_failed_on_exception(cfg_stub):
+    FakeStateMgr.last_created = None
+    FakeStateMgr.last_updated = None
+
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    class Job:
+        name = "job"
+        checkpoint_interval = 10
+
+        def to_kwargs(self):
+            return {}
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+
+    def fail_run(**kwargs):
+        raise RuntimeError("boom")
+
+    dep.run = fail_run
+
+    with pytest.raises(RuntimeError, match="boom"):
+        swarm.submit_job(
+            Job(),
+            input_path=Path("/tmp/in.parquet"),
+            output_path=Path("/tmp/out.parquet"),
+            detach=False,
+        )
+
+    assert FakeStateMgr.last_created is not None
+    assert FakeStateMgr.last_updated is not None
+    assert FakeStateMgr.last_updated["status"] == JobStatus.FAILED
+    assert "boom" in FakeStateMgr.last_updated["error"]
+
+
+def test_submit_script_updates_job_record_success(cfg_stub, tmp_path):
+    FakeStateMgr.last_created = None
+    FakeStateMgr.last_updated = None
+
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    script = tmp_path / "script.py"
+    script.write_text("print('ok')\n")
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.run = lambda **kwargs: SimpleNamespace(
+        id="sid",
+        status="SUCCEEDED",
+        meta={"external_id": "456.0", "pid": 8},
+    )
+
+    out = swarm.submit_script(script_path=script, detach=False)
+    assert isinstance(out, JobHandle)
+    assert out.status == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_created is not None
+    assert FakeStateMgr.last_created["kind"] == "script"
+    assert FakeStateMgr.last_updated is not None
+    assert FakeStateMgr.last_updated["status"] == JobStatus.SUCCEEDED
+    assert FakeStateMgr.last_updated["external_id"] == "456.0"
 
 
 def test_cleanup_calls_deployment_down_when_handle_present(cfg_stub):
@@ -499,3 +616,135 @@ def test_make_compute_backend_slurm_missing_meta_raises(monkeypatch, tmp_path):
     handle = SimpleNamespace(id="dep", url="", meta={})  # missing lb_* keys
     with pytest.raises(RuntimeError, match="LB Job ID/Node missing"):
         swarm._make_compute_backend(handle)
+
+
+def test_refresh_job_status_updates_record_from_probe(cfg_stub, monkeypatch):
+    swarm = make_swarm(cfg_stub)
+    state = {
+        "job_id": "job-1",
+        "deployment_name": "my-swarm",
+        "provider": "slurm",
+        "kind": "step",
+        "status": "PENDING",
+        "raw_status": None,
+        "external_id": "123.0",
+        "name": "job",
+        "command": None,
+        "resources": None,
+        "log_paths": None,
+        "error": None,
+        "creation_dt": "2026-01-01T00:00:00",
+        "update_dt": "2026-01-01T00:00:00",
+    }
+
+    monkeypatch.setattr(
+        mod.SwarmStateManager,
+        "get_job",
+        classmethod(lambda cls, job_id: dict(state)),
+        raising=False,
+    )
+
+    def _update_job(cls, job_id: str, **kwargs):
+        if "status" in kwargs and kwargs["status"] is not None:
+            status_value = kwargs["status"]
+            state["status"] = status_value.value if hasattr(status_value, "value") else status_value
+        if "raw_status" in kwargs and kwargs["raw_status"] is not None:
+            state["raw_status"] = kwargs["raw_status"]
+        if "external_id" in kwargs and kwargs["external_id"] is not None:
+            state["external_id"] = kwargs["external_id"]
+        if "error" in kwargs:
+            state["error"] = kwargs["error"]
+
+    monkeypatch.setattr(
+        mod.SwarmStateManager, "update_job", classmethod(_update_job), raising=False
+    )
+
+    class _Compute:
+        def probe(self, handle):
+            return JobProbe(status=JobStatus.RUNNING, raw_status="RUNNING", source="slurm")
+
+    swarm._deployment.compute = _Compute()  # type: ignore[attr-defined]
+    out = swarm.refresh_job_status("job-1")
+    assert out["status"] == "RUNNING"
+    assert out["raw_status"] == "RUNNING"
+    assert out["refresh_source"] == "slurm"
+    assert out["refresh_error"] is None
+
+
+def test_refresh_job_status_without_external_id_skips_probe(cfg_stub, monkeypatch):
+    swarm = make_swarm(cfg_stub)
+    row = {
+        "job_id": "job-1",
+        "deployment_name": "my-swarm",
+        "provider": "slurm",
+        "kind": "step",
+        "status": "PENDING",
+        "raw_status": None,
+        "external_id": None,
+        "name": "job",
+        "command": None,
+        "resources": None,
+        "log_paths": None,
+        "error": None,
+        "creation_dt": "2026-01-01T00:00:00",
+        "update_dt": "2026-01-01T00:00:00",
+    }
+
+    def _get_job(cls, job_id):
+        return dict(row)
+
+    monkeypatch.setattr(mod.SwarmStateManager, "get_job", classmethod(_get_job), raising=False)
+
+    class _Compute:
+        def probe(self, handle):
+            raise AssertionError("probe should not be called without external_id")
+
+    swarm._deployment.compute = _Compute()  # type: ignore[attr-defined]
+    out = swarm.refresh_job_status("job-1")
+    assert out["status"] == "PENDING"
+    assert out["refresh_source"] == "db"
+    assert "Missing external_id" in out["refresh_error"]
+
+
+def test_refresh_job_status_probe_error_is_best_effort(cfg_stub, monkeypatch):
+    swarm = make_swarm(cfg_stub)
+    state = {
+        "job_id": "job-1",
+        "deployment_name": "my-swarm",
+        "provider": "slurm",
+        "kind": "step",
+        "status": "RUNNING",
+        "raw_status": "RUNNING",
+        "external_id": "123.0",
+        "name": "job",
+        "command": None,
+        "resources": None,
+        "log_paths": None,
+        "error": None,
+        "creation_dt": "2026-01-01T00:00:00",
+        "update_dt": "2026-01-01T00:00:00",
+    }
+    monkeypatch.setattr(
+        mod.SwarmStateManager,
+        "get_job",
+        classmethod(lambda cls, job_id: dict(state)),
+        raising=False,
+    )
+
+    def _update_job(cls, job_id: str, **kwargs):
+        if "error" in kwargs:
+            state["error"] = kwargs["error"]
+
+    monkeypatch.setattr(
+        mod.SwarmStateManager, "update_job", classmethod(_update_job), raising=False
+    )
+
+    class _Compute:
+        def probe(self, handle):
+            raise RuntimeError("scheduler unavailable")
+
+    swarm._deployment.compute = _Compute()  # type: ignore[attr-defined]
+    out = swarm.refresh_job_status("job-1")
+    assert out["status"] == "RUNNING"
+    assert out["refresh_source"] == "backend"
+    assert "scheduler unavailable" in out["refresh_error"]
