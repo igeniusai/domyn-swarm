@@ -241,23 +241,27 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return handle.status
 
     def cancel(self, handle: JobHandle) -> None:
-        """Cancel a detached job.
+        """Cancel a detached job via its Slurm step id.
 
-        This sends SIGTERM to the detached job's process group (covers `srun` and its children)
-        and escalates to SIGKILL after a short grace period.
+        Reconnect semantics are external-id only: a detached handle always carries the
+        resolved Slurm step id in ``meta["external_id"]`` (submit fails otherwise), so
+        cancellation is stable across CLI invocations and process boundaries.
+
+        Args:
+            handle: Job handle returned by ``submit(detach=True)``.
         """
         external_id = handle.meta.get("external_id")
-        if external_id:
-            with contextlib.suppress(Exception):
-                _cancel_slurm(external_id)
-            handle.status = JobStatus.CANCELLED
-            handle.meta["cancelled_at"] = time.time()
+        if not external_id:
+            logger.warning(
+                "Cannot cancel job without external_id; "
+                "use a reconnectable handle containing the Slurm step id."
+            )
             return
 
-        logger.warning(
-            "Cannot cancel job without external_id; "
-            "use a reconnectable handle containing Slurm step id."
-        )
+        with contextlib.suppress(Exception):
+            _cancel_slurm(external_id)
+        handle.status = JobStatus.CANCELLED
+        handle.meta["cancelled_at"] = time.time()
 
     def default_python(self, cfg: "DomynLLMSwarmConfig") -> str:
         if self.cfg.venv_path and self.cfg.venv_path.is_dir():

@@ -14,7 +14,9 @@
 
 import asyncio
 from dataclasses import dataclass
+import itertools
 import logging
+import threading
 from typing import Any, Protocol, TypeVar
 
 import pandas as pd
@@ -64,7 +66,26 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
     >>> todo = store.prepare(df, id_col="_row_id")
     >>> await store.flush(FlushBatch(ids=[...], rows=[...]), output_cols=["result"])  # many times
     >>> out = store.finalize()  # merges shards and writes the final parquet
+
+    Concurrency
+    -----------
+    Exactly one writer process per checkpoint directory is assumed. This holds
+    by construction: a job runs in a single driver process, its concurrent
+    shards each use a distinct directory, and resumed runs skip already-done ids
+    in :meth:`prepare`. "Last write wins" within a directory is ordered by the
+    process-wide ``_shard_seq`` counter; it is not safe for two OS processes to
+    write the same directory simultaneously.
     """
+
+    # Process-wide monotonic counter used as the primary, lexicographically
+    # sortable component of shard filenames. ULID timestamps only have
+    # millisecond resolution and their random component is not monotonic, so
+    # two flushes within the same millisecond can otherwise produce filenames
+    # that sort in the opposite order of the writes — which would break
+    # finalize()'s "last write wins" merge. See the class docstring for the
+    # single-writer-per-directory invariant this relies on.
+    _shard_seq = itertools.count()
+    _shard_seq_lock = threading.Lock()
 
     def __init__(self, base_uri: str):
         self.base_uri = base_uri
@@ -192,9 +213,13 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
                 )
 
         table = pa.Table.from_pydict(out)
-        # Use a time-sortable filename to ensure deterministic merge semantics.
-        # This allows finalize() to interpret "last write wins" by lexicographic order.
-        part = self.dir_path + f"part-{str(ULID()).lower()}.parquet"
+        # Filename sorts by write order so finalize() can interpret "last write
+        # wins" by lexicographic order. The monotonic counter is the primary key
+        # (ULID ms-resolution timestamps are insufficient for sub-ms ordering);
+        # the ULID suffix keeps names unique and debuggable.
+        with self._shard_seq_lock:
+            seq = next(self._shard_seq)
+        part = self.dir_path + f"part-{seq:020d}-{str(ULID()).lower()}.parquet"
         with self.fs.open(part, "wb") as f:
             pq.write_table(table, f, use_dictionary=False)
 

@@ -63,8 +63,16 @@ class SwarmStateManager:
 
     # --- path helpers ---
     @classmethod
-    def _get_db_path(cls) -> Path:
+    def _resolve_db_path(cls) -> Path:
+        """Compute the DB path without triggering schema upgrade."""
         return get_settings().home / cls.DB_NAME
+
+    @classmethod
+    def _get_db_path(cls) -> Path:
+        from .autoupgrade import ensure_db_up_to_date
+
+        ensure_db_up_to_date(noisy=False)
+        return cls._resolve_db_path()
 
     # --- CRUD ---
     def save(self, deployment_name: str) -> None:
@@ -199,6 +207,14 @@ class SwarmStateManager:
             raise ValueError("State file does not contain valid LB job info")
         assert isinstance(slurm_cfg, SlurmConfig)
         return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)
+
+    @classmethod
+    def get_creation_dt(cls, deployment_name: str) -> datetime | None:
+        """Return the persisted creation timestamp for a deployment, if known."""
+        session_factory = make_session_factory(cls._get_db_path())
+        with session_factory() as s:
+            rec = s.get(SwarmRecord, deployment_name)
+        return rec.creation_dt if rec is not None else None
 
     @classmethod
     def get_last_swarm_name(cls) -> str | None:

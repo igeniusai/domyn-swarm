@@ -14,6 +14,12 @@ backend:
   partition: your_partition
   account: your_account
   qos: your_qos
+  # Extra bind mounts for the vLLM containers. Each entry is either
+  # "/path" (same path inside the container) or "/host/path:/container/path"
+  # (with an optional ":ro"/":rw" suffix). Sources must be absolute paths.
+  # mounts:
+  #   - /path/mounted/directly.ext
+  #   - /host/path:/container/path
   endpoint:
     nginx_image: "/path/to/nginx.sif"
     port: 9001

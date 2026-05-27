@@ -65,7 +65,7 @@ def test_probe_and_update_marks_running(monkeypatch):
     monkeypatch.setattr(watchdog_mod, "_check_http", lambda *args, **kwargs: True)
     monkeypatch.setattr(watchdog_mod, "send_status", lambda *args, **kwargs: None)
 
-    http_failures, http_ok_since, ray_ok_since, last_ray_probe, state, ready = (
+    _http_failures, _http_ok_since, _ray_ok_since, _last_ray_probe, state, ready = (
         watchdog_mod._probe_and_update(
             "localhost:1",
             meta,

@@ -1,3 +1,44 @@
+## v0.28.0 (2026-05-27)
+
+### Feat
+
+- add support for user-defined Singularity bind mounts in Slurm configuration
+- add creation timestamp retrieval and enhance status output formatting
+
+### Fix
+
+- fix monotonic filename generation for Parquet shards to ensure correct merge order
+- handle job status idempotency and process cleanup on cancellation
+- add threading lock to ensure safe database upgrades
+- handle nginx config validation and instance shutdown on error
+
+## v0.27.0 (2026-05-18)
+
+### Feat
+
+- add global resume and shard mode options for job execution
+- add shard_mode option in CLI
+- implement stable sharding strategy for job execution with 'id' and 'index' modes
+- **slurm**: update cancellation logic to terminate srun process group and remove pgid from job handle
+- **slurm**: enhance job handling with process group management and improved wait/cancel functionality
+
+### Fix
+
+- ensure swarm.db schema is migrated when using the programmatic API
+- fix global_resume issue with arrow and polars causing incomplete output
+- ensure resources are merged correctly before job execution
+- improve nginx config generation and validation in lb.sh
+- actually fix existing server default for creation_dt column in swarm table
+- update existing server default for creation_dt column in swarm table
+- add table normalization for concatenation and corresponding tests
+- implement large offset handling in ArrowShardStore and add corresponding tests
+
+### Refactor
+
+- implement lazy loading for logger and swarm components in CLI modules
+- replace hash_pandas_object with hash_array for stable sharding
+- normalization and concatenation fallback for Arrow tables in ArrowShardStore
+
 ## v0.26.1 (2026-01-28)
 
 ### Fix

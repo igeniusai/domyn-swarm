@@ -12,31 +12,83 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import logging
 import sys
 from typing import Annotated
 
-from rich.console import Console
-from rich.table import Table
 import typer
-
-from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
-from domyn_swarm.core.state.watchdog import SwarmReplicaSummary, read_swarm_summary
-from domyn_swarm.runtime.status import read_replica_statuses
-from domyn_swarm.utils.cli import _pick_one
 
 from ..cli.init import init_app
 from ..cli.pool import pool_app
-from ..cli.tui import render_status
-from ..config.swarm import _load_swarm_config
-from ..core.state.autoupgrade import ensure_db_up_to_date
-from ..core.state.state_manager import SwarmStateManager
-from ..core.swarm import DomynLLMSwarm
-from ..helpers.logger import setup_logger
-from ..utils.version import get_version
 from .db import db_app
 from .job import job_app
 from .swarm import swarm_app
+
+
+class _LazyDomynLLMSwarm:
+    """Proxy that imports the swarm implementation only when a command needs it."""
+
+    def __call__(self, *args, **kwargs):
+        from ..core.swarm import DomynLLMSwarm
+
+        return DomynLLMSwarm(*args, **kwargs)
+
+    def from_state(self, *args, **kwargs):
+        """Load a swarm from persisted state."""
+        from ..core.swarm import DomynLLMSwarm
+
+        return DomynLLMSwarm.from_state(*args, **kwargs)
+
+
+class _LazySwarmStateManager:
+    """Proxy for state-manager class methods used by the root CLI commands."""
+
+    def load(self, *args, **kwargs):
+        """Load a saved swarm record."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.load(*args, **kwargs)
+
+    def list_by_base_name(self, *args, **kwargs):
+        """List swarm names matching a configured base name."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.list_by_base_name(*args, **kwargs)
+
+    def get_last_swarm_name(self, *args, **kwargs):
+        """Return the most recently created swarm name."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.get_last_swarm_name(*args, **kwargs)
+
+    def get_creation_dt(self, *args, **kwargs):
+        """Return the persisted creation timestamp for a deployment."""
+        from ..core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.get_creation_dt(*args, **kwargs)
+
+
+class _LazyLogger:
+    """Logger proxy that avoids importing Rich logging during CLI discovery."""
+
+    def __init__(self) -> None:
+        self._logger: logging.Logger | None = None
+
+    def _get(self) -> logging.Logger:
+        if self._logger is None:
+            from ..helpers.logger import setup_logger
+
+            self._logger = setup_logger("domyn_swarm.cli", level=logging.INFO)
+        return self._logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+DomynLLMSwarm = _LazyDomynLLMSwarm()
+SwarmStateManager = _LazySwarmStateManager()
 
 app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
 
@@ -58,20 +110,51 @@ app.add_typer(
     help="Manage the Domyn-Swarm state database.",
 )
 
-console = Console()
-logger = setup_logger("domyn_swarm.cli", level=logging.INFO, console=console)
+logger = _LazyLogger()
+
+
+def _get_console():
+    """Create the Rich console only for commands that render Rich output."""
+    from rich.console import Console
+
+    return Console()
+
+
+def _load_swarm_config(*args, **kwargs):
+    """Load a swarm config while keeping config imports off the CLI startup path."""
+    from ..config.swarm import _load_swarm_config as load_swarm_config
+
+    return load_swarm_config(*args, **kwargs)
+
+
+def _pick_one(*args, **kwargs):
+    """Prompt for one swarm name from a list."""
+    from domyn_swarm.utils.cli import _pick_one as pick_one
+
+    return pick_one(*args, **kwargs)
+
+
+def ensure_db_up_to_date(*args, **kwargs):
+    """Run the database auto-upgrade helper lazily."""
+    from ..core.state.autoupgrade import ensure_db_up_to_date as ensure
+
+    return ensure(*args, **kwargs)
+
+
+def get_version() -> str:
+    """Return the installed package version."""
+    from ..utils.version import get_version as resolve_version
+
+    return resolve_version()
 
 
 @app.callback()
 def main_callback(ctx: typer.Context) -> None:
     """
-    Root callback: runs before any subcommand.
-
-    We use this to transparently auto-upgrade the local swarm.db schema.
+    Main entrypoint
     """
-    # If the user is explicitly running `domyn-swarm db ...`,
-    # let that subcommand control migrations.
-    if ctx.invoked_subcommand == "db":
+    # Commands that do not touch swarm state should not pay for DB migrations.
+    if ctx.invoked_subcommand in {"db", "init", "version"}:
         return
 
     # Safe to call for everything else; it's idempotent and guarded.
@@ -111,10 +194,12 @@ def launch_up(
     Launch a swarm allocation with the given configuration.
     The configuration must be provided as a YAML file.
     """
+    from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
+
     cfg = _load_swarm_config(config, replicas=replicas)
     swarm_ctx = DomynLLMSwarm(cfg=cfg)
 
-    def _safe_down(ctx: DomynLLMSwarm) -> None:
+    def _safe_down(ctx) -> None:
         try:
             ctx.down()
         except Exception as e:
@@ -151,6 +236,15 @@ def check_status(
             help="Name of the swarm allocation to check status for. ",
         ),
     ],
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: 'table' (default, Rich TUI) or 'json' (stable, machine-readable).",
+            case_sensitive=False,
+        ),
+    ] = "table",
 ) -> None:
     """
     Check the status of the swarm allocation.
@@ -158,30 +252,187 @@ def check_status(
     This command will read the DB and print the status of the swarm allocation.
     If a name is provided, it will check the status of that specific allocation.
     """
+    from domyn_swarm.core.state.watchdog import read_swarm_summary
+    from domyn_swarm.runtime.status import read_replica_statuses
+
+    fmt = output.lower()
+    if fmt not in {"table", "json"}:
+        raise typer.BadParameter("--output must be 'table' or 'json'")
+
     swarm = SwarmStateManager.load(deployment_name=name)
     if swarm.serving_handle is None:
         raise ValueError("Swarm does not have a serving handle.")
 
-    serving_status = swarm.status()
-    replica_summary: SwarmReplicaSummary | None = None
+    errors: list[str] = []
+    serving_status = None
+    try:
+        serving_status = swarm.status()
+    except Exception as e:
+        logger.debug(f"Could not query serving status: {e}")
+        errors.append(f"serving_status: {e}")
+
+    replica_summary = None
     replica_rows = []
 
     try:
         replica_summary = read_swarm_summary(swarm.watchdog_db_path, swarm_id=name)
     except Exception as e:
         logger.debug(f"Could not read swarm replica summary: {e}")
+        errors.append(f"replica_summary: {e}")
 
     try:
         replica_rows = read_replica_statuses(swarm.watchdog_db_path, swarm_id=name)
     except Exception as e:
         logger.debug(f"Could not read swarm replica rows: {e}")
+        errors.append(f"replica_rows: {e}")
+
+    if fmt == "json":
+        payload = _build_status_json(
+            name=name,
+            swarm=swarm,
+            serving_status=serving_status,
+            replica_summary=replica_summary,
+            replica_rows=replica_rows,
+            errors=errors,
+        )
+        import json as _json
+
+        typer.echo(_json.dumps(payload, indent=2, default=str))
+        return
+
+    from ..cli.tui import render_status
+    from ..platform.protocols import ServingPhase, ServingStatus
 
     render_status(
-        (name, swarm._platform, serving_status),
+        (
+            name,
+            swarm._platform,
+            serving_status or ServingStatus(phase=ServingPhase.UNKNOWN, url=swarm.endpoint),
+        ),
         replica_summary=replica_summary,
         replica_rows=replica_rows,
-        console=console,
+        console=_get_console(),
     )
+
+
+def _build_status_json(
+    *,
+    name: str,
+    swarm,
+    serving_status,
+    replica_summary,
+    replica_rows,
+    errors: list[str],
+) -> dict:
+    """Build the stable JSON payload for `ds status -o json`.
+
+    Schema is a public contract — change with care.
+    """
+    from datetime import timezone
+
+    from ..platform.protocols import ServingPhase
+
+    phase = serving_status.phase.value if serving_status is not None else ServingPhase.UNKNOWN.value
+    endpoint = (
+        serving_status.url if serving_status is not None and serving_status.url else swarm.endpoint
+    )
+
+    summary_dict = None
+    if replica_summary is not None:
+        summary_dict = {
+            "total": replica_summary.total,
+            "running": replica_summary.running,
+            "http_ready": replica_summary.http_ready,
+            "failed": replica_summary.failed,
+            "fail_reasons": replica_summary.fail_reasons,
+            "example_fail_reason": replica_summary.example_fail_reason,
+        }
+
+    replicas_list = [
+        {
+            "replica_id": r.replica_id,
+            "node": r.node,
+            "port": r.port,
+            "state": r.state,
+            "http_ready": bool(r.http_ready) if r.http_ready is not None else None,
+            "exit_code": r.exit_code,
+            "exit_signal": r.exit_signal,
+            "fail_reason": r.fail_reason,
+            "last_seen": r.last_seen,
+            "url": (f"http://{r.node}:{r.port}" if r.node and r.port is not None else None),
+        }
+        for r in replica_rows
+    ]
+
+    if replica_summary is not None and replica_summary.total > 0:
+        ready = (
+            phase == ServingPhase.RUNNING.value
+            and replica_summary.http_ready == replica_summary.total
+            and replica_summary.failed == 0
+        )
+    else:
+        ready = phase == ServingPhase.RUNNING.value
+
+    started_at_iso: str | None = None
+    expires_at_iso: str | None = None
+    try:
+        creation_dt = SwarmStateManager.get_creation_dt(name)
+    except Exception as e:
+        logger.debug(f"Could not read creation_dt: {e}")
+        creation_dt = None
+        errors.append(f"creation_dt: {e}")
+
+    if creation_dt is not None:
+        started_at = (
+            creation_dt
+            if creation_dt.tzinfo is not None
+            else creation_dt.replace(tzinfo=timezone.utc)
+        )
+        started_at_iso = started_at.isoformat()
+
+        if swarm._platform == "slurm":
+            from ..helpers.slurm import parse_slurm_time_limit
+
+            time_limit = getattr(swarm.cfg.backend, "time_limit", None)
+            delta = parse_slurm_time_limit(time_limit) if time_limit else None
+            if delta is not None:
+                expires_at_iso = (started_at + delta).isoformat()
+
+    slurm_jobs: list[dict] | None = None
+    if swarm._platform == "slurm" and swarm.serving_handle is not None:
+        meta = swarm.serving_handle.meta or {}
+        jobs: list[dict] = []
+        if meta.get("jobid") is not None:
+            jobs.append({"role": "swarm", "jobid": meta.get("jobid")})
+        if meta.get("lb_jobid") is not None:
+            jobs.append(
+                {
+                    "role": "load_balancer",
+                    "jobid": meta.get("lb_jobid"),
+                    "node": meta.get("lb_node"),
+                }
+            )
+        slurm_jobs = jobs
+
+    payload: dict = {
+        "schema_version": 1,
+        "name": name,
+        "backend": swarm._platform,
+        "phase": phase,
+        "state": phase,
+        "ready": ready,
+        "endpoint": endpoint,
+        "started_at": started_at_iso,
+        "expires_at": expires_at_iso,
+        "replicas": {
+            "summary": summary_dict,
+            "items": replicas_list,
+        },
+        "slurm_jobs": slurm_jobs,
+        "detail": (serving_status.detail if serving_status is not None else None),
+        "errors": errors or None,
+    }
+    return payload
 
 
 def down_by_name(name: str, yes: bool) -> None:
@@ -234,12 +485,12 @@ def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) 
     logger.info(f"Found {len(matches)} matching swarms for base name '{base_name}'")
 
     if not matches:
-        console.print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
+        _get_console().print(f"[yellow]No swarms found for base name '{base_name}'.[/]")
         raise typer.Exit(0)
 
     if len(matches) == 1 and not all_:
         name = matches[0]
-        console.print(f"[cyan]Found 1 match:[/] {name}")
+        _get_console().print(f"[cyan]Found 1 match:[/] {name}")
         if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
             raise typer.Abort()
         down_by_name(name=name, yes=yes)  # reuse your existing down logic
@@ -247,11 +498,13 @@ def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) 
 
     if all_:
         if not yes:
+            from rich.table import Table
+
             table = Table(title="Swarms to destroy")
             table.add_column("deployment_name")
             for n in matches:
                 table.add_row(n)
-            console.print(table)
+            _get_console().print(table)
             if not typer.confirm(f"Destroy ALL {len(matches)} swarms above?"):
                 raise typer.Abort()
         for n in matches:
@@ -259,13 +512,14 @@ def down_by_config(config: typer.FileText, yes: bool, all_: bool, select: bool) 
         raise typer.Exit(0)
 
     if select:
-        name = _pick_one(matches, console)
+        name = _pick_one(matches, _get_console())
         if not yes and not typer.confirm(f"Destroy swarm '{name}'?"):
             raise typer.Abort()
         down_by_name(name=name, yes=True)
         raise typer.Exit(0)
 
     if matches:
+        console = _get_console()
         console.print(
             f"[red]Multiple swarms found for base name '{base_name}'. "
             "Please specify one using --name, use --select to pick "

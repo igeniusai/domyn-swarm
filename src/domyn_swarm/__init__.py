@@ -12,18 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
-try:
-    __version__ = version("domyn_swarm")
-except PackageNotFoundError:  # during dev
-    __version__ = "0.0.0"
+__all__ = ["DomynLLMSwarm", "DomynLLMSwarmConfig", "SwarmJob", "__version__", "run_job_unified"]
 
-__all__ = ["DomynLLMSwarm", "DomynLLMSwarmConfig", "SwarmJob", "run_job_unified"]
+
+def _resolve_version() -> str:
+    """Return the installed package version without importing metadata on startup."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("domyn-swarm")
+    except PackageNotFoundError:
+        return "0.0.0"
 
 
 def __getattr__(name: str):
+    if name == "__version__":
+        return _resolve_version()
     if name == "DomynLLMSwarm":
         from .core.swarm import DomynLLMSwarm
 
@@ -40,6 +46,7 @@ def __getattr__(name: str):
 
 
 if TYPE_CHECKING:
+    __version__: str
     from .config.swarm import DomynLLMSwarmConfig
     from .core.swarm import DomynLLMSwarm
     from .jobs.base import SwarmJob

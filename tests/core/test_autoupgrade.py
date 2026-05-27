@@ -21,7 +21,7 @@ def test_ensure_db_up_to_date_creates_db(monkeypatch, tmp_path):
     db_path = tmp_path / "swarm.db"
     monkeypatch.setattr(autoupgrade_mod, "_DB_UPGRADED", False)
     monkeypatch.setattr(autoupgrade_mod, "get_settings", lambda: DummySettings(skip=False))
-    monkeypatch.setattr(autoupgrade_mod.SwarmStateManager, "_get_db_path", lambda: db_path)
+    monkeypatch.setattr(autoupgrade_mod.SwarmStateManager, "_resolve_db_path", lambda: db_path)
 
     called = {}
 
@@ -40,7 +40,7 @@ def test_ensure_db_up_to_date_noop_when_current(monkeypatch, tmp_path):
     db_path.write_text("x")
     monkeypatch.setattr(autoupgrade_mod, "_DB_UPGRADED", False)
     monkeypatch.setattr(autoupgrade_mod, "get_settings", lambda: DummySettings(skip=False))
-    monkeypatch.setattr(autoupgrade_mod.SwarmStateManager, "_get_db_path", lambda: db_path)
+    monkeypatch.setattr(autoupgrade_mod.SwarmStateManager, "_resolve_db_path", lambda: db_path)
     monkeypatch.setattr(autoupgrade_mod, "get_current_rev", lambda _: "abc")
     monkeypatch.setattr(autoupgrade_mod, "get_head_rev", lambda _: "abc")
 

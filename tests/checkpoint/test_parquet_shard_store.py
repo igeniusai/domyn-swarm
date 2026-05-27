@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+
 import pandas as pd
 import pytest
 
+import domyn_swarm.checkpoint.store as store_mod
 from domyn_swarm.checkpoint.store import FlushBatch, ParquetShardStore
 
 
@@ -33,6 +36,39 @@ async def test_parquet_shard_store_roundtrip_and_dedup(tmp_path):
     out = store.finalize()
     assert out.index.name == "_row_id"
     assert out.loc[0, "result"] == "x"
+    assert out.loc[1, "result"] == "y2"
+
+
+@pytest.mark.asyncio
+async def test_parquet_shard_store_last_write_wins_with_out_of_order_ulids(tmp_path, monkeypatch):
+    """finalize() must keep the last write per id even when shard ULIDs sort
+    in the opposite order of the write sequence.
+
+    ULIDs are only sortable by their millisecond timestamp; two flushes within
+    the same millisecond can produce filenames that sort in reverse write order.
+    This simulates the worst case by making successive ULID strings strictly
+    decreasing, so a filename-only ordering would pick the first write.
+    """
+    counter = itertools.count()
+
+    class _DescendingULID:
+        def __init__(self):
+            self._v = next(counter)
+
+        def __str__(self):
+            # Later instances produce lexicographically smaller strings.
+            return f"{10_000 - self._v:026d}"
+
+    monkeypatch.setattr(store_mod, "ULID", _DescendingULID)
+
+    base = tmp_path / "run.parquet"
+    store = ParquetShardStore(f"file://{base}")
+    store.prepare(pd.DataFrame({"_row_id": [1], "messages": ["b"]}), "_row_id")
+
+    await store.flush(FlushBatch(ids=[1], rows=["y"]), output_cols=["result"])
+    await store.flush(FlushBatch(ids=[1], rows=["y2"]), output_cols=["result"])
+
+    out = store.finalize()
     assert out.loc[1, "result"] == "y2"
 
 

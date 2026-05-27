@@ -84,7 +84,7 @@ pip install 'domyn-swarm[all]'
 **From source (GitHub):**
 
 ```bash
-RELEASE=v0.26.1
+RELEASE=v0.28.0
 pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE
 # or with uv
 uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE # git+ssh://git@github.com/igeniusai/domyn-swarm.git[lepton]
@@ -486,6 +486,7 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **endpoint**                  | `SlurmEndpointConfig` | `null` | |
 | **modules** | `list[str]` | `[]` | List of modules to be loaded by slurm | |
 | **preamble** | `list[str]` | `[]` | Additional list of sbatch directives to be added to cluster sbatch script | |
+| **mounts** | `list[str]` | `[]` | Extra Singularity bind mounts for the vLLM containers. Each entry is `/path` (same path inside the container) or `/host/path:/container/path` (optional `:ro`/`:rw` suffix). Sources must be absolute paths. | `["/scratch/data", "/host/cfg:/etc/cfg:ro"]` |
 
 #### SlurmEndpointConfig
 
@@ -523,6 +524,9 @@ model: "deepseek-ai/DeepSeek-R1-0528"  # Whatever model you want to deploy
 image: /shared/images/vllm.sif         # vLLM container used on Slurm (optional if you run venv)
 backend:
   type: slurm
+  mounts:                                  # optional extra bind mounts for the vLLM containers
+    - /scratch/datasets                    # bound at the same path inside the container
+    - /host/config:/etc/app/config:ro      # host:container with read-only option
   endpoint:
     nginx_image: /shared/images/nginx.sif  # required for the LB
 ```
@@ -532,6 +536,9 @@ backend:
 * Place `.sif` files on a shared, readable path for all compute nodes.
 * Ensure Singularity is available on execution nodes.
 * If your site disables `--fakeroot`, build with admin privileges on a workstation and copy the `.sif` to the shared filesystem.
+* `backend.mounts` entries are passed verbatim to Singularity/Apptainer's `--bind` flag. domyn-swarm only validates their basic format (absolute source, at most a `source:dest:opts` triple); the container runtime performs the actual binding and reports any errors (e.g. missing host path, invalid options). For the full bind-spec syntax and supported options, see the runtime docs:
+  * Apptainer — [Bind Paths and Mounts](https://apptainer.org/docs/user/main/bind_paths_and_mounts.html)
+  * SingularityCE (Sylabs) — [Bind Paths and Mounts](https://docs.sylabs.io/guides/latest/user-guide/bind_paths_and_mounts.html)
 
 
 #### LeptonConfig

@@ -1,12 +1,66 @@
 import typer
 
-from domyn_swarm.config.settings import get_settings
-from domyn_swarm.core.state.migrate import stamp_head, upgrade_head
-from domyn_swarm.core.state.state_manager import SwarmStateManager
-from domyn_swarm.helpers.logger import setup_logger
-
 db_app = typer.Typer(help="DB maintenance")
-logger = setup_logger(__name__)
+
+
+class _LazyLogger:
+    """Logger proxy that avoids importing Rich logging during CLI discovery."""
+
+    def __init__(self) -> None:
+        self._logger = None
+
+    def _get(self):
+        from domyn_swarm.helpers.logger import setup_logger
+
+        if self._logger is None:
+            self._logger = setup_logger(__name__)
+        return self._logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+logger = _LazyLogger()
+
+
+class _LazySwarmStateManager:
+    """Proxy for state-manager class methods used by DB commands."""
+
+    def list_all(self, *args, **kwargs):
+        """List all saved swarm records."""
+        from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.list_all(*args, **kwargs)
+
+    def delete_records(self, *args, **kwargs):
+        """Delete saved swarm records by deployment name."""
+        from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+        return SwarmStateManager.delete_records(*args, **kwargs)
+
+
+SwarmStateManager = _LazySwarmStateManager()
+
+
+def get_settings(*args, **kwargs):
+    """Load environment settings lazily."""
+    from domyn_swarm.config.settings import get_settings as load_settings
+
+    return load_settings(*args, **kwargs)
+
+
+def upgrade_head(*args, **kwargs):
+    """Run Alembic upgrade lazily."""
+    from domyn_swarm.core.state.migrate import upgrade_head as run_upgrade
+
+    return run_upgrade(*args, **kwargs)
+
+
+def stamp_head(*args, **kwargs):
+    """Run Alembic stamp lazily."""
+    from domyn_swarm.core.state.migrate import stamp_head as run_stamp
+
+    return run_stamp(*args, **kwargs)
 
 
 @db_app.command("upgrade")
