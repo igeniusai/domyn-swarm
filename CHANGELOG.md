@@ -1,3 +1,17 @@
+## v0.28.0 (2026-05-27)
+
+### Feat
+
+- add support for user-defined Singularity bind mounts in Slurm configuration
+- add creation timestamp retrieval and enhance status output formatting
+
+### Fix
+
+- fix monotonic filename generation for Parquet shards to ensure correct merge order
+- handle job status idempotency and process cleanup on cancellation
+- add threading lock to ensure safe database upgrades
+- handle nginx config validation and instance shutdown on error
+
 ## v0.27.0 (2026-05-18)
 
 ### Feat

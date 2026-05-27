@@ -1,6 +1,6 @@
 [project]
 name = "domyn-swarm"
-version = "0.27.0"
+version = "0.28.0"
 description = "CLI and programmatic API to launch LLM inference endpoints on Slurm, using simple configuration files"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
