@@ -470,7 +470,7 @@ def test_wait_job_with_job_id_updates_status_and_emits_json(mocker):
     swarm.wait_job.return_value = JobStatus.SUCCEEDED
     mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
 
-    result = runner.invoke(mod.job_app, ["wait", "--job-id", "job-1"])
+    result = runner.invoke(mod.job_app, ["wait", "job-1"])
 
     assert result.exit_code == 0
     resolve.assert_called_once_with(

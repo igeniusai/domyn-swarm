@@ -459,8 +459,8 @@ def status_job(
 
 @job_app.command("wait")
 def wait_job(
-    job_id: str | None = typer.Option(
-        None, "--job-id", help="Internal Domyn job ID from the local state DB."
+    job_id: str | None = typer.Argument(
+        None, help="Internal Domyn job ID from the local state DB."
     ),
     external_id: str | None = typer.Option(
         None, "--external-id", help="Provider external ID (for example Slurm step id)."
@@ -485,7 +485,7 @@ def wait_job(
     """Wait for a submitted job to reach a terminal state.
 
     Args:
-        job_id: Internal job ID selector.
+        job_id: Internal job ID selector (positional).
         external_id: Provider external-id selector.
         handle_json: Handle JSON selector, literal payload or stdin marker.
         name: Optional deployment name hint.
