@@ -407,6 +407,12 @@ def list_jobs(
 @job_app.command("status")
 def status_job(
     job_id: str = typer.Argument(..., help="Internal Domyn job ID from the local state DB."),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="Probe the backend for live status and persist it to the local state DB. "
+        "By default the recorded status is shown without contacting the backend.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -417,6 +423,7 @@ def status_job(
 
     Args:
         job_id: Internal job ID.
+        refresh: Whether to probe the backend for live status before display.
         json_output: Whether to emit JSON output.
     """
     try:
@@ -424,17 +431,21 @@ def status_job(
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
-    deployment_name = str(row.get("deployment_name") or "")
-    if deployment_name:
-        try:
-            swarm = DomynLLMSwarm.from_state(deployment_name=deployment_name)
-            row = swarm.refresh_job_status(job_id)
-        except Exception as exc:
-            row["refresh_source"] = "backend"
-            row["refresh_error"] = str(exc)
-    else:
+    if not refresh:
         row["refresh_source"] = "db"
-        row["refresh_error"] = "Missing deployment_name; backend probe skipped."
+        row["refresh_error"] = None
+    else:
+        deployment_name = str(row.get("deployment_name") or "")
+        if deployment_name:
+            try:
+                swarm = DomynLLMSwarm.from_state(deployment_name=deployment_name)
+                row = swarm.refresh_job_status(job_id)
+            except Exception as exc:
+                row["refresh_source"] = "backend"
+                row["refresh_error"] = str(exc)
+        else:
+            row["refresh_source"] = "db"
+            row["refresh_error"] = "Missing deployment_name; backend probe skipped."
 
     if json_output:
         helpers.emit_job_status_json(job=row)
@@ -499,8 +510,8 @@ def wait_job(
 
 @job_app.command("cancel")
 def cancel_job(
-    job_id: str | None = typer.Option(
-        None, "--job-id", help="Internal Domyn job ID from the local state DB."
+    job_id: str | None = typer.Argument(
+        None, help="Internal Domyn job ID from the local state DB."
     ),
     external_id: str | None = typer.Option(
         None, "--external-id", help="Provider external ID (for example Slurm step id)."
@@ -520,7 +531,7 @@ def cancel_job(
     """Cancel a submitted job.
 
     Args:
-        job_id: Internal job ID selector.
+        job_id: Internal job ID selector (positional).
         external_id: Provider external-id selector.
         handle_json: Handle JSON selector, literal payload or stdin marker.
         name: Optional deployment name hint.

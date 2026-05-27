@@ -531,6 +531,38 @@ def test_cancel_job_with_external_id_sets_cancelled_and_updates_state(mocker):
     assert target.handle.status == JobStatus.CANCELLED
 
 
+def test_cancel_job_with_positional_job_id(mocker):
+    handle = JobHandle(
+        id="123.0",
+        status=JobStatus.RUNNING,
+        meta={"job_id": "job-1", "external_id": "123.0"},
+    )
+    target = mod.helpers.ResolvedJobTarget(
+        swarm_name="my-swarm",
+        handle=handle,
+        job_id="job-1",
+        source="job_id",
+    )
+    resolve = mocker.patch.object(mod.helpers, "resolve_job_target", return_value=target)
+    mocker.patch.object(mod.helpers, "emit_job_control_json")
+    mocker.patch.object(mod.SwarmStateManager, "update_job")
+
+    swarm = mocker.MagicMock()
+    swarm.cancel_job.return_value = JobStatus.CANCELLED
+    mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
+
+    result = runner.invoke(mod.job_app, ["cancel", "job-1"])
+
+    assert result.exit_code == 0
+    resolve.assert_called_once_with(
+        job_id="job-1",
+        external_id=None,
+        handle_json=None,
+        deployment_name=None,
+    )
+    swarm.cancel_job.assert_called_once_with(handle)
+
+
 def test_list_jobs_json_output(mocker):
     rows = [
         {
@@ -637,7 +669,7 @@ def test_status_job_json_output(mocker):
     swarm.refresh_job_status.return_value = refreshed
     from_state = mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
 
-    result = runner.invoke(mod.job_app, ["status", "job-1", "--json"])
+    result = runner.invoke(mod.job_app, ["status", "job-1", "--refresh", "--json"])
 
     assert result.exit_code == 0
     get_job.assert_called_once_with("job-1")
@@ -677,7 +709,7 @@ def test_status_job_tui_uses_renderer(mocker):
     mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
     render = mocker.patch("domyn_swarm.cli.tui.job_view.render_job_status")
 
-    result = runner.invoke(mod.job_app, ["status", "job-1"])
+    result = runner.invoke(mod.job_app, ["status", "job-1", "--refresh"])
 
     assert result.exit_code == 0
     render.assert_called_once()
@@ -703,10 +735,41 @@ def test_status_job_refresh_failure_is_best_effort(mocker):
     mocker.patch.object(mod.SwarmStateManager, "get_job", return_value=row)
     mocker.patch.object(mod.DomynLLMSwarm, "from_state", side_effect=RuntimeError("down"))
 
-    result = runner.invoke(mod.job_app, ["status", "job-1", "--json"])
+    result = runner.invoke(mod.job_app, ["status", "job-1", "--refresh", "--json"])
 
     assert result.exit_code == 0
     payload = _parse_last_json_line(result.stdout)
     assert payload["job"]["job_id"] == "job-1"
     assert payload["job"]["refresh_source"] == "backend"
     assert "down" in payload["job"]["refresh_error"]
+
+
+def test_status_job_without_refresh_skips_backend(mocker):
+    row = {
+        "job_id": "job-1",
+        "deployment_name": "my-swarm",
+        "provider": "slurm",
+        "kind": "step",
+        "status": "SUCCEEDED",
+        "raw_status": "COMPLETED",
+        "external_id": "123.0",
+        "name": "my-job",
+        "command": ["python", "-m", "x"],
+        "resources": None,
+        "log_paths": None,
+        "error": None,
+        "creation_dt": "2026-02-10T10:00:00",
+        "update_dt": "2026-02-10T10:07:00",
+    }
+    get_job = mocker.patch.object(mod.SwarmStateManager, "get_job", return_value=row)
+    from_state = mocker.patch.object(mod.DomynLLMSwarm, "from_state")
+
+    result = runner.invoke(mod.job_app, ["status", "job-1", "--json"])
+
+    assert result.exit_code == 0
+    get_job.assert_called_once_with("job-1")
+    from_state.assert_not_called()
+    payload = _parse_last_json_line(result.stdout)
+    assert payload["job"]["status"] == "SUCCEEDED"
+    assert payload["job"]["refresh_source"] == "db"
+    assert payload["job"]["refresh_error"] is None
