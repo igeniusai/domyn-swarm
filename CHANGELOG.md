@@ -1,3 +1,28 @@
+## v0.29.0 (2026-06-04)
+
+### Feat
+
+- **cli**: add --refresh to job status and positional job-id to job cancel
+- enhance Slurm backend with log path handling and improved job probing
+- implement job probing and status refresh for Slurm and Lepton backends
+- add job listing and status commands with JSON output support
+- implement JobBuilder for SwarmJob serialization and deserialization
+- enhance job submission with normalized handles and status updates
+- add job submission persistence and update fake state manager for testing
+- **slurm**: enhance SlurmComputeBackend with external ID handling and FIFO support
+- **jobs**: implement job management with CRUD operations and migration for jobs table
+
+### Fix
+
+- **build**: drop redundant force-include for data/queries
+- update datetime import to use timezone.utc causing issues with python 3.10
+
+### Refactor
+
+- remove unused imports and functions from job.py
+- update job submission CLI and introduce job control commands
+- **tests**: simplify fake subprocess handling in delete tests
+
 ## v0.28.0 (2026-05-27)
 
 ### Feat
