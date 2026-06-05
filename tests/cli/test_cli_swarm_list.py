@@ -182,8 +182,9 @@ def test_cli_list_no_probe_flag_disables_probe(mocker):
     mocker.patch.object(
         SW,
         "_iter_summaries",
-        side_effect=lambda *, probe: seen.setdefault("probe", probe)
-        or [SW.SwarmSummary("n", "slurm", "UNKNOWN")],
+        side_effect=lambda *, probe: (
+            seen.setdefault("probe", probe) or [SW.SwarmSummary("n", "slurm", "UNKNOWN")]
+        ),
     )
     mocker.patch("domyn_swarm.cli.tui.list_view.render_swarm_list")
 
