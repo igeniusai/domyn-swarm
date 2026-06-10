@@ -5,7 +5,9 @@ from domyn_swarm.config.slurm import MonitoringConfig, SlurmEndpointConfig
 
 
 def test_monitoring_disabled_by_default():
-    ep = SlurmEndpointConfig()
+    # nginx_image is normally sourced from defaults.yaml; pass it explicitly so the
+    # test doesn't depend on a defaults file being present.
+    ep = SlurmEndpointConfig(nginx_image="nginx.sif")
     assert ep.monitoring.enabled is False
 
 

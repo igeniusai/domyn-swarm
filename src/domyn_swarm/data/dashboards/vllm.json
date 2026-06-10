@@ -6,46 +6,55 @@
       "title": "Generation throughput (tokens/s)",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "targets": [
-        {"expr": "sum(rate(vllm:generation_tokens_total[1m]))", "legendFormat": "tokens/s"}
+        {"expr": "sum by (instance) (rate(vllm:generation_tokens_total[1m]))", "legendFormat": "{{instance}}"},
+        {"expr": "sum(rate(vllm:generation_tokens_total[1m]))", "legendFormat": "total"}
       ]
     },
     {
       "type": "timeseries",
-      "title": "Requests running / waiting",
+      "title": "Requests running / waiting (per replica)",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "targets": [
-        {"expr": "sum(vllm:num_requests_running)", "legendFormat": "running"},
-        {"expr": "sum(vllm:num_requests_waiting)", "legendFormat": "waiting"}
+        {"expr": "sum by (instance) (vllm:num_requests_running)", "legendFormat": "running {{instance}}"},
+        {"expr": "sum by (instance) (vllm:num_requests_waiting)", "legendFormat": "waiting {{instance}}"}
       ]
     },
     {
       "type": "timeseries",
-      "title": "E2E request latency p95 (s)",
+      "title": "E2E request latency p95 (s, per replica)",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
       "targets": [
-        {"expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p95"}
+        {"expr": "histogram_quantile(0.95, sum by (le, instance) (rate(vllm:e2e_request_latency_seconds_bucket[5m])))", "legendFormat": "{{instance}}"}
       ]
     },
     {
       "type": "gauge",
-      "title": "GPU KV-cache usage (%)",
+      "title": "GPU KV-cache usage (%, per replica)",
       "gridPos": {"h": 8, "w": 6, "x": 12, "y": 8},
       "targets": [
-        {"expr": "avg(vllm:gpu_cache_usage_perc) * 100", "legendFormat": "kv cache"}
+        {"expr": "vllm:gpu_cache_usage_perc * 100", "legendFormat": "{{instance}}"}
       ]
     },
     {
       "type": "stat",
-      "title": "Request success rate (1m)",
+      "title": "Request success rate (1m, per replica)",
       "gridPos": {"h": 8, "w": 6, "x": 18, "y": 8},
       "targets": [
-        {"expr": "sum(rate(vllm:request_success_total[1m]))", "legendFormat": "success/s"}
+        {"expr": "sum by (instance) (rate(vllm:request_success_total[1m]))", "legendFormat": "{{instance}}"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Replicas up",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "count(up{job=\"vllm\"} == 1)", "legendFormat": "up"}
       ]
     },
     {
       "type": "timeseries",
       "title": "nginx active connections",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 16},
       "targets": [
         {"expr": "nginx_connections_active", "legendFormat": "active"}
       ]
@@ -53,7 +62,7 @@
     {
       "type": "timeseries",
       "title": "nginx requests/s",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
       "targets": [
         {"expr": "rate(nginx_http_requests_total[1m])", "legendFormat": "req/s"}
       ]
