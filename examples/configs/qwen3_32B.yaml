@@ -55,3 +55,8 @@ backend:
     port: 9001
     wall_time: "36:00:00"
     nginx_timeout: "8h"
+    # monitoring:
+    #   enabled: true
+    #   prometheus_image: /path/to/prometheus.sif
+    #   nginx_exporter_image: /path/to/nginx-prometheus-exporter.sif
+    #   retention: 12h

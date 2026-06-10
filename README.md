@@ -799,6 +799,49 @@ Domyn-Swarm uses a lightweight **watchdog + collector** pair to monitor vLLM rep
 - `domyn-swarm status` reads from `watchdog.db` to show per-replica health (running/unhealthy/failed, HTTP readiness, and failure reasons) alongside the load balancer endpoint.
 ---
 
+## Monitoring (optional)
+
+Domyn-Swarm can run a **Prometheus** instance plus an **nginx-prometheus-exporter** as sidecars
+on the LB node to collect vLLM and load-balancer metrics. This is **off by default** and currently
+**Slurm only**. Enable it under `backend.endpoint.monitoring`:
+
+```yaml
+backend:
+  type: slurm
+  endpoint:
+    monitoring:
+      enabled: true
+      prometheus_image: /path/to/prometheus.sif                       # singularity (default mode)
+      nginx_exporter_image: /path/to/nginx-prometheus-exporter.sif
+      retention: 12h
+      # mode: binary                                                  # or run host binaries instead
+      # prometheus_binary: /path/to/prometheus
+      # nginx_exporter_binary: /path/to/nginx-prometheus-exporter
+```
+
+**What is scraped**: each vLLM replica's `/metrics` endpoint, plus aggregate nginx metrics exposed
+by the nginx-prometheus-exporter. Targets are kept in sync automatically by the LB supervisor.
+
+**Where it lives**: Prometheus is reverse-proxied by the LB at `http://<endpoint>/prometheus`
+(the same endpoint URL as the swarm). The TSDB is **node-local and ephemeral** — it disappears when
+the LB job ends, and retention defaults to `12h`.
+
+**View it** with the bundled vLLM/nginx dashboard:
+
+```bash
+domyn-swarm monitor <swarm-name>
+```
+
+This launches `grafatui` pointed at `http://<endpoint>/prometheus`. Install it via
+`cargo install grafatui` or a GitHub release binary. Useful flags: `--no-dashboard`, `--range`,
+`--step`, `--prometheus-url`. Alternatively, point a regular Grafana instance at the same
+`/prometheus` URL.
+
+> **Security note**: the `/prometheus/` path is reachable by anyone who can reach the endpoint. There is
+> no authentication on it, so this feature is intended for internal/HPC use only.
+
+---
+
 ## Contributing
 
 We welcome issues and PRs! Please see:
