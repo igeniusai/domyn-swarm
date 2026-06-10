@@ -55,6 +55,37 @@ def test_resolve_argv_without_dashboard():
     assert "--grafana-json" not in argv
 
 
+def test_monitor_uses_custom_dashboard(monkeypatch, tmp_path):
+    swarm = _swarm()
+    custom = tmp_path / "custom.json"
+    custom.write_text("{}")
+
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+    monkeypatch.setattr(SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm))
+    monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
+    captured: dict = {}
+    monkeypatch.setattr(monitor_mod.os, "execvp", lambda f, argv: captured.update(argv=argv))
+
+    monitor_mod.monitor("some-swarm", dashboard=custom)
+
+    assert "--grafana-json" in captured["argv"]
+    assert str(custom) in captured["argv"]
+
+
+def test_monitor_rejects_missing_custom_dashboard(monkeypatch, tmp_path):
+    swarm = _swarm()
+
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+    monkeypatch.setattr(SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm))
+    monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
+
+    with pytest.raises(typer.Exit) as ei:
+        monitor_mod.monitor("some-swarm", dashboard=tmp_path / "missing.json")
+    assert ei.value.exit_code == 2
+
+
 def test_monitor_exits_cleanly_when_endpoint_has_no_monitoring(monkeypatch):
     # Simulate a non-Slurm swarm whose endpoint lacks a `monitoring` attribute.
     endpoint = SimpleNamespace()  # no `monitoring`

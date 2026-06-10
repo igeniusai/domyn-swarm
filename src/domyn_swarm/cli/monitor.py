@@ -15,8 +15,9 @@
 """``domyn-swarm monitor`` — launch grafatui against a swarm's Prometheus.
 
 Lean by design: resolve the proxied Prometheus URL from persisted swarm state and
-exec grafatui (an optional external tool). If grafatui is absent, print the URL and
-an install hint so the user can use Grafana or run it manually.
+exec grafatui (an optional external tool) with the bundled vLLM dashboard, or a
+custom dashboard via ``--dashboard``. If grafatui is absent, print the URL and an
+install hint so the user can use Grafana or run it manually.
 """
 
 from __future__ import annotations
@@ -77,9 +78,14 @@ def _bundled_dashboard() -> Path | None:
 
 def monitor(
     name: Annotated[str, typer.Argument(help="Swarm name to monitor.")],
-    no_dashboard: Annotated[
-        bool, typer.Option("--no-dashboard", help="Do not load the bundled dashboard.")
-    ] = False,
+    dashboard: Annotated[
+        Path | None,
+        typer.Option(
+            "--dashboard",
+            "-d",
+            help="Custom Grafana dashboard JSON to load. Defaults to the bundled vLLM dashboard.",
+        ),
+    ] = None,
     prometheus_url: Annotated[
         str | None, typer.Option("--prometheus-url", help="Override the resolved Prometheus URL.")
     ] = None,
@@ -121,6 +127,11 @@ def monitor(
         )
         raise typer.Exit(code=127)
 
-    dashboard = None if no_dashboard else _bundled_dashboard()
+    if dashboard is not None:
+        if not dashboard.is_file():
+            typer.echo(f"Dashboard file not found: {dashboard}", err=True)
+            raise typer.Exit(code=2)
+    else:
+        dashboard = _bundled_dashboard()
     argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra)
     os.execvp(argv[0], argv)

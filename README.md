@@ -833,8 +833,9 @@ domyn-swarm monitor <swarm-name>
 ```
 
 This launches `grafatui` pointed at `http://<endpoint>/prometheus`. Install it via
-`cargo install grafatui` or a GitHub release binary. Useful flags: `--no-dashboard`, `--range`,
-`--step`, `--prometheus-url`. Alternatively, point a regular Grafana instance at the same
+`cargo install grafatui` or a GitHub release binary. Useful flags: `--dashboard/-d`
+(load a custom Grafana dashboard JSON instead of the bundled one), `--range`, `--step`,
+`--prometheus-url`. Alternatively, point a regular Grafana instance at the same
 `/prometheus` URL.
 
 > **Security note**: the `/prometheus/` path is reachable by anyone who can reach the endpoint. There is
