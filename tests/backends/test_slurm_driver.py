@@ -92,3 +92,14 @@ def test_get_node_from_jobid(mock_check_output, slurm_driver):
     mock_check_output.side_effect = ["nodespec\n", "node001\nnode002\n"]
     node = slurm_driver.get_node_from_jobid(11111)
     assert node == "node001"
+
+
+@patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")
+def test_submit_endpoint_writes_static_server_conf(mock_check_output, slurm_driver, tmp_path):
+    mock_check_output.return_value = "55555"
+    swarm_dir = tmp_path / "swarms" / "s1"
+    (swarm_dir / "serving").mkdir(parents=True)
+    slurm_driver.submit_endpoint("job", 12345, 2, str(swarm_dir))
+    server_conf = swarm_dir / "serving" / "10-server.conf"
+    assert server_conf.exists()
+    assert "proxy_pass http://llm;" in server_conf.read_text()
