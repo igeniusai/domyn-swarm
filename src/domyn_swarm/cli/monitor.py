@@ -1,0 +1,126 @@
+# Copyright 2025 iGenius S.p.A
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""``domyn-swarm monitor`` — launch grafatui against a swarm's Prometheus.
+
+Lean by design: resolve the proxied Prometheus URL from persisted swarm state and
+exec grafatui (an optional external tool). If grafatui is absent, print the URL and
+an install hint so the user can use Grafana or run it manually.
+"""
+
+from __future__ import annotations
+
+from importlib import resources
+import os
+from pathlib import Path
+import shutil
+from typing import Annotated, Any
+
+import typer
+
+
+def build_prometheus_url(swarm) -> str:
+    """Return the proxied Prometheus URL for a loaded swarm.
+
+    Args:
+        swarm: A loaded swarm object exposing ``endpoint`` and
+            ``cfg.backend.endpoint.monitoring.route_prefix``.
+
+    Returns:
+        ``<endpoint><route_prefix>`` with the endpoint's trailing slash removed.
+    """
+    base = swarm.endpoint.rstrip("/")
+    prefix = swarm.cfg.backend.endpoint.monitoring.route_prefix
+    if not prefix.startswith("/"):
+        prefix = "/" + prefix
+    return f"{base}{prefix}"
+
+
+def resolve_grafatui_argv(url: str, *, dashboard: Path | None, extra: list[str]) -> list[str]:
+    """Build the grafatui argument vector.
+
+    Args:
+        url: Prometheus URL to pass via ``--prometheus-url``.
+        dashboard: Optional Grafana dashboard JSON to load via ``--grafana-json``.
+        extra: Additional passthrough arguments (e.g. ``["--range", "1h"]``).
+
+    Returns:
+        The full argv beginning with ``grafatui``.
+    """
+    argv = ["grafatui", "--prometheus-url", url]
+    if dashboard is not None:
+        argv += ["--grafana-json", str(dashboard)]
+    argv += extra
+    return argv
+
+
+def _bundled_dashboard() -> Path | None:
+    """Return a filesystem path to the bundled vLLM dashboard JSON, or None."""
+    try:
+        ref = resources.files("domyn_swarm.data.dashboards").joinpath("vllm.json")
+        with resources.as_file(ref) as p:
+            return Path(p)
+    except (ModuleNotFoundError, FileNotFoundError):
+        return None
+
+
+def monitor(
+    name: Annotated[str, typer.Argument(help="Swarm name to monitor.")],
+    no_dashboard: Annotated[
+        bool, typer.Option("--no-dashboard", help="Do not load the bundled dashboard.")
+    ] = False,
+    prometheus_url: Annotated[
+        str | None, typer.Option("--prometheus-url", help="Override the resolved Prometheus URL.")
+    ] = None,
+    range_: Annotated[
+        str | None, typer.Option("--range", help="grafatui time range, e.g. 1h.")
+    ] = None,
+    step: Annotated[
+        str | None, typer.Option("--step", help="grafatui query step, e.g. 15s.")
+    ] = None,
+) -> None:
+    """Launch grafatui pointed at the swarm's Prometheus endpoint."""
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+    swarm: Any = SwarmStateManager.load(deployment_name=name)
+    mon = getattr(swarm.cfg.backend.endpoint, "monitoring", None)
+    if not getattr(mon, "enabled", False):
+        typer.echo(
+            f"Monitoring is not enabled for swarm '{name}'. "
+            "Set backend.endpoint.monitoring.enabled: true and redeploy.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    url = prometheus_url or build_prometheus_url(swarm)
+
+    extra: list[str] = []
+    if range_:
+        extra += ["--range", range_]
+    if step:
+        extra += ["--step", step]
+
+    if shutil.which("grafatui") is None:
+        typer.echo(
+            "grafatui not found on PATH. Prometheus is available at:\n"
+            f"  {url}\n"
+            "Install grafatui (`cargo install grafatui` or a GitHub release binary), "
+            "or point Grafana at that URL.",
+            err=True,
+        )
+        raise typer.Exit(code=127)
+
+    dashboard = None if no_dashboard else _bundled_dashboard()
+    argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra)
+    os.execvp(argv[0], argv)

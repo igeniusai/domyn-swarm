@@ -24,6 +24,7 @@ from ..cli.init import init_app
 from ..cli.pool import pool_app
 from .db import db_app
 from .job import job_app
+from .monitor import monitor as _monitor_cmd
 from .swarm import swarm_app
 
 
@@ -109,6 +110,8 @@ app.add_typer(
     name="db",
     help="Manage the Domyn-Swarm state database.",
 )
+
+app.command("monitor", short_help="Open grafatui against a swarm's Prometheus")(_monitor_cmd)
 
 logger = _LazyLogger()
 
