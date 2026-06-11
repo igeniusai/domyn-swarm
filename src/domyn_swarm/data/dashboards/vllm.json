@@ -112,7 +112,7 @@
     },
     {
       "type": "stat",
-      "title": "Generation tokens/s",
+      "title": "Generation tokens/s (now)",
       "gridPos": {"h": 4, "w": 3, "x": 12, "y": 0},
       "targets": [
         {
@@ -296,7 +296,7 @@
     },
     {
       "type": "bargauge",
-      "title": "Generation throughput by replica",
+      "title": "Generation throughput by replica (now)",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
       "targets": [
         {
@@ -423,6 +423,36 @@
       ],
       "fieldConfig": {
         "defaults": {"unit": "reqps", "decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg generation tokens/s (over range)",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 52},
+      "targets": [
+        {
+          "expr": "sum(increase(vllm:generation_tokens_total{model_name=~\"$model\"}[$__range])) / $__range_s",
+          "legendFormat": "avg tokens/s",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Avg generation throughput by replica (over range)",
+      "gridPos": {"h": 8, "w": 18, "x": 6, "y": 52},
+      "targets": [
+        {
+          "expr": "sum by (instance) (increase(vllm:generation_tokens_total{model_name=~\"$model\"}[$__range])) / $__range_s",
+          "legendFormat": "{{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 1, "min": 0}
       }
     }
   ]
