@@ -25,7 +25,7 @@ def _swarm(endpoint="http://lbnode:9000", enabled=True, route="/prometheus"):
     mon = SimpleNamespace(enabled=enabled, route_prefix=route)
     ep = SimpleNamespace(monitoring=mon)
     backend = SimpleNamespace(endpoint=ep)
-    cfg = SimpleNamespace(backend=backend)
+    cfg = SimpleNamespace(backend=backend, name="my-swarm", model="Qwen/Qwen3-32B", replicas=16)
     return SimpleNamespace(endpoint=endpoint, cfg=cfg)
 
 
@@ -84,6 +84,39 @@ def test_monitor_rejects_missing_custom_dashboard(monkeypatch, tmp_path):
     with pytest.raises(typer.Exit) as ei:
         monitor_mod.monitor("some-swarm", dashboard=tmp_path / "missing.json")
     assert ei.value.exit_code == 2
+
+
+def test_resolve_argv_emits_variables():
+    argv = resolve_grafatui_argv(
+        "http://x/prometheus",
+        dashboard=None,
+        extra=[],
+        variables={"swarm": "my-swarm", "replicas": "16"},
+    )
+    assert argv.count("--var") == 2
+    assert "swarm=my-swarm" in argv
+    assert "replicas=16" in argv
+
+
+def test_monitor_autofills_and_overrides_variables(monkeypatch):
+    swarm = _swarm()
+
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+    monkeypatch.setattr(SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm))
+    monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
+    captured: dict = {}
+    monkeypatch.setattr(monitor_mod.os, "execvp", lambda f, argv: captured.update(argv=argv))
+
+    # User overrides model; swarm/vllm_job/replicas come from config.
+    monitor_mod.monitor("some-swarm", var=["model=custom-model"])
+
+    argv = captured["argv"]
+    assert "swarm=my-swarm" in argv
+    assert "vllm_job=vllm" in argv
+    assert "replicas=16" in argv
+    assert "model=custom-model" in argv  # override wins over cfg.model
+    assert "model=Qwen/Qwen3-32B" not in argv
 
 
 def test_monitor_exits_cleanly_when_endpoint_has_no_monitoring(monkeypatch):

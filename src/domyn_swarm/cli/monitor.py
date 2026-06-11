@@ -48,13 +48,20 @@ def build_prometheus_url(swarm) -> str:
     return f"{base}{prefix}"
 
 
-def resolve_grafatui_argv(url: str, *, dashboard: Path | None, extra: list[str]) -> list[str]:
+def resolve_grafatui_argv(
+    url: str,
+    *,
+    dashboard: Path | None,
+    extra: list[str],
+    variables: dict[str, str] | None = None,
+) -> list[str]:
     """Build the grafatui argument vector.
 
     Args:
         url: Prometheus URL to pass via ``--prometheus-url``.
         dashboard: Optional Grafana dashboard JSON to load via ``--grafana-json``.
         extra: Additional passthrough arguments (e.g. ``["--range", "1h"]``).
+        variables: Dashboard template variables to pass as repeated ``--var KEY=VALUE``.
 
     Returns:
         The full argv beginning with ``grafatui``.
@@ -62,8 +69,21 @@ def resolve_grafatui_argv(url: str, *, dashboard: Path | None, extra: list[str])
     argv = ["grafatui", "--prometheus-url", url]
     if dashboard is not None:
         argv += ["--grafana-json", str(dashboard)]
+    for key, value in (variables or {}).items():
+        argv += ["--var", f"{key}={value}"]
     argv += extra
     return argv
+
+
+def _parse_var_overrides(pairs: list[str]) -> dict[str, str]:
+    """Parse ``KEY=VALUE`` strings into a dict, raising on malformed entries."""
+    out: dict[str, str] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise typer.BadParameter(f"--var must be KEY=VALUE, got: {pair!r}")
+        out[key] = value
+    return out
 
 
 def _bundled_dashboard() -> Path | None:
@@ -95,6 +115,14 @@ def monitor(
     step: Annotated[
         str | None, typer.Option("--step", help="grafatui query step, e.g. 15s.")
     ] = None,
+    var: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--var",
+            help="Override a dashboard variable as KEY=VALUE (repeatable). "
+            "Defaults are derived from the swarm: swarm, model, vllm_job, replicas.",
+        ),
+    ] = None,
 ) -> None:
     """Launch grafatui pointed at the swarm's Prometheus endpoint."""
     from domyn_swarm.core.state.state_manager import SwarmStateManager
@@ -110,6 +138,17 @@ def monitor(
         raise typer.Exit(code=1)
 
     url = prometheus_url or build_prometheus_url(swarm)
+
+    # Dashboard variables: defaults derived from the swarm config, overridable via --var.
+    variables: dict[str, str] = {"vllm_job": "vllm"}
+    cfg = swarm.cfg
+    if getattr(cfg, "name", None):
+        variables["swarm"] = cfg.name
+    if getattr(cfg, "model", None):
+        variables["model"] = cfg.model
+    if getattr(cfg, "replicas", None) is not None:
+        variables["replicas"] = str(cfg.replicas)
+    variables.update(_parse_var_overrides(var or []))
 
     extra: list[str] = []
     if range_:
@@ -133,5 +172,5 @@ def monitor(
             raise typer.Exit(code=2)
     else:
         dashboard = _bundled_dashboard()
-    argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra)
+    argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra, variables=variables)
     os.execvp(argv[0], argv)

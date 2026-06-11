@@ -1,5 +1,7 @@
 global:
   scrape_interval: {{ monitoring.scrape_interval }}
+  external_labels:
+    swarm: "{{ cfg.name }}"
 
 scrape_configs:
   - job_name: vllm

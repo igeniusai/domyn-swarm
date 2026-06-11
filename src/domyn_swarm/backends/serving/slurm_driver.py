@@ -133,7 +133,7 @@ class SlurmDriver:
             else:
                 targets_path = (serving_dir / "targets.json").as_posix()
             prom_yml = env.get_template("prometheus.yml.j2").render(
-                monitoring=mon, targets_path=targets_path
+                monitoring=mon, targets_path=targets_path, cfg=self.cfg
             )
             (serving_dir / "prometheus.yml").write_text(prom_yml)
 

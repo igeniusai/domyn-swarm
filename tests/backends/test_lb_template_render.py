@@ -207,6 +207,8 @@ def test_server_conf_prometheus_location_follows_route_prefix():
 
 
 def test_prometheus_yml_render():
+    from types import SimpleNamespace
+
     class Mon:
         scrape_interval = "15s"
         exporter_port = 9113
@@ -215,12 +217,17 @@ def test_prometheus_yml_render():
     out = (
         _env()
         .get_template("prometheus.yml.j2")
-        .render(monitoring=Mon(), targets_path="/etc/prometheus/serving/targets.json")
+        .render(
+            monitoring=Mon(),
+            targets_path="/etc/prometheus/serving/targets.json",
+            cfg=SimpleNamespace(name="my-swarm", model="Qwen/Qwen3-32B"),
+        )
     )
     assert "scrape_interval: 15s" in out
     assert "job_name: vllm" in out
     assert "/etc/prometheus/serving/targets.json" in out
     assert "127.0.0.1:9113" in out
+    assert 'swarm: "my-swarm"' in out
 
 
 def _render_lb_with_monitoring(enabled: bool):
