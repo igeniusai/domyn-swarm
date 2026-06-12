@@ -14,17 +14,71 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import sys
 from typing import Annotated
 
 import typer
+from typer.core import TyperGroup
 
-from ..cli.init import init_app
-from ..cli.pool import pool_app
-from .db import db_app
-from .job import job_app
-from .swarm import swarm_app
+# Sub-apps that pull in heavy dependencies (pandas, openai, leptonai, alembic).
+# Imported on first use so light root commands stay fast. Maps command name ->
+# (module, app attribute, help text shown in --help).
+_LAZY_SUBAPPS: dict[str, tuple[str, str, str]] = {
+    "job": (
+        "domyn_swarm.cli.job",
+        "job_app",
+        "Submit a workload to a Domyn-Swarm allocation.",
+    ),
+    "pool": (
+        "domyn_swarm.cli.pool",
+        "pool_app",
+        "Submit a pool of swarm allocations from a YAML config.",
+    ),
+    "init": (
+        "domyn_swarm.cli.init",
+        "init_app",
+        "Initialize a new Domyn-Swarm configuration.",
+    ),
+    "swarm": (
+        "domyn_swarm.cli.swarm",
+        "swarm_app",
+        "Manage swarm allocations.",
+    ),
+    "db": (
+        "domyn_swarm.cli.db",
+        "db_app",
+        "Manage the Domyn-Swarm state database.",
+    ),
+}
+
+
+class LazyGroup(TyperGroup):
+    """Root group that imports heavy sub-command modules only when invoked.
+
+    Keeps light root commands (version, up, down, status) from importing the
+    job/pool/swarm/db subsystems at startup. ``--help`` and the no-args listing
+    still resolve sub-commands (importing them) so the help output is complete.
+    """
+
+    def list_commands(self, ctx):
+        return sorted(set(super().list_commands(ctx)) | set(_LAZY_SUBAPPS))
+
+    def get_command(self, ctx, cmd_name):
+        cmd = super().get_command(ctx, cmd_name)
+        if cmd is not None:
+            return cmd
+        spec = _LAZY_SUBAPPS.get(cmd_name)
+        if spec is None:
+            return None
+        module_path, attr, _ = spec
+        from typer.main import get_command as _typer_to_click
+
+        sub_app = getattr(importlib.import_module(module_path), attr)
+        click_cmd = _typer_to_click(sub_app)
+        self.add_command(click_cmd, cmd_name)
+        return click_cmd
 
 
 class _LazyDomynLLMSwarm:
@@ -90,25 +144,10 @@ class _LazyLogger:
 DomynLLMSwarm = _LazyDomynLLMSwarm()
 SwarmStateManager = _LazySwarmStateManager()
 
-app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True)
+app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True, cls=LazyGroup)
 
-app.add_typer(job_app, name="job", help="Submit a workload to a Domyn-Swarm allocation.")
-app.add_typer(
-    pool_app,
-    name="pool",
-    help="Submit a pool of swarm allocations from a YAML config.",
-)
-app.add_typer(
-    init_app,
-    name="init",
-    help="Initialize a new Domyn-Swarm configuration.",
-)
-app.add_typer(swarm_app, name="swarm")
-app.add_typer(
-    db_app,
-    name="db",
-    help="Manage the Domyn-Swarm state database.",
-)
+# Sub-apps (job/pool/init/swarm/db) are registered lazily by LazyGroup; see
+# _LAZY_SUBAPPS above. Only light root commands are wired eagerly below.
 
 logger = _LazyLogger()
 
