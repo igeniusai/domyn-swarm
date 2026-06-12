@@ -120,7 +120,7 @@ def head_rev_fast() -> str | None:
     Head is the revision that no other migration declares as its down_revision.
     Returns None if it can't be determined unambiguously.
     """
-    versions = files("domyn_swarm.core.state").joinpath("migrations", "versions")
+    versions = files("domyn_swarm.core.state").joinpath("migrations").joinpath("versions")
     revisions: set[str] = set()
     downs: set[str] = set()
     try:
