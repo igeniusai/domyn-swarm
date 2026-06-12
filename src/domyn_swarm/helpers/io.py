@@ -13,15 +13,19 @@
 # limitations under the License.
 
 # helpers/io.py
+from __future__ import annotations
+
 import glob
 import math
 import os
 from pathlib import Path
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from domyn_swarm import utils
 from domyn_swarm.helpers.patterns import expand_brace_ranges
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def load_dataframe(
@@ -43,6 +47,8 @@ def load_dataframe(
     Returns:
         pd.DataFrame: Loaded dataframe.
     """
+
+    import pandas as pd
 
     read_kwargs = read_kwargs or {}
 
