@@ -838,6 +838,13 @@ This launches `grafatui` pointed at `http://<endpoint>/prometheus`. Install it v
 `--prometheus-url`. Alternatively, point a regular Grafana instance at the same
 `/prometheus` URL.
 
+The bundled dashboard is parameterized by template variables that `monitor` auto-fills
+from the swarm config: `vllm_job` (the Prometheus job name) and `replicas` (the expected
+replica count, which drives the dynamic "Replicas down" panel). Override them — or pass
+extra variables your own dashboard uses — with repeatable `--var KEY=VALUE`, e.g.
+`domyn-swarm monitor <swarm> --var replicas=8`. Each swarm runs its own Prometheus that
+scrapes only that swarm, so the dashboard does not filter by swarm or model.
+
 > **Security note**: the `/prometheus/` path is reachable by anyone who can reach the endpoint. There is
 > no authentication on it, so this feature is intended for internal/HPC use only.
 
