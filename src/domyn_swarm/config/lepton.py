@@ -118,8 +118,10 @@ class LeptonConfig(BaseModel):
         default_factory=default_for("lepton.workspace_id", get_settings().lepton_workspace_id),
         description="Lepton workspace ID",
     )
-    endpoint: LeptonEndpointConfig = LeptonEndpointConfig()
-    job: LeptonJobConfig = LeptonJobConfig()
+    # default_factory (not a shared instance) so the Lepton SDK is imported only
+    # when a LeptonConfig is actually built, not when this module is imported.
+    endpoint: LeptonEndpointConfig = Field(default_factory=LeptonEndpointConfig)
+    job: LeptonJobConfig = Field(default_factory=LeptonJobConfig)
     env: dict[str, str] = Field(default_factory=dict)
 
     def build(self, cfg_ctx) -> DeploymentPlan:

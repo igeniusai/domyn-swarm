@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from collections.abc import Callable
 import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import uuid
 
 from pydantic import (
@@ -38,7 +40,6 @@ from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.helpers.swarm import generate_swarm_name
-from domyn_swarm.jobs import JobBuilder, SwarmJob
 from domyn_swarm.platform.protocols import (
     JobHandle,
     JobProbe,
@@ -50,6 +51,9 @@ from domyn_swarm.platform.protocols import (
 )
 
 from ..core.state.state_manager import SwarmStateManager
+
+if TYPE_CHECKING:
+    from domyn_swarm.jobs import SwarmJob
 
 logger = setup_logger(__name__, level=logging.INFO)
 settings = get_settings()
@@ -336,7 +340,7 @@ class DomynLLMSwarm(BaseModel):
         self._state_mgr.save(deployment_name)
 
     @classmethod
-    def from_state(cls, deployment_name: str) -> "DomynLLMSwarm":
+    def from_state(cls, deployment_name: str) -> DomynLLMSwarm:
         """Initialize a swarm from a saved state.
 
         Args:
@@ -593,6 +597,8 @@ class DomynLLMSwarm(BaseModel):
 
         input_parquet = to_path(input_path)
         output_parquet = to_path(output_path)
+
+        from domyn_swarm.jobs import JobBuilder
 
         job_class = JobBuilder.to_class_path(job)
         job_kwargs = JobBuilder.to_kwargs_json(job)

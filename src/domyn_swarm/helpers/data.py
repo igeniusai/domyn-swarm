@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from _hashlib import HASH
 import glob
 import hashlib
@@ -20,11 +22,13 @@ import mmap
 import os
 from pathlib import Path
 import sys
-
-from openai.types.chat.chat_completion import Choice
+from typing import TYPE_CHECKING
 
 from domyn_swarm import utils
 from domyn_swarm.helpers.patterns import expand_brace_ranges
+
+if TYPE_CHECKING:
+    from openai.types.chat.chat_completion import Choice
 
 
 def _hash_file(
