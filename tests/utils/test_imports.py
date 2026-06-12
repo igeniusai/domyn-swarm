@@ -9,7 +9,7 @@ def test_have_lepton_false_when_missing(monkeypatch):
     Args:
         monkeypatch: Pytest monkeypatch fixture.
     """
-    monkeypatch.setattr(imports_mod, "_LeptonAPIClient", None)
+    monkeypatch.setattr(imports_mod, "_lepton_client_cls", lambda: None)
     assert imports_mod.have_lepton() is False
 
 
@@ -19,7 +19,7 @@ def test_require_lepton_raises_import_error(monkeypatch):
     Args:
         monkeypatch: Pytest monkeypatch fixture.
     """
-    monkeypatch.setattr(imports_mod, "_LeptonAPIClient", None)
+    monkeypatch.setattr(imports_mod, "_lepton_client_cls", lambda: None)
     with pytest.raises(ImportError, match="domyn-swarm\\[lepton\\]"):
         imports_mod._require_lepton()
 
@@ -39,7 +39,7 @@ def test_make_lepton_client_uses_overrides(monkeypatch):
         def __init__(self, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr(imports_mod, "_LeptonAPIClient", DummyClient)
+    monkeypatch.setattr(imports_mod, "_lepton_client_cls", lambda: DummyClient)
     monkeypatch.setattr(imports_mod, "_LEPTON_IMPORT_ERR", None)
 
     client = imports_mod.make_lepton_client(token="tok", workspace="ws")
@@ -60,7 +60,7 @@ def test_make_lepton_client_wraps_errors(monkeypatch):
         def __init__(self, **kwargs):
             raise ValueError("boom")
 
-    monkeypatch.setattr(imports_mod, "_LeptonAPIClient", BoomClient)
+    monkeypatch.setattr(imports_mod, "_lepton_client_cls", lambda: BoomClient)
     monkeypatch.setattr(imports_mod, "_LEPTON_IMPORT_ERR", None)
 
     with pytest.raises(RuntimeError, match="Failed to initialize Lepton API client"):
