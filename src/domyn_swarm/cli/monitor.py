@@ -120,7 +120,7 @@ def monitor(
         typer.Option(
             "--var",
             help="Override a dashboard variable as KEY=VALUE (repeatable). "
-            "Defaults are derived from the swarm: swarm, model, vllm_job, replicas.",
+            "Auto-filled defaults: vllm_job, replicas.",
         ),
     ] = None,
 ) -> None:
@@ -140,12 +140,12 @@ def monitor(
     url = prometheus_url or build_prometheus_url(swarm)
 
     # Dashboard variables: defaults derived from the swarm config, overridable via --var.
+    # We intentionally do NOT auto-fill `swarm`/`model`: a swarm's Prometheus scrapes
+    # only that one swarm (so those filters are redundant), and vLLM labels `model_name`
+    # with the full resolved model path — not cfg.model — so it would match nothing.
+    # Users can still pass either explicitly via --var for custom dashboards.
     variables: dict[str, str] = {"vllm_job": "vllm"}
     cfg = swarm.cfg
-    if getattr(cfg, "name", None):
-        variables["swarm"] = cfg.name
-    if getattr(cfg, "model", None):
-        variables["model"] = cfg.model
     if getattr(cfg, "replicas", None) is not None:
         variables["replicas"] = str(cfg.replicas)
     variables.update(_parse_var_overrides(var or []))

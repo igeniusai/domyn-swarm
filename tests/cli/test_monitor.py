@@ -108,15 +108,16 @@ def test_monitor_autofills_and_overrides_variables(monkeypatch):
     captured: dict = {}
     monkeypatch.setattr(monitor_mod.os, "execvp", lambda f, argv: captured.update(argv=argv))
 
-    # User overrides model; swarm/vllm_job/replicas come from config.
     monitor_mod.monitor("some-swarm", var=["model=custom-model"])
 
     argv = captured["argv"]
-    assert "swarm=my-swarm" in argv
+    # Only vllm_job + replicas are auto-filled; swarm/model are NOT (by design).
     assert "vllm_job=vllm" in argv
     assert "replicas=16" in argv
-    assert "model=custom-model" in argv  # override wins over cfg.model
+    assert "swarm=my-swarm" not in argv
     assert "model=Qwen/Qwen3-32B" not in argv
+    # A user-supplied --var still passes through.
+    assert "model=custom-model" in argv
 
 
 def test_monitor_exits_cleanly_when_endpoint_has_no_monitoring(monkeypatch):
