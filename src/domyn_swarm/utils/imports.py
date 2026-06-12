@@ -14,33 +14,46 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import importlib
 
-_LeptonAPIClient = None  # type: ignore[assignment]
 _LEPTON_IMPORT_ERR: Exception | None = None
 
-# Try modern and fallback module paths (adjust if SDK layout changes)
-for modpath, attr in (
-    ("leptonai.api.v2.client", "APIClient"),
-    ("leptonai.api.client", "APIClient"),  # fallback for older SDKs
-):
-    try:
-        mod = importlib.import_module(modpath)
-        _LeptonAPIClient = getattr(mod, attr)
+
+@lru_cache(maxsize=1)
+def _lepton_client_cls():
+    """Probe for and return the Lepton SDK ``APIClient`` class lazily (cached).
+
+    Returns the class, or ``None`` if the SDK is unavailable (the last import
+    error is recorded in ``_LEPTON_IMPORT_ERR``). The probe runs on first use
+    rather than at module import, so importing this module — and anything that
+    transitively imports it (config, state, CLI) — does NOT pull in leptonai.
+    """
+    global _LEPTON_IMPORT_ERR
+    # Try modern and fallback module paths (adjust if SDK layout changes)
+    for modpath, attr in (
+        ("leptonai.api.v2.client", "APIClient"),
+        ("leptonai.api.client", "APIClient"),  # fallback for older SDKs
+    ):
+        try:
+            mod = importlib.import_module(modpath)
+        except ModuleNotFoundError as e:
+            _LEPTON_IMPORT_ERR = e
+            continue
+        try:
+            cls = getattr(mod, attr)
+        except Exception as e:
+            # Imported module but failed to access symbol (bad install / incompatible deps)
+            _LEPTON_IMPORT_ERR = e
+            break
         _LEPTON_IMPORT_ERR = None
-        break
-    except ModuleNotFoundError as e:
-        _LEPTON_IMPORT_ERR = e
-        continue
-    except Exception as e:
-        # Imported module but failed to access symbol (bad install / incompatible deps)
-        _LEPTON_IMPORT_ERR = e
-        break
+        return cls
+    return None
 
 
 def have_lepton() -> bool:
     """Return True if the Lepton SDK is importable (client class found)."""
-    return _LeptonAPIClient is not None
+    return _lepton_client_cls() is not None
 
 
 def _require_lepton() -> None:
@@ -48,7 +61,7 @@ def _require_lepton() -> None:
     Raise ImportError with a helpful message if the Lepton SDK is unavailable.
     Does NOT instantiate the client; safe to call anywhere.
     """
-    if _LeptonAPIClient is None:
+    if _lepton_client_cls() is None:
         hint = (
             f" (import failed: {type(_LEPTON_IMPORT_ERR).__name__}: {_LEPTON_IMPORT_ERR})"
             if _LEPTON_IMPORT_ERR
@@ -65,14 +78,16 @@ def make_lepton_client(*, token: str | None = None, workspace: str | None = None
     If the SDK requires auth (e.g., `lep login`), pass a token via env/CI.
     """
     _require_lepton()
+    client_cls = _lepton_client_cls()
+    assert client_cls is not None  # _require_lepton would have raised otherwise
     try:
         if token is not None and workspace is not None:
-            return _LeptonAPIClient(token=token, workspace_id=workspace)  # type: ignore[misc]
+            return client_cls(token=token, workspace_id=workspace)
         if token is not None:
-            return _LeptonAPIClient(token=token)  # type: ignore[misc]
+            return client_cls(token=token)
         if workspace is not None:
-            return _LeptonAPIClient(workspace_id=workspace)  # type: ignore[misc]
-        return _LeptonAPIClient()  # type: ignore[misc]
+            return client_cls(workspace_id=workspace)
+        return client_cls()
     except Exception as e:
         raise RuntimeError(
             "Failed to initialize Lepton API client. "
