@@ -25,7 +25,7 @@ from domyn_swarm.config.settings import get_settings
 from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.helpers.logger import setup_logger
 
-from .migrate import get_current_rev, get_head_rev, upgrade_head
+from .migrate import current_rev_fast, get_current_rev, get_head_rev, head_rev_fast, upgrade_head
 
 logger = setup_logger(__name__)
 
@@ -78,7 +78,15 @@ def ensure_db_up_to_date(*, noisy: bool = False) -> None:
             _DB_UPGRADED = True
             return
 
-        # Existing DB: figure out current vs head
+        # Fast path: decide "already at head" with a cheap SQLite read + a script
+        # scan, avoiding the ~2s alembic import in the common case.
+        fast_current = current_rev_fast(db_str)
+        fast_head = head_rev_fast()
+        if fast_head is not None and fast_current == fast_head:
+            _DB_UPGRADED = True
+            return
+
+        # Existing DB: figure out current vs head (imports alembic)
         try:
             current = get_current_rev(db_str)  # may return None or raise if unversioned
         except Exception as e:  # pragma: no cover (defensive)

@@ -53,3 +53,35 @@ def test_ensure_db_up_to_date_noop_when_current(monkeypatch, tmp_path):
     monkeypatch.setattr(autoupgrade_mod, "upgrade_head", _upgrade_head)
     autoupgrade_mod.ensure_db_up_to_date(noisy=False)
     assert called["count"] == 0
+
+
+def test_ensure_db_up_to_date_fast_path_skips_alembic(monkeypatch, tmp_path):
+    """When the DB is already at head, the cheap fast path returns without ever
+    calling the alembic-backed get_current_rev/get_head_rev/upgrade_head."""
+    import sqlite3
+
+    from domyn_swarm.core.state.migrate import head_rev_fast
+
+    head = head_rev_fast()
+    assert head is not None
+
+    db_path = tmp_path / "swarm.db"
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE alembic_version (version_num VARCHAR(32))")
+    con.execute("INSERT INTO alembic_version VALUES (?)", (head,))
+    con.commit()
+    con.close()
+
+    monkeypatch.setattr(autoupgrade_mod, "_DB_UPGRADED", False)
+    monkeypatch.setattr(autoupgrade_mod, "get_settings", lambda: DummySettings(skip=False))
+    monkeypatch.setattr(autoupgrade_mod.SwarmStateManager, "_resolve_db_path", lambda: db_path)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("alembic-backed path should not be reached on the fast path")
+
+    monkeypatch.setattr(autoupgrade_mod, "get_current_rev", _boom)
+    monkeypatch.setattr(autoupgrade_mod, "get_head_rev", _boom)
+    monkeypatch.setattr(autoupgrade_mod, "upgrade_head", _boom)
+
+    autoupgrade_mod.ensure_db_up_to_date(noisy=False)
+    assert autoupgrade_mod._DB_UPGRADED is True

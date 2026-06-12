@@ -29,7 +29,8 @@ def migrate_mod():
 def test_upgrade_head_calls_alembic_upgrade(mocker, tmp_path, migrate_mod):
     db_path = tmp_path / "swarm.db"
 
-    upgrade_mock = mocker.patch.object(migrate_mod.command, "upgrade")
+    # alembic is imported lazily inside the function; patch it at the source.
+    upgrade_mock = mocker.patch("alembic.command.upgrade")
 
     migrate_mod.upgrade_head(str(db_path))
 
@@ -44,7 +45,7 @@ def test_upgrade_head_calls_alembic_upgrade(mocker, tmp_path, migrate_mod):
 def test_stamp_head_calls_alembic_stamp(mocker, tmp_path, migrate_mod):
     db_path = tmp_path / "swarm.db"
 
-    stamp_mock = mocker.patch.object(migrate_mod.command, "stamp")
+    stamp_mock = mocker.patch("alembic.command.stamp")
 
     migrate_mod.stamp_head(str(db_path))
 
@@ -58,8 +59,8 @@ def test_stamp_head_calls_alembic_stamp(mocker, tmp_path, migrate_mod):
 def test_get_current_rev_uses_migration_context(mocker, tmp_path, migrate_mod):
     db_path = tmp_path / "swarm.db"
 
-    # Patch create_engine so we don't touch a real DB
-    engine_mock = mocker.patch.object(migrate_mod, "create_engine")
+    # Patch create_engine so we don't touch a real DB (imported lazily → patch source)
+    engine_mock = mocker.patch("sqlalchemy.create_engine")
     engine = mocker.MagicMock()
     engine_mock.return_value = engine
 
@@ -69,7 +70,7 @@ def test_get_current_rev_uses_migration_context(mocker, tmp_path, migrate_mod):
     engine.connect.return_value.__enter__.return_value = conn
 
     # Patch MigrationContext.configure(...) and its get_current_revision()
-    configure_mock = mocker.patch.object(migrate_mod.MigrationContext, "configure")
+    configure_mock = mocker.patch("alembic.runtime.migration.MigrationContext.configure")
     ctx = mocker.MagicMock()
     ctx.get_current_revision.return_value = "abc123"
     configure_mock.return_value = ctx
@@ -89,12 +90,13 @@ def test_get_current_rev_uses_migration_context(mocker, tmp_path, migrate_mod):
 def test_get_head_rev_uses_scriptdirectory(mocker, tmp_path, migrate_mod):
     db_path = tmp_path / "swarm.db"
 
+    from alembic.config import Config
+
     fake_script = mocker.Mock()
     fake_script.get_current_head.return_value = "head_rev_456"
 
-    from_config_mock = mocker.patch.object(
-        migrate_mod.ScriptDirectory,
-        "from_config",
+    from_config_mock = mocker.patch(
+        "alembic.script.ScriptDirectory.from_config",
         return_value=fake_script,
     )
 
@@ -102,6 +104,40 @@ def test_get_head_rev_uses_scriptdirectory(mocker, tmp_path, migrate_mod):
 
     from_config_mock.assert_called_once()
     (cfg_arg,) = from_config_mock.call_args[0]
-    assert isinstance(cfg_arg, migrate_mod.Config)
+    assert isinstance(cfg_arg, Config)
     assert cfg_arg.get_main_option("sqlalchemy.url") == f"sqlite:///{db_path}"
     assert rev == "head_rev_456"
+
+
+def test_head_rev_fast_matches_alembic(migrate_mod, tmp_path):
+    """The alembic-free head scan agrees with alembic's ScriptDirectory."""
+    db_path = tmp_path / "swarm.db"
+    assert migrate_mod.head_rev_fast() == migrate_mod.get_head_rev(str(db_path))
+
+
+def test_head_rev_fast_does_not_import_alembic(migrate_mod):
+    """head_rev_fast must not pull in alembic (it's the whole point)."""
+    import sys
+
+    sys.modules.pop("alembic", None)
+    migrate_mod.head_rev_fast()
+    assert "alembic" not in sys.modules
+
+
+def test_current_rev_fast_reads_sqlite(migrate_mod, tmp_path):
+    """current_rev_fast reads alembic_version directly; None when missing/unversioned."""
+    import sqlite3
+
+    db_path = tmp_path / "swarm.db"
+    assert migrate_mod.current_rev_fast(str(db_path)) is None  # missing file
+
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE other (x)")  # exists but unversioned
+    con.commit()
+    assert migrate_mod.current_rev_fast(str(db_path)) is None
+
+    con.execute("CREATE TABLE alembic_version (version_num VARCHAR(32))")
+    con.execute("INSERT INTO alembic_version VALUES ('deadbeef')")
+    con.commit()
+    con.close()
+    assert migrate_mod.current_rev_fast(str(db_path)) == "deadbeef"
