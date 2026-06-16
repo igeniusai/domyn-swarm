@@ -86,6 +86,22 @@ def _parse_var_overrides(pairs: list[str]) -> dict[str, str]:
     return out
 
 
+def _pretty_argv(argv: list[str]) -> str:
+    """Format an argv for display: the program on its own line, then each option
+    grouped with its value on one backslash-continued line."""
+    lines = [argv[0]]
+    i = 1
+    while i < len(argv):
+        tok = argv[i]
+        if tok.startswith("-") and i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+            lines.append(f"{tok} {argv[i + 1]}")
+            i += 2
+        else:
+            lines.append(tok)
+            i += 1
+    return " \\\n  ".join(lines)
+
+
 def _bundled_dashboard() -> Path | None:
     """Return a filesystem path to the bundled vLLM dashboard JSON, or None."""
     try:
@@ -176,7 +192,6 @@ def monitor(
         dashboard = _bundled_dashboard()
     argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra, variables=variables)
 
-    pretty = " \\\n  ".join(argv)
-    typer.echo(f"Launching grafatui with:\n  {pretty}")
+    typer.echo(f"Launching grafatui with:\n  {_pretty_argv(argv)}")
 
     os.execvp(argv[0], argv)
