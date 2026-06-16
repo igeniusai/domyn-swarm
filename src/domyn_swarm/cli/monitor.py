@@ -127,7 +127,9 @@ def monitor(
     """Launch grafatui pointed at the swarm's Prometheus endpoint."""
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
-    swarm: Any = SwarmStateManager.load(deployment_name=name)
+    # Lightweight read: just endpoint + cfg, without building the deployment plan
+    # (which would import the whole serving backend that monitoring never uses).
+    swarm: Any = SwarmStateManager.load_monitor_view(deployment_name=name)
     mon = getattr(swarm.cfg.backend.endpoint, "monitoring", None)
     if not getattr(mon, "enabled", False):
         typer.echo(
@@ -173,4 +175,8 @@ def monitor(
     else:
         dashboard = _bundled_dashboard()
     argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra, variables=variables)
+
+    pretty = " \\\n  ".join(argv)
+    typer.echo(f"Launching grafatui with:\n  {pretty}")
+
     os.execvp(argv[0], argv)

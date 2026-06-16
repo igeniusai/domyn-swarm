@@ -139,6 +139,31 @@ class SwarmStateManager:
         swarm._deployment.compute = backend
         return swarm
 
+    @classmethod
+    def load_monitor_view(cls, deployment_name: str):
+        """Lightweight read for read-only consumers (e.g. ``domyn-swarm monitor``).
+
+        Returns just the persisted endpoint and parsed config, WITHOUT constructing
+        a :class:`DomynLLMSwarm` — which would build the deployment plan and import
+        the whole serving backend (~400 modules) that monitoring never needs.
+
+        Returns:
+            An object exposing ``endpoint`` (str) and ``cfg`` (DomynLLMSwarmConfig).
+        """
+        from types import SimpleNamespace
+
+        from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+
+        session_factory = make_session_factory(cls._get_db_path())
+        with session_factory() as s:
+            rec = s.get(SwarmRecord, deployment_name)
+        if rec is None:
+            raise JobNotFoundError(deployment_name)
+
+        cfg = DomynLLMSwarmConfig.model_validate(rec.cfg)
+        endpoint = (rec.swarm or {}).get("endpoint", "")
+        return SimpleNamespace(endpoint=endpoint, cfg=cfg)
+
     def delete_record(self, deployment_name: str) -> None:
         session_factory = make_session_factory(self._get_db_path())
         with session_factory() as s:
