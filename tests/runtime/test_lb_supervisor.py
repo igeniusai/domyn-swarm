@@ -120,11 +120,15 @@ def test_render_targets_json(tmp_path: Path):
     (tmp_path / "replica-0.head").write_text("h0:9000")
     (tmp_path / "replica-1.head").write_text("h1:9000")
     payload = json.loads(lbs.render_targets(tmp_path))
-    assert payload == [{"targets": ["h0:9000", "h1:9000"], "labels": {"job": "vllm"}}]
+    # One entry per replica so each target carries its ordinal `replica` label.
+    assert payload == [
+        {"targets": ["h0:9000"], "labels": {"job": "vllm", "replica": "0"}},
+        {"targets": ["h1:9000"], "labels": {"job": "vllm", "replica": "1"}},
+    ]
 
 
 def test_render_targets_empty(tmp_path: Path):
-    assert json.loads(lbs.render_targets(tmp_path)) == [{"targets": [], "labels": {"job": "vllm"}}]
+    assert json.loads(lbs.render_targets(tmp_path)) == []
 
 
 def test_reconcile_writes_targets_when_enabled(tmp_path: Path):

@@ -27,16 +27,16 @@ import sys
 import time
 
 
-def read_head_files(serving_dir: Path) -> list[str]:
-    """Return replica ``host:port`` addresses, ordered by replica id.
+def read_head_entries(serving_dir: Path) -> list[tuple[int, str]]:
+    """Return ``(replica_id, host:port)`` pairs, ordered by replica id.
 
     Args:
         serving_dir: Directory containing ``replica-<id>.head`` files, each
             holding a single ``host:port`` line.
 
     Returns:
-        Addresses sorted ascending by the integer replica id encoded in the
-        filename. Empty if no head files exist yet.
+        ``(replica_id, addr)`` pairs sorted ascending by the integer replica id
+        encoded in the filename. Empty if no head files exist yet.
     """
     serving_dir = Path(serving_dir)
     entries: list[tuple[int, str]] = []
@@ -49,7 +49,21 @@ def read_head_files(serving_dir: Path) -> list[str]:
         if addr and ":" in addr:
             entries.append((replica_id, addr))
     entries.sort(key=lambda e: e[0])
-    return [addr for _, addr in entries]
+    return entries
+
+
+def read_head_files(serving_dir: Path) -> list[str]:
+    """Return replica ``host:port`` addresses, ordered by replica id.
+
+    Args:
+        serving_dir: Directory containing ``replica-<id>.head`` files, each
+            holding a single ``host:port`` line.
+
+    Returns:
+        Addresses sorted ascending by the integer replica id encoded in the
+        filename. Empty if no head files exist yet.
+    """
+    return [addr for _, addr in read_head_entries(serving_dir)]
 
 
 def render_upstreams(
@@ -129,11 +143,16 @@ def render_targets(serving_dir: Path) -> str:
         serving_dir: Directory containing ``replica-*.head`` files.
 
     Returns:
-        A JSON string with a single file_sd entry labelling all replica
-        ``host:port`` targets with ``job=vllm``.
+        A JSON string with one file_sd entry per replica, so each target also
+        carries its ordinal ``replica`` label (Prometheus file_sd labels apply
+        per entry, not per target) in addition to ``job=vllm``.
     """
-    addrs = read_head_files(serving_dir)
-    return json.dumps([{"targets": addrs, "labels": {"job": "vllm"}}]) + "\n"
+    entries = read_head_entries(serving_dir)
+    groups = [
+        {"targets": [addr], "labels": {"job": "vllm", "replica": str(replica_id)}}
+        for replica_id, addr in entries
+    ]
+    return json.dumps(groups) + "\n"
 
 
 @dataclass
