@@ -14,6 +14,7 @@
 
 from unittest.mock import ANY, MagicMock, patch
 
+import jinja2
 import pytest
 
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
@@ -85,6 +86,31 @@ def test_submit_endpoint(mock_get_template, mock_check_output, slurm_driver, tmp
         ],
         text=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("endpoint_qos", "expected_qos"),
+    [(None, "test_qos"), ("endpoint_qos", "endpoint_qos")],
+)
+def test_lb_template_uses_endpoint_qos_override(dummy_config, endpoint_qos, expected_qos):
+    dummy_config.backend.endpoint.qos = endpoint_qos
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(dummy_config.backend.template_path.parent),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+
+    rendered = env.get_template("lb.sh.j2").render(
+        cfg=dummy_config,
+        job_name="test_lb_job",
+        dep_jobid=12345,
+        replicas=4,
+        swarm_directory="/tmp/swarm",
+        collector_script_path="/tmp/collector.py",
+    )
+
+    assert f"#SBATCH --qos={expected_qos}" in rendered
 
 
 @patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")

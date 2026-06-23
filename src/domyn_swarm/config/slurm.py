@@ -35,6 +35,7 @@ class SlurmEndpointConfig(BaseModel):
     nginx_image: str | utils.EnvPath = Field(
         default_factory=default_for("slurm.endpoint.nginx_image")
     )
+    qos: str | None = None
     poll_interval: int = 10  # sacct polling cadence (s)
     require_allocated_node: bool = False  # refuse srun if not inside a Slurm allocation
 

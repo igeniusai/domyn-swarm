@@ -497,10 +497,16 @@ Below is an overview of every field, its purpose, and the default that will be u
 | **threads\_per\_core** | `int` | `1`          | SMT threads to request per physical core.                       |
 | **wall\_time**         | `str` | `"24:00:00"` | SLURM time limit for the driver job.                            |
 | **nginx\_image**       | `str \| pathlib.Path` | **required** | Path to a singularity image running NGINX as load balancer for the swarm.|
+| **qos**                 | `str \| null` | `null` | QoS override for the load-balancer job; uses `SlurmConfig.qos` when unset. |
 | **nginx_timeout**      | `str \| int` | "60s" | HTTP timeout for NGINX proxy requests to model replicas. |
 | **port**           | `int` | `9000`       | External port exposed by the NGINX load balancer. |
 | **poll_interval**  | `int` | `10` | Seconds between status checks while waiting for the load balancer to become ready. |
 
+`endpoint.qos` is an optional override rather than a resolved copy of `SlurmConfig.qos`.
+When it is unset, it remains `null` in the validated configuration and is omitted by
+`model_dump(exclude_none=True)`. The effective load-balancer QoS is resolved at submission time
+as `endpoint.qos` or `SlurmConfig.qos`. This preserves the distinction between an explicit
+endpoint override and an inherited value.
 
 #### Using Singularity on Slurm
 
