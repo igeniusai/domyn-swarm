@@ -112,6 +112,16 @@ def _bundled_dashboard() -> Path | None:
         return None
 
 
+def _bundled_gpu_dashboard(kind: str) -> Path | None:
+    """Return the bundled GPU dashboard JSON for a gpu_exporter kind, or None."""
+    try:
+        ref = resources.files("domyn_swarm.data.dashboards").joinpath(f"gpu_{kind}.json")
+        with resources.as_file(ref) as p:
+            return Path(p)
+    except (ModuleNotFoundError, FileNotFoundError):
+        return None
+
+
 def monitor(
     name: Annotated[str, typer.Argument(help="Swarm name to monitor.")],
     dashboard: Annotated[
@@ -122,6 +132,14 @@ def monitor(
             help="Custom Grafana dashboard JSON to load. Defaults to the bundled vLLM dashboard.",
         ),
     ] = None,
+    gpu: Annotated[
+        bool,
+        typer.Option(
+            "--gpu",
+            "-g",
+            help="Load the GPU dashboard for the swarm's configured gpu_exporter kind.",
+        ),
+    ] = False,
     prometheus_url: Annotated[
         str | None, typer.Option("--prometheus-url", help="Override the resolved Prometheus URL.")
     ] = None,
@@ -183,6 +201,14 @@ def monitor(
             err=True,
         )
         raise typer.Exit(code=127)
+
+    if gpu:
+        gx = getattr(mon, "gpu_exporter", None)
+        if gx is None or not getattr(gx, "enabled", False):
+            typer.echo("GPU monitoring is not enabled for this swarm.", err=True)
+            raise typer.Exit(code=2)
+        if dashboard is None:  # --dashboard still overrides
+            dashboard = _bundled_gpu_dashboard(gx.kind)
 
     if dashboard is not None:
         if not dashboard.is_file():

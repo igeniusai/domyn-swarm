@@ -151,3 +151,10 @@ def test_bundled_gpu_dashboards_valid_json():
         data = json.loads(ref.read_text())
         exprs = json.dumps(data)
         assert "dswarm_gpu_owner" in exprs  # each panel joins ownership
+
+
+def test_bundled_gpu_dashboard_resolves_by_kind():
+    p = monitor_mod._bundled_gpu_dashboard("dcgm")
+    assert p is not None and p.name == "gpu_dcgm.json"
+    p2 = monitor_mod._bundled_gpu_dashboard("nvidia_smi")
+    assert p2 is not None and p2.name == "gpu_nvidia_smi.json"
