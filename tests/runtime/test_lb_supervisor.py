@@ -175,3 +175,22 @@ def test_render_gpu_targets_dedup_by_host(tmp_path: Path):
 
 def test_render_gpu_targets_empty(tmp_path: Path):
     assert json.loads(lbs.render_gpu_targets(tmp_path)) == []
+
+
+def test_render_gpu_ownership(tmp_path: Path):
+    (tmp_path / "gpu-owner-0.txt").write_text("GPU-aaa\nGPU-bbb\n")
+    (tmp_path / "gpu-owner-1.txt").write_text("GPU-ccc\n")
+    text = lbs.render_gpu_ownership(tmp_path)
+    lines = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
+    assert lines == [
+        'dswarm_gpu_owner{uuid="GPU-aaa",replica="0"} 1',
+        'dswarm_gpu_owner{uuid="GPU-bbb",replica="0"} 1',
+        'dswarm_gpu_owner{uuid="GPU-ccc",replica="1"} 1',
+    ]
+    assert "# TYPE dswarm_gpu_owner gauge" in text
+
+
+def test_render_gpu_ownership_empty(tmp_path: Path):
+    text = lbs.render_gpu_ownership(tmp_path)
+    assert "dswarm_gpu_owner{" not in text
+    assert "# TYPE dswarm_gpu_owner gauge" in text  # header always present

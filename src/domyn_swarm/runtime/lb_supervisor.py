@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import sys
 import time
@@ -182,6 +183,36 @@ def render_gpu_targets(serving_dir: Path) -> str:
         for _host, addr in read_gpu_target_entries(serving_dir)
     ]
     return json.dumps(groups) + "\n"
+
+
+GPU_OWNERSHIP_FILENAME = "gpu_ownership.prom"
+_OWNER_RE = re.compile(r"gpu-owner-(?P<replica>.+)\.txt$")
+
+
+def render_gpu_ownership(serving_dir: Path) -> str:
+    """Render the uuid→replica join metric in Prometheus text format.
+
+    Reads ``gpu-owner-<replica>.txt`` files (one GPU UUID per line) and
+    emits one ``dswarm_gpu_owner{uuid,replica} 1`` series per owned GPU.
+    """
+    serving_dir = Path(serving_dir)
+    rows: list[tuple[str, str]] = []  # (replica, uuid)
+    for f in serving_dir.glob("gpu-owner-*.txt"):
+        m = _OWNER_RE.search(f.name)
+        if not m:
+            continue
+        replica = m.group("replica")
+        for line in f.read_text().splitlines():
+            uuid = line.strip()
+            if uuid:
+                rows.append((replica, uuid))
+    rows.sort()
+    out = [
+        "# HELP dswarm_gpu_owner Which replica owns a GPU (join key: uuid).",
+        "# TYPE dswarm_gpu_owner gauge",
+    ]
+    out += [f'dswarm_gpu_owner{{uuid="{uuid}",replica="{replica}"}} 1' for replica, uuid in rows]
+    return "\n".join(out) + "\n"
 
 
 @dataclass
