@@ -159,3 +159,19 @@ def test_reconcile_no_targets_when_disabled(tmp_path: Path):
     )
     lbs.reconcile_once(opts)
     assert not (serving / "targets.json").exists()
+
+
+def test_render_gpu_targets_dedup_by_host(tmp_path: Path):
+    (tmp_path / "gpu-h0.target").write_text("h0:9835\n")
+    (tmp_path / "gpu-h1.target").write_text("h1:9835\n")
+    # a duplicate announce for the same host (e.g. two replicas on one node)
+    (tmp_path / "gpu-h1b.target").write_text("h1:9835\n")
+    payload = json.loads(lbs.render_gpu_targets(tmp_path))
+    assert payload == [
+        {"targets": ["h0:9835"], "labels": {"job": "gpu"}},
+        {"targets": ["h1:9835"], "labels": {"job": "gpu"}},
+    ]
+
+
+def test_render_gpu_targets_empty(tmp_path: Path):
+    assert json.loads(lbs.render_gpu_targets(tmp_path)) == []

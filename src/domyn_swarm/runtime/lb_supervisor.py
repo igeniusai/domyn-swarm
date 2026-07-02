@@ -134,6 +134,7 @@ def write_if_changed(target: Path, content: str) -> bool:
 
 UPSTREAMS_FILENAME = "00-upstreams.conf"
 TARGETS_FILENAME = "targets.json"
+GPU_TARGETS_FILENAME = "gpu_targets.json"
 
 
 def render_targets(serving_dir: Path) -> str:
@@ -151,6 +152,34 @@ def render_targets(serving_dir: Path) -> str:
     groups = [
         {"targets": [addr], "labels": {"job": "vllm", "replica": str(replica_id)}}
         for replica_id, addr in entries
+    ]
+    return json.dumps(groups) + "\n"
+
+
+def read_gpu_target_entries(serving_dir: Path) -> list[tuple[str, str]]:
+    """Return ``(host, "host:port")`` for each node announce file, deduped
+    by host.
+
+    Reads ``gpu-<host>.target`` files (each a single ``host:port`` line).
+    Multiple files for the same host (replicas sharing a node) collapse to
+    one entry.
+    """
+    serving_dir = Path(serving_dir)
+    by_host: dict[str, str] = {}
+    for f in serving_dir.glob("gpu-*.target"):
+        addr = f.read_text().strip()
+        if not addr or ":" not in addr:
+            continue
+        host = addr.split(":", 1)[0]
+        by_host.setdefault(host, addr)
+    return sorted(by_host.items(), key=lambda kv: kv[0])
+
+
+def render_gpu_targets(serving_dir: Path) -> str:
+    """Render Prometheus file_sd targets for per-node GPU exporters (deduped)."""
+    groups = [
+        {"targets": [addr], "labels": {"job": "gpu"}}
+        for _host, addr in read_gpu_target_entries(serving_dir)
     ]
     return json.dumps(groups) + "\n"
 
