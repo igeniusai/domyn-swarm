@@ -1,0 +1,15 @@
+Bootstrap: docker
+From: debian:12-slim
+
+%post
+    set -eux
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tar
+    VER=1.4.1
+    curl -fsSL -o /tmp/ngex.tgz \
+      "https://github.com/utkuozdemir/nvidia_gpu_exporter/releases/download/v${VER}/nvidia_gpu_exporter_${VER}_linux_x86_64.tar.gz"
+    tar -xzf /tmp/ngex.tgz -C /usr/local/bin nvidia_gpu_exporter
+    chmod +x /usr/local/bin/nvidia_gpu_exporter
+    apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* /tmp/ngex.tgz
+
+%runscript
+    exec /usr/local/bin/nvidia_gpu_exporter "$@"

@@ -1,0 +1,8 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04
+
+# 3.x is required: 4.x aborts unprivileged (Go capability check).
+# Run the binary directly (bypass the setcap entrypoint) with a core-only
+# counters CSV; see docs. Profiling metrics need root and are unavailable.
+%runscript
+    exec /usr/bin/dcgm-exporter "$@"
