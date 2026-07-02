@@ -138,6 +138,12 @@ function start_vllm_replica() {
   echo "[replica $global_id] → $node port=$port"
 
   echo "VLLM logging will be written to $log_dir/vllm.log"
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+  srun --overlap -n1 -N1 -w "$node" --gres=gpu:{{ cfg.gpus_per_replica }} \
+     bash -lc 'nvidia-smi --query-gpu=uuid --format=csv,noheader \
+       > "{{ swarm_directory }}/serving/gpu-owner-'"$global_id"'.txt"' 2>/dev/null || true
+{% endif %}
   srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
@@ -224,6 +230,37 @@ for ((i=0; i<REPLICAS_PER_NODE; i++)); do
   start_vllm_replica "$GLOBAL_ID" "$VLLM_PORT" "${hosts[-1]}"
 done
 
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+# --- GPU exporter (one per node, in the job's GPU cgroup) ---
+launch_gpu_exporter() {
+  echo "$(hostname):{{ _mon.gpu_exporter.port }}" > "{{ swarm_directory }}/serving/gpu-$(hostname).target"
+{% if _mon.gpu_exporter.kind == "dcgm" %}
+  singularity exec --nv \
+    --bind "{{ dcgm_core_counters_path }}:/etc/dcgm-exporter/core.csv" \
+    "{{ _mon.gpu_exporter.resolved_image(mode=_mon.mode) }}" \
+    dcgm-exporter -a ":{{ _mon.gpu_exporter.port }}" -f /etc/dcgm-exporter/core.csv \
+    >> "$LOG_DIR/gpu_exporter.log" 2>&1 &
+{% elif _mon.mode == "container" %}
+  singularity exec --nv "{{ _mon.gpu_exporter.resolved_image(mode=_mon.mode) }}" \
+    {{ _mon.gpu_exporter.resolved_binary(mode=_mon.mode) }} --web.listen-address=":{{ _mon.gpu_exporter.port }}" \
+    >> "$LOG_DIR/gpu_exporter.log" 2>&1 &
+{% else %}
+  {{ _mon.gpu_exporter.resolved_binary(mode=_mon.mode) }} --web.listen-address=":{{ _mon.gpu_exporter.port }}" \
+    >> "$LOG_DIR/gpu_exporter.log" 2>&1 &
+{% endif %}
+  GPU_EXPORTER_PID=$!
+}
+{% raw %}
+if (( ${SLURM_JOB_NUM_NODES:-1} > 1 )); then
+  srun --overlap --ntasks-per-node=1 --nodes=$SLURM_JOB_NUM_NODES \
+{% endraw %}
+    --gres=gpu:{{ cfg.gpus_per_node }} bash -lc "$(declare -f launch_gpu_exporter); launch_gpu_exporter; sleep infinity" &
+  GPU_EXPORTER_PID=$!
+else
+  launch_gpu_exporter
+fi
+{% endif %}
 # Wait for all replicas to be ready
 {% raw %}
 echo "[head] checking vLLM readiness for ${#global_ids[@]} replicas..."
@@ -237,7 +274,12 @@ for ((j = 0; j < ${#global_ids[@]}; j++)); do
   wait_for_vllm_ready "$endpoint" "$id"
 done
 
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+trap 'echo "[batch] caught SIGTERM → shutting down"; kill ${GPU_EXPORTER_PID:-} 2>/dev/null; rm -f "{{ swarm_directory }}/serving/gpu-$(hostname).target" "{{ swarm_directory }}/serving/gpu-owner-"*.txt 2>/dev/null; exit 0' SIGTERM
+{% else %}
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
+{% endif %}
 
 # Keep job alive
 while true; do

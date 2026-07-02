@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib import resources
 from pathlib import Path
 import subprocess
 import tempfile
@@ -67,6 +68,9 @@ class SlurmDriver:
             build_watchdog_args=watchdog_args_mod.build_watchdog_args,
             args_to_str=watchdog_args_mod.args_to_str,
             dswarm_agent_version=domyn_swarm.__version__,
+            dcgm_core_counters_path=Path(
+                str(resources.files("domyn_swarm.data.dcgm").joinpath("core-counters.csv"))
+            ).as_posix(),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
