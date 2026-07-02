@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib import resources
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -141,3 +143,11 @@ def test_monitor_exits_cleanly_when_endpoint_has_no_monitoring(monkeypatch):
     with pytest.raises(typer.Exit) as ei:
         monitor_mod.monitor("some-swarm")
     assert ei.value.exit_code == 1
+
+
+def test_bundled_gpu_dashboards_valid_json():
+    for name in ("gpu_nvidia_smi.json", "gpu_dcgm.json"):
+        ref = resources.files("domyn_swarm.data.dashboards").joinpath(name)
+        data = json.loads(ref.read_text())
+        exprs = json.dumps(data)
+        assert "dswarm_gpu_owner" in exprs  # each panel joins ownership
