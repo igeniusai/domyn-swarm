@@ -30,7 +30,11 @@ def test_server_conf_has_llm_proxy_and_health():
         nginx_timeout = "60s"
         enable_proxy_buffering = True
         monitoring = SimpleNamespace(
-            enabled=False, port=9090, route_prefix="/prometheus", exporter_port=9113
+            enabled=False,
+            port=9090,
+            route_prefix="/prometheus",
+            exporter_port=9113,
+            gpu_exporter=SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835),
         )
 
     class Backend:
@@ -56,7 +60,11 @@ def test_server_conf_includes_ray_when_enabled():
         nginx_timeout = "60s"
         enable_proxy_buffering = False
         monitoring = SimpleNamespace(
-            enabled=False, port=9090, route_prefix="/prometheus", exporter_port=9113
+            enabled=False,
+            port=9090,
+            route_prefix="/prometheus",
+            exporter_port=9113,
+            gpu_exporter=SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835),
         )
 
     class Backend:
@@ -95,6 +103,7 @@ class _EP:
         route_prefix="/prometheus",
         scrape_interval="15s",
         retention="12h",
+        gpu_exporter=SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835),
     )
 
 
@@ -163,6 +172,7 @@ def _cfg_with_monitoring(enabled: bool):
     mon.port = 9090
     mon.route_prefix = "/prometheus"
     mon.exporter_port = 9113
+    mon.gpu_exporter = SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835)
 
     class EP:
         port = 9000
@@ -213,6 +223,7 @@ def test_prometheus_yml_render():
         scrape_interval = "15s"
         exporter_port = 9113
         route_prefix = "/prometheus"
+        gpu_exporter = SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835)
 
     out = (
         _env()
@@ -265,6 +276,7 @@ def _render_lb_with_monitoring(enabled: bool):
                     route_prefix="/prometheus",
                     scrape_interval="15s",
                     retention="12h",
+                    gpu_exporter=SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835),
                 ),
             ),
         ),
