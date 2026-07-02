@@ -1,7 +1,7 @@
 from pydantic import ValidationError
 import pytest
 
-from domyn_swarm.config.slurm import MonitoringConfig, SlurmEndpointConfig
+from domyn_swarm.config.slurm import GpuExporterConfig, MonitoringConfig, SlurmEndpointConfig
 
 
 def test_monitoring_disabled_by_default():
@@ -35,3 +35,27 @@ def test_monitoring_mode_validated():
 def test_monitoring_route_prefix_rejects_empty():
     with pytest.raises(ValidationError):
         MonitoringConfig(route_prefix="")
+
+
+def test_gpu_exporter_disabled_by_default():
+    mon = MonitoringConfig(nginx_image="nginx.sif")
+    assert mon.gpu_exporter.enabled is False
+    assert mon.gpu_exporter.kind == "nvidia_smi"
+    assert mon.gpu_exporter.port == 9835
+
+
+def test_gpu_exporter_nvidia_smi_binary_default():
+    gx = GpuExporterConfig(enabled=True, kind="nvidia_smi")
+    assert gx.resolved_binary(mode="binary") == "nvidia_gpu_exporter"
+
+
+def test_gpu_exporter_dcgm_image_default():
+    gx = GpuExporterConfig(enabled=True, kind="dcgm")
+    assert gx.resolved_image(mode="container") == (
+        "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04"
+    )
+
+
+def test_gpu_exporter_dcgm_binary_requires_explicit_binary():
+    with pytest.raises(ValueError):
+        GpuExporterConfig(enabled=True, kind="dcgm", binary=None).resolved_binary(mode="binary")

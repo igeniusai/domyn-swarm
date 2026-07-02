@@ -24,6 +24,38 @@ from domyn_swarm.config.settings import get_settings
 settings = get_settings()
 
 
+_DCGM_DEFAULT_IMAGE = "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04"
+
+
+class GpuExporterConfig(BaseModel):
+    """Optional per-node GPU metrics exporter for replica nodes.
+
+    Disabled by default. `kind` selects the exporter implementation and the
+    bundled dashboard vocabulary. See
+    docs/superpowers/specs/2026-07-02-gpu-monitoring-design.md.
+    """
+
+    enabled: bool = False
+    kind: Literal["nvidia_smi", "dcgm"] = "nvidia_smi"
+    image: str | None = None
+    binary: str | None = None
+    port: int = 9835
+
+    def resolved_binary(self, *, mode: str) -> str:
+        if self.binary:
+            return self.binary
+        if self.kind == "nvidia_smi":
+            return "nvidia_gpu_exporter"
+        raise ValueError("gpu_exporter.binary is required for kind='dcgm' with mode='binary'")
+
+    def resolved_image(self, *, mode: str) -> str | None:
+        if self.image:
+            return self.image
+        if self.kind == "dcgm":
+            return _DCGM_DEFAULT_IMAGE
+        return None  # nvidia_smi container mode requires an explicit image
+
+
 class MonitoringConfig(BaseModel):
     """Optional Prometheus-based monitoring sidecar for the LB node.
 
@@ -59,6 +91,7 @@ class MonitoringConfig(BaseModel):
     route_prefix: str = "/prometheus"
     scrape_interval: str = "15s"
     retention: str = "12h"
+    gpu_exporter: GpuExporterConfig = Field(default_factory=GpuExporterConfig)
 
     @field_validator("route_prefix")
     @classmethod
