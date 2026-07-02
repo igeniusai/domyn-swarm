@@ -854,6 +854,82 @@ scrapes only that swarm, so the dashboard does not filter by swarm or model.
 > **Security note**: the `/prometheus/` path is reachable by anyone who can reach the endpoint. There is
 > no authentication on it, so this feature is intended for internal/HPC use only.
 
+### GPU monitoring
+
+Optional per-node GPU monitoring is available via configurable **NVIDIA GPU exporters** (nvidia-smi or DCGM).
+Enable it under `backend.endpoint.monitoring.gpu_exporter`:
+
+```yaml
+backend:
+  endpoint:
+    monitoring:
+      enabled: true
+      gpu_exporter:
+        enabled: true
+        kind: nvidia_smi           # default: portable, unprivileged; or 'dcgm' (standard metrics)
+        port: 9835                 # optional, defaults to 9835
+        # image: /path/to/image.sif    # required only for nvidia_smi + mode=container
+        # binary: /path/to/binary      # required only for dcgm + mode=binary
+```
+
+**Exporter kinds:**
+
+- `nvidia_smi` (default) — lightweight, portable. A 12MB static binary that runs unprivileged on any site with `nvidia-smi` available. Uses basic GPU metrics.
+- `dcgm` — standard NVIDIA Data Center GPU Manager metrics (`DCGM_FI_*` series). Pinned to the **3.x line** because 4.x aborts when running unprivileged; driver↔DCGM compatibility varies by site.
+
+**Building and running:**
+
+Build exporter images from the shipped recipes in `images/`:
+
+```bash
+sudo singularity build gpu_exporter_nvidia_smi.sif images/gpu_exporter_nvidia_smi.def
+sudo singularity build gpu_exporter_dcgm.sif images/gpu_exporter_dcgm.def
+```
+
+Then reference them in your config:
+
+```yaml
+gpu_exporter:
+  kind: nvidia_smi
+  image: /shared/images/gpu_exporter_nvidia_smi.sif
+```
+
+Alternatively, run with `mode: binary` (set at `backend.endpoint.monitoring.mode`):
+
+```yaml
+monitoring:
+  mode: binary
+  gpu_exporter:
+    kind: dcgm
+    binary: /usr/local/bin/dcgm_exporter
+```
+
+**Accessing the GPU dashboard:**
+
+View real-time GPU metrics and trends using:
+
+```bash
+domyn-swarm monitor <swarm-name> --gpu
+```
+
+This launches `grafatui` pointed at the configured GPU exporter, using the bundled dashboard parameterized by `kind` (nvidia_smi or dcgm). For additional options, see `domyn-swarm monitor --help`.
+
+**Metrics available:**
+
+GPU exporters run **unprivileged** inside the job's GPU cgroup. The following metrics are available:
+
+- Memory (allocated, free, used)
+- Utilization (compute, memory)
+- Power usage and limit
+- Temperature
+- Clock speeds and throttle status
+
+> **Note**: Profiling metrics (`DCGM_FI_PROF_*` for DCGM) require root and are not available in unprivileged mode.
+
+**GPU attribution:**
+
+Each GPU is mapped to its replica via a **UUID → replica join**. The exporter runs once per compute node and emits per-GPU and per-replica metrics, allowing you to correlate performance with specific model instances across your cluster.
+
 ---
 
 ## Contributing
