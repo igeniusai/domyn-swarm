@@ -194,3 +194,45 @@ def test_render_gpu_ownership_empty(tmp_path: Path):
     text = lbs.render_gpu_ownership(tmp_path)
     assert "dswarm_gpu_owner{" not in text
     assert "# TYPE dswarm_gpu_owner gauge" in text  # header always present
+
+
+def test_parse_args_emit_gpu_targets_flag():
+    opts, _once, _interval = lbs.parse_args(["--serving-dir", "/srv", "--emit-gpu-targets"])
+    assert opts.emit_gpu_targets is True
+
+
+def test_reconcile_writes_gpu_files_when_enabled(tmp_path: Path):
+    serving = tmp_path / "serving"
+    serving.mkdir()
+    (serving / "replica-0.head").write_text("h0:9000")
+    (serving / "gpu-h0.target").write_text("h0:9835")
+    (serving / "gpu-owner-0.txt").write_text("GPU-aaa\n")
+    opts = lbs.SupervisorOptions(
+        serving_dir=serving,
+        ray_enabled=False,
+        ray_dashboard_port=8265,
+        ray_port=6379,
+        emit_targets=True,
+        emit_gpu_targets=True,
+    )
+    lbs.reconcile_once(opts)
+    assert (serving / "gpu_targets.json").exists()
+    assert (serving / "gpu_ownership.prom").exists()
+
+
+def test_reconcile_no_gpu_files_when_disabled(tmp_path: Path):
+    serving = tmp_path / "serving"
+    serving.mkdir()
+    (serving / "replica-0.head").write_text("h0:9000")
+    (serving / "gpu-h0.target").write_text("h0:9835")
+    opts = lbs.SupervisorOptions(
+        serving_dir=serving,
+        ray_enabled=False,
+        ray_dashboard_port=8265,
+        ray_port=6379,
+        emit_targets=True,
+        emit_gpu_targets=False,
+    )
+    lbs.reconcile_once(opts)
+    assert not (serving / "gpu_targets.json").exists()
+    assert not (serving / "gpu_ownership.prom").exists()

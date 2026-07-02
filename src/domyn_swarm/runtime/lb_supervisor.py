@@ -225,6 +225,7 @@ class SupervisorOptions:
         ray_dashboard_port: Ray dashboard port.
         ray_port: Ray client port.
         emit_targets: Whether to also write the Prometheus file_sd targets.json.
+        emit_gpu_targets: Whether to also write gpu_targets.json and gpu_ownership.prom.
     """
 
     serving_dir: Path
@@ -232,6 +233,7 @@ class SupervisorOptions:
     ray_dashboard_port: int
     ray_port: int
     emit_targets: bool = False
+    emit_gpu_targets: bool = False
 
 
 def reconcile_once(opts: SupervisorOptions) -> bool:
@@ -256,6 +258,13 @@ def reconcile_once(opts: SupervisorOptions) -> bool:
     changed = write_if_changed(opts.serving_dir / UPSTREAMS_FILENAME, conf)
     if opts.emit_targets:
         write_if_changed(opts.serving_dir / TARGETS_FILENAME, render_targets(opts.serving_dir))
+    if opts.emit_gpu_targets:
+        write_if_changed(
+            opts.serving_dir / GPU_TARGETS_FILENAME, render_gpu_targets(opts.serving_dir)
+        )
+        write_if_changed(
+            opts.serving_dir / GPU_OWNERSHIP_FILENAME, render_gpu_ownership(opts.serving_dir)
+        )
     return changed
 
 
@@ -312,6 +321,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[SupervisorOptions, bool, 
     p.add_argument("--interval", type=int, default=5)
     p.add_argument("--once", action="store_true")
     p.add_argument("--emit-targets", action="store_true")
+    p.add_argument("--emit-gpu-targets", action="store_true")
     a = p.parse_args(argv)
     opts = SupervisorOptions(
         serving_dir=Path(a.serving_dir),
@@ -319,6 +329,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[SupervisorOptions, bool, 
         ray_dashboard_port=a.ray_dashboard_port,
         ray_port=a.ray_port,
         emit_targets=a.emit_targets,
+        emit_gpu_targets=a.emit_gpu_targets,
     )
     return opts, a.once, a.interval
 
