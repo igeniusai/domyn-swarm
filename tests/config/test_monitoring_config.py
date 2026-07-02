@@ -59,3 +59,12 @@ def test_gpu_exporter_dcgm_image_default():
 def test_gpu_exporter_dcgm_binary_requires_explicit_binary():
     with pytest.raises(ValueError):
         GpuExporterConfig(enabled=True, kind="dcgm", binary=None).resolved_binary(mode="binary")
+
+
+def test_dcgm_core_counters_bundled():
+    from importlib import resources
+
+    ref = resources.files("domyn_swarm.data.dcgm").joinpath("core-counters.csv")
+    text = ref.read_text()
+    assert "DCGM_FI_DEV_FB_USED" in text
+    assert "DCGM_FI_PROF_" not in text  # profiling needs root; excluded on purpose
