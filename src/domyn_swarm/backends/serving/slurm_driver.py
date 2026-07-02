@@ -130,10 +130,15 @@ class SlurmDriver:
         if getattr(mon, "enabled", False):
             if mon.mode == "container":
                 targets_path = "/etc/prometheus/serving/targets.json"
+                gpu_targets_path = "/etc/prometheus/serving/gpu_targets.json"
             else:
                 targets_path = (serving_dir / "targets.json").as_posix()
+                gpu_targets_path = (serving_dir / "gpu_targets.json").as_posix()
             prom_yml = env.get_template("prometheus.yml.j2").render(
-                monitoring=mon, targets_path=targets_path, cfg=self.cfg
+                monitoring=mon,
+                targets_path=targets_path,
+                gpu_targets_path=gpu_targets_path,
+                cfg=self.cfg,
             )
             (serving_dir / "prometheus.yml").write_text(prom_yml)
 
