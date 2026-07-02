@@ -54,5 +54,13 @@ server {
     proxy_pass http://127.0.0.1:{{ cfg.backend.endpoint.monitoring.port }};
     proxy_set_header Host $host;
   }
+  {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}
+  location = /gpu_ownership {
+    alias /etc/prometheus/serving/gpu_ownership.prom;
+    default_type text/plain;
+    allow 127.0.0.1;
+    deny all;
+  }
+  {% endif %}
   {% endif %}
 }
