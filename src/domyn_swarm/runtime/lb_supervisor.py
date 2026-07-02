@@ -208,10 +208,14 @@ def render_gpu_ownership(serving_dir: Path) -> str:
                 rows.append((replica, uuid))
     rows.sort()
     out = [
-        "# HELP dswarm_gpu_owner Which replica owns a GPU (join key: uuid).",
+        "# HELP dswarm_gpu_owner Which replica owns a GPU (join key: uuid for "
+        "nvidia_smi exporter, UUID for dcgm exporter).",
         "# TYPE dswarm_gpu_owner gauge",
     ]
-    out += [f'dswarm_gpu_owner{{uuid="{uuid}",replica="{replica}"}} 1' for replica, uuid in rows]
+    out += [
+        f'dswarm_gpu_owner{{uuid="{uuid}",UUID="{uuid}",replica="{replica}"}} 1'
+        for replica, uuid in rows
+    ]
     return "\n".join(out) + "\n"
 
 

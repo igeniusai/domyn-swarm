@@ -183,11 +183,12 @@ def test_render_gpu_ownership(tmp_path: Path):
     text = lbs.render_gpu_ownership(tmp_path)
     lines = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
     assert lines == [
-        'dswarm_gpu_owner{uuid="GPU-aaa",replica="0"} 1',
-        'dswarm_gpu_owner{uuid="GPU-bbb",replica="0"} 1',
-        'dswarm_gpu_owner{uuid="GPU-ccc",replica="1"} 1',
+        'dswarm_gpu_owner{uuid="GPU-aaa",UUID="GPU-aaa",replica="0"} 1',
+        'dswarm_gpu_owner{uuid="GPU-bbb",UUID="GPU-bbb",replica="0"} 1',
+        'dswarm_gpu_owner{uuid="GPU-ccc",UUID="GPU-ccc",replica="1"} 1',
     ]
     assert "# TYPE dswarm_gpu_owner gauge" in text
+    assert all('uuid="' in ln and 'UUID="' in ln for ln in lines)
 
 
 def test_render_gpu_ownership_empty(tmp_path: Path):
