@@ -47,8 +47,8 @@ def _render(cfg):
 
 
 def test_supervisor_gets_emit_gpu_targets_when_enabled():
-    assert "--emit-gpu-targets" in _render(_cfg(True))
+    assert _render(_cfg(True)).count("--emit-gpu-targets") == 2
 
 
 def test_supervisor_no_emit_gpu_targets_when_disabled():
-    assert "--emit-gpu-targets" not in _render(_cfg(False))
+    assert _render(_cfg(False)).count("--emit-gpu-targets") == 0

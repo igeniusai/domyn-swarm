@@ -859,6 +859,8 @@ scrapes only that swarm, so the dashboard does not filter by swarm or model.
 Optional per-node GPU monitoring is available via configurable **NVIDIA GPU exporters** (nvidia-smi or DCGM).
 Enable it under `backend.endpoint.monitoring.gpu_exporter`:
 
+> GPU monitoring currently covers non-Ray (single-node-per-replica) deployments; Ray (multi-node) support is a planned follow-up.
+
 ```yaml
 backend:
   endpoint:
@@ -894,14 +896,16 @@ gpu_exporter:
   image: /shared/images/gpu_exporter_nvidia_smi.sif
 ```
 
-Alternatively, run with `mode: binary` (set at `backend.endpoint.monitoring.mode`):
+Alternatively, run with `mode: binary` (set at `backend.endpoint.monitoring.mode`). Note that
+`dcgm` is only supported in `mode: container` (it runs via `singularity exec`); `mode: binary`
+only supports `kind: nvidia_smi`:
 
 ```yaml
 monitoring:
   mode: binary
   gpu_exporter:
-    kind: dcgm
-    binary: /usr/local/bin/dcgm_exporter
+    kind: nvidia_smi
+    binary: /usr/local/bin/nvidia_gpu_exporter
 ```
 
 **Accessing the GPU dashboard:**

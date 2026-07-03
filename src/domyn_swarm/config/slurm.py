@@ -14,7 +14,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from domyn_swarm import utils
 from domyn_swarm.config.defaults import default_for
@@ -99,6 +99,26 @@ class MonitoringConfig(BaseModel):
         if not v.strip():
             raise ValueError("route_prefix must be a non-empty string")
         return v if v.startswith("/") else f"/{v}"
+
+    @model_validator(mode="after")
+    def _validate_gpu_exporter_combo(self) -> "MonitoringConfig":
+        if not self.gpu_exporter.enabled:
+            return self
+        if (
+            self.mode == "container"
+            and self.gpu_exporter.kind == "nvidia_smi"
+            and self.gpu_exporter.image is None
+        ):
+            raise ValueError(
+                "nvidia_smi container mode needs an explicit gpu_exporter.image "
+                "(build from images/gpu_exporter_nvidia_smi.def) or use mode=binary."
+            )
+        if self.mode == "binary" and self.gpu_exporter.kind == "dcgm":
+            raise ValueError(
+                "dcgm exporter is only supported in container mode (the launch "
+                "template runs it via `singularity exec`); set mode=container."
+            )
+        return self
 
 
 class SlurmEndpointConfig(BaseModel):

@@ -68,3 +68,35 @@ def test_dcgm_core_counters_bundled():
     text = ref.read_text()
     assert "DCGM_FI_DEV_FB_USED" in text
     assert "DCGM_FI_PROF_" not in text  # profiling needs root; excluded on purpose
+
+
+def test_nvidia_smi_container_mode_without_image_raises():
+    with pytest.raises(ValueError):
+        MonitoringConfig(
+            mode="container",
+            gpu_exporter=GpuExporterConfig(enabled=True, kind="nvidia_smi", image=None),
+        )
+
+
+def test_dcgm_binary_mode_raises():
+    with pytest.raises(ValueError):
+        MonitoringConfig(
+            mode="binary",
+            gpu_exporter=GpuExporterConfig(enabled=True, kind="dcgm"),
+        )
+
+
+def test_nvidia_smi_container_mode_with_explicit_image_does_not_raise():
+    mon = MonitoringConfig(
+        mode="container",
+        gpu_exporter=GpuExporterConfig(enabled=True, kind="nvidia_smi", image="nvidia_smi.sif"),
+    )
+    assert mon.gpu_exporter.image == "nvidia_smi.sif"
+
+
+def test_dcgm_container_mode_does_not_raise():
+    mon = MonitoringConfig(
+        mode="container",
+        gpu_exporter=GpuExporterConfig(enabled=True, kind="dcgm"),
+    )
+    assert mon.gpu_exporter.kind == "dcgm"
