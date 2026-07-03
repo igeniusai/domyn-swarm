@@ -31,7 +31,10 @@ def _render(cfg):
 def test_gpu_ownership_location_present_when_enabled():
     out = _render(_cfg(True, True))
     assert "location = /gpu_ownership" in out
-    assert "gpu_ownership.prom" in out
+    assert "alias /etc/nginx/conf.d/gpu_ownership.prom;" in out
+    assert "default_type text/plain" in out
+    assert "allow 127.0.0.1" in out
+    assert "deny all" in out
 
 
 def test_gpu_ownership_location_absent_when_gpu_disabled():

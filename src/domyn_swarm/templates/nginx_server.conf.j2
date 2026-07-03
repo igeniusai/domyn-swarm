@@ -56,7 +56,7 @@ server {
   }
   {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}
   location = /gpu_ownership {
-    alias /etc/prometheus/serving/gpu_ownership.prom;
+    alias /etc/nginx/conf.d/gpu_ownership.prom;
     default_type text/plain;
     allow 127.0.0.1;
     deny all;
