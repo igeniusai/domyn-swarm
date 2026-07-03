@@ -48,7 +48,7 @@ dependencies = [
     "pandas>=1.5.3",
     "pyarrow>=22.0.0",
     "pydantic>=2.11.7,<3",
-    "pydantic-settings>=2.10.1",
+    "pydantic-settings>=2.14.2",
     "pyyaml>=6.0.2",
     "requests>=2.34.2",
     "rich>=14.0.0,<15",
@@ -80,7 +80,7 @@ dev = [
 linting = ["pre-commit", "ruff>=0.11.13"]
 bench = [
     "datasets>=4.8.5",
-    "vllm>=0.21.0",
+    "vllm==0.22.0",
 ]
 
 [project.urls]
