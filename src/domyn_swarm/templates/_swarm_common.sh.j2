@@ -1,0 +1,117 @@
+#!/bin/bash
+###############################################################################
+#  SLURM DIRECTIVES
+###############################################################################
+#SBATCH --account={{ cfg.backend.account }}
+{% if cfg.mail_user %}
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user={{ cfg.backend.mail_user }}
+{% endif %}
+#SBATCH --qos={{ cfg.backend.qos }}
+#SBATCH --exclusive=user
+#SBATCH --job-name={{ job_name }}
+#SBATCH --partition={{ cfg.backend.partition }}
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
+#SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
+#SBATCH --mem=0
+#SBATCH --time={{ cfg.backend.time_limit }}
+#SBATCH --requeue
+{% if cfg.backend.exclude_nodes %}
+#SBATCH --exclude={{ cfg.backend.exclude_nodes }}
+{% endif %}
+{% if cfg.backend.node_list %}
+#SBATCH --nodelist={{ cfg.backend.node_list | default('') }}
+{% endif %}
+#SBATCH --output={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.out
+#SBATCH --error={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.err
+{% for pre in cfg.backend.preamble %}
+#SBATCH {{ pre }}
+{% endfor %}
+
+set -euo pipefail
+
+module purge
+{% for mod in cfg.backend.modules %}
+module load {{ mod }}
+{% endfor %}
+
+###############################################################################
+#  ENVIRONMENT VARIABLES
+###############################################################################
+export VLLM_IMAGE="{{ cfg.image }}"
+export HF_HOME="{{ cfg.env.HF_HOME }}"
+
+# User-defined environment variables (to be passed to Singularity)
+{% for k, v in (cfg.env | default({}, true)).items() -%}
+{% set KEY = k|replace('-', '_') %}
+export SINGULARITYENV_{{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
+export {{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
+{% endfor -%}
+
+export REPLICAS={{ cfg.replicas }}
+export GPUS_PER_REPLICA={{ cfg.gpus_per_replica }}
+{% if not cfg.backend.requires_ray %}
+export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
+{% endif %}
+export HF_HUB_OFFLINE=1
+export PYTHONNOUSERSITE=1
+
+
+# Calculated variables
+export GPUS_PER_NODE={{ cfg.gpus_per_node }}
+export TOTAL_GPUS=$(( SLURM_JOB_NUM_NODES * {{ cfg.gpus_per_node }} ))
+export REQUIRED_GPUS=$(( REPLICAS * GPUS_PER_REPLICA ))
+
+# Job-specific variables
+REPL_ID=${SLURM_ARRAY_TASK_ID:-0}
+REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
+{% if not cfg.backend.requires_ray %}
+GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
+{% endif %}
+export DSWARM_AGENT_VERSION={{ dswarm_agent_version }}
+export SWARM_DIR="{{ swarm_directory }}"
+export LOG_DIR={{ swarm_directory }}/logs/replicas/replica-${REPL_ID}
+export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
+export VLLM_API_KEY="${SINGULARITYENV_VLLM_API_KEY:-${VLLM_API_KEY:-${API_TOKEN:-}}}"
+mkdir -p "$LOG_DIR"
+
+###############################################################################
+#  NODE AND PORT CONFIGURATION
+###############################################################################
+mapfile -t NODES < <(scontrol show hostnames "$SLURM_JOB_NODELIST")
+HEAD_NODE=${NODES[0]}
+INSTANCE_TAG="{{ job_name }}_${REPL_ID}_head"
+HEAD_PORT="{{ cfg.backend.ray_port }}"
+REST_PORT="{{ cfg.port }}"
+
+echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
+
+# Mount configuration
+LOCAL_RAY_LOGS="$TMPDIR/ray_tmp"
+export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
+{% if is_folder(cfg.model) and path_exists(cfg.model) %}
+MOUNTS=$MOUNTS,{{ cfg.model }}
+{% endif %}
+
+# User-defined extra mounts (from backend.mounts in the YAML config)
+{% for mount in cfg.backend.mounts | default([], true) %}
+MOUNTS=$MOUNTS,{{ mount }}
+{% endfor %}
+
+{% if cfg.backend.requires_ray %}
+MOUNTS=$MOUNTS,$LOCAL_RAY_LOGS:/tmp/ray
+{% endif %}
+
+#Wait for creation of file "SWARM_DIR/serving/collector.env" containing COLLECTOR_HOST and COLLECTOR_PORT
+echo "[replica $REPL_ID] waiting for collector.env file..."
+while [ ! -f "{{ swarm_directory }}/serving/collector.env" ]; do
+    sleep 2
+done
+
+source "{{ swarm_directory }}/serving/collector.env"
+echo "[replica $REPL_ID] loaded collector config: COLLECTOR_HOST=$COLLECTOR_HOST COLLECTOR_PORT=$COLLECTOR_PORT"
+
+###############################################################################
+#  SINGLE-NODE or SHARED-NODES DEPLOYMENT
+###############################################################################
