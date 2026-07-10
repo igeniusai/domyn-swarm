@@ -174,6 +174,16 @@ class DomynLLMSwarmConfig(BaseModel):
                 backend = backend.model_dump()
             if backend.get("type") == "slurm" and "requires_ray" not in backend:
                 backend["requires_ray"] = requires_ray
+            # Ray multi-node deployments render from a dedicated template.
+            # Select it automatically unless the user pinned a custom path.
+            if backend.get("type") == "slurm" and requires_ray and "template_path" not in backend:
+                from domyn_swarm.config import slurm as _slurm_mod
+
+                backend["template_path"] = (
+                    utils.EnvPath(_slurm_mod.__file__).parent.parent
+                    / "templates"
+                    / "llm_swarm_ray.sh.j2"
+                )
 
         data["backend"] = backend
 
