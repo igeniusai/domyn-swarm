@@ -22,6 +22,8 @@ from typing import Annotated
 import typer
 from typer.core import TyperGroup
 
+from .monitor import monitor as _monitor_cmd
+
 # Sub-apps that pull in heavy dependencies (pandas, openai, leptonai, alembic).
 # Imported on first use so light root commands stay fast. Maps command name ->
 # (module, app attribute, help text shown in --help).
@@ -148,6 +150,8 @@ app = typer.Typer(name="domyn-swarm CLI", no_args_is_help=True, cls=LazyGroup)
 
 # Sub-apps (job/pool/init/swarm/db) are registered lazily by LazyGroup; see
 # _LAZY_SUBAPPS above. Only light root commands are wired eagerly below.
+
+app.command("monitor", short_help="Open grafatui against a swarm's Prometheus")(_monitor_cmd)
 
 logger = _LazyLogger()
 

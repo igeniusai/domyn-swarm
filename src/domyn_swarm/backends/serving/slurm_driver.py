@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib import resources
 from pathlib import Path
 import subprocess
 import tempfile
@@ -25,6 +26,7 @@ from domyn_swarm.helpers.data import get_device_slices
 from domyn_swarm.helpers.io import is_folder, path_exists
 from domyn_swarm.helpers.logger import setup_logger
 import domyn_swarm.runtime.collector as collector_mod
+import domyn_swarm.runtime.lb_supervisor as supervisor_mod
 import domyn_swarm.runtime.watchdog as watchdog_mod
 import domyn_swarm.runtime.watchdog_args as watchdog_args_mod
 
@@ -49,6 +51,16 @@ class SlurmDriver:
         Returns the job ID of the submitted job."""
 
         assert isinstance(self.cfg.backend, SlurmConfig)
+        if (
+            self.cfg.backend.requires_ray
+            and self.cfg.backend.endpoint.monitoring.enabled
+            and self.cfg.backend.endpoint.monitoring.gpu_exporter.enabled
+        ):
+            logger.warning(
+                "GPU monitoring (gpu_exporter) is not yet supported for Ray "
+                "(multi-node) replicas; no GPU metrics will be collected for "
+                "this deployment."
+            )
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
@@ -66,6 +78,9 @@ class SlurmDriver:
             build_watchdog_args=watchdog_args_mod.build_watchdog_args,
             args_to_str=watchdog_args_mod.args_to_str,
             dswarm_agent_version=domyn_swarm.__version__,
+            dcgm_core_counters_path=Path(
+                str(resources.files("domyn_swarm.data.dcgm").joinpath("core-counters.csv"))
+            ).as_posix(),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:
@@ -112,6 +127,35 @@ class SlurmDriver:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        serving_dir = Path(swarm_directory) / "serving"
+        serving_dir.mkdir(parents=True, exist_ok=True)
+
+        # Static nginx server block (dynamic upstreams come from the supervisor).
+        server_conf = env.get_template("nginx_server.conf.j2").render(cfg=self.cfg)
+        (serving_dir / "10-server.conf").write_text(server_conf)
+
+        # Main nginx config (mounted at $HOST_DIR/nginx.conf by lb.sh.j2).
+        (Path(swarm_directory) / "nginx.conf").write_text(
+            env.get_template("nginx.conf.j2").render()
+        )
+
+        # Prometheus config (only when monitoring is enabled).
+        mon = self.cfg.backend.endpoint.monitoring
+        if getattr(mon, "enabled", False):
+            if mon.mode == "container":
+                targets_path = "/etc/prometheus/serving/targets.json"
+                gpu_targets_path = "/etc/prometheus/serving/gpu_targets.json"
+            else:
+                targets_path = (serving_dir / "targets.json").as_posix()
+                gpu_targets_path = (serving_dir / "gpu_targets.json").as_posix()
+            prom_yml = env.get_template("prometheus.yml.j2").render(
+                monitoring=mon,
+                targets_path=targets_path,
+                gpu_targets_path=gpu_targets_path,
+                cfg=self.cfg,
+            )
+            (serving_dir / "prometheus.yml").write_text(prom_yml)
+
         lb_script_txt = env.get_template("lb.sh.j2").render(
             cfg=self.cfg,
             job_name=job_name,
@@ -119,6 +163,7 @@ class SlurmDriver:
             replicas=replicas,
             swarm_directory=swarm_directory,
             collector_script_path=Path(collector_mod.__file__).resolve().as_posix(),
+            supervisor_script_path=Path(supervisor_mod.__file__).resolve().as_posix(),
         )
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sbatch") as fh:

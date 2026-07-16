@@ -1,0 +1,26 @@
+global:
+  scrape_interval: {{ monitoring.scrape_interval }}
+  external_labels:
+    swarm: "{{ cfg.name }}"
+
+scrape_configs:
+  - job_name: vllm
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - {{ targets_path }}
+  - job_name: nginx
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:{{ monitoring.exporter_port }}"]
+{% if monitoring.gpu_exporter.enabled %}
+  - job_name: gpu
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - {{ gpu_targets_path }}
+  - job_name: gpu_ownership
+    metrics_path: /gpu_ownership
+    static_configs:
+      - targets: ["127.0.0.1:{{ cfg.backend.endpoint.port }}"]
+{% endif %}

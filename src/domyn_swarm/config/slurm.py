@@ -14,7 +14,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from domyn_swarm import utils
 from domyn_swarm.config.defaults import default_for
@@ -22,6 +22,103 @@ from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.settings import get_settings
 
 settings = get_settings()
+
+
+_DCGM_DEFAULT_IMAGE = "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04"
+
+
+class GpuExporterConfig(BaseModel):
+    """Optional per-node GPU metrics exporter for replica nodes.
+
+    Disabled by default. `kind` selects the exporter implementation and the
+    bundled dashboard vocabulary. See
+    docs/superpowers/specs/2026-07-02-gpu-monitoring-design.md.
+    """
+
+    enabled: bool = False
+    kind: Literal["nvidia_smi", "dcgm"] = "nvidia_smi"
+    image: str | None = None
+    binary: str | None = None
+    port: int = 9835
+
+    def resolved_binary(self, *, mode: str) -> str:
+        if self.binary:
+            return self.binary
+        if self.kind == "nvidia_smi":
+            return "nvidia_gpu_exporter"
+        raise ValueError("gpu_exporter.binary is required for kind='dcgm' with mode='binary'")
+
+    def resolved_image(self, *, mode: str) -> str | None:
+        if self.image:
+            return self.image
+        if self.kind == "dcgm":
+            return _DCGM_DEFAULT_IMAGE
+        return None  # nvidia_smi container mode requires an explicit image
+
+
+class MonitoringConfig(BaseModel):
+    """Optional Prometheus-based monitoring sidecar for the LB node.
+
+    Disabled by default; when disabled the LB behaves exactly as before. See
+    docs/superpowers/specs/2026-06-05-vllm-prometheus-monitoring-design.md.
+
+    Attributes:
+        enabled: Master switch. When False, all other fields are ignored.
+        mode: 'container' (singularity images) or 'binary' (host binaries).
+        prometheus_image: Singularity image for Prometheus (mode='container').
+        nginx_exporter_image: Singularity image for nginx-prometheus-exporter.
+        prometheus_binary: Prometheus binary name/path (mode='binary').
+        nginx_exporter_binary: nginx-exporter binary name/path (mode='binary').
+        port: Prometheus listen port on the LB node (proxied; not user-facing).
+        exporter_port: nginx-exporter metrics port (scraped by Prometheus).
+        route_prefix: nginx path prefix Prometheus is served under.
+        scrape_interval: Prometheus global scrape interval (e.g. '15s').
+        retention: TSDB retention window (e.g. '12h').
+    """
+
+    enabled: bool = False
+    mode: Literal["container", "binary"] = "container"
+    prometheus_image: str | None = Field(
+        default_factory=default_for("slurm.endpoint.prometheus_image", None)
+    )
+    nginx_exporter_image: str | None = Field(
+        default_factory=default_for("slurm.endpoint.nginx_exporter_image", None)
+    )
+    prometheus_binary: str = "prometheus"
+    nginx_exporter_binary: str = "nginx-prometheus-exporter"
+    port: int = 9090
+    exporter_port: int = 9113
+    route_prefix: str = "/prometheus"
+    scrape_interval: str = "15s"
+    retention: str = "12h"
+    gpu_exporter: GpuExporterConfig = Field(default_factory=GpuExporterConfig)
+
+    @field_validator("route_prefix")
+    @classmethod
+    def _ensure_leading_slash(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("route_prefix must be a non-empty string")
+        return v if v.startswith("/") else f"/{v}"
+
+    @model_validator(mode="after")
+    def _validate_gpu_exporter_combo(self) -> "MonitoringConfig":
+        if not self.gpu_exporter.enabled:
+            return self
+        if (
+            self.mode == "container"
+            and self.gpu_exporter.kind == "nvidia_smi"
+            and self.gpu_exporter.image is None
+        ):
+            raise ValueError(
+                "nvidia_smi container mode needs an explicit gpu_exporter.image "
+                "(build from images/gpu_exporter_nvidia_smi.def) or use mode=binary."
+            )
+        if self.mode == "binary" and self.gpu_exporter.kind == "dcgm":
+            raise ValueError(
+                "dcgm exporter is only supported in container mode (the launch "
+                "template runs it via `singularity exec`); set mode=container."
+            )
+        return self
 
 
 class SlurmEndpointConfig(BaseModel):
@@ -38,6 +135,7 @@ class SlurmEndpointConfig(BaseModel):
     qos: str | None = None
     poll_interval: int = 10  # sacct polling cadence (s)
     require_allocated_node: bool = False  # refuse srun if not inside a Slurm allocation
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
 
 class SlurmConfig(BaseModel):

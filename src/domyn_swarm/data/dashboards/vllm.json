@@ -1,0 +1,478 @@
+{
+  "title": "domyn-swarm",
+  "refresh": "5s",
+  "templating": {
+    "list": [
+      {
+        "name": "vllm_job",
+        "type": "textbox",
+        "label": "vLLM job",
+        "current": {"text": "vllm", "value": "vllm"}
+      },
+      {
+        "name": "replicas",
+        "type": "textbox",
+        "label": "Expected replicas",
+        "current": {"text": "1", "value": "1"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Replicas up",
+      "gridPos": {"h": 4, "w": 3, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "count(up{job=\"$vllm_job\"} == 1)",
+          "legendFormat": "up",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Replicas down",
+      "gridPos": {"h": 4, "w": 3, "x": 3, "y": 0},
+      "targets": [
+        {
+          "expr": "clamp_min($replicas - count(up{job=\"$vllm_job\"} == 1), 0)",
+          "legendFormat": "down",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "nginx req/s",
+      "gridPos": {"h": 4, "w": 3, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(nginx_http_requests_total[$__rate_interval]))",
+          "legendFormat": "req/s",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps", "decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "nginx active",
+      "gridPos": {"h": 4, "w": 3, "x": 9, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(nginx_connections_active)",
+          "legendFormat": "active",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 0, "min": 0}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Generation tokens/s (now)",
+      "gridPos": {"h": 4, "w": 3, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(vllm:generation_tokens_total[$__rate_interval]))",
+          "legendFormat": "tokens/s",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Requests running",
+      "gridPos": {"h": 4, "w": 3, "x": 15, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(vllm:num_requests_running)",
+          "legendFormat": "running",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 0, "min": 0}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Requests waiting",
+      "gridPos": {"h": 4, "w": 3, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(vllm:num_requests_waiting)",
+          "legendFormat": "waiting",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 8}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "GPU KV-cache (avg %)",
+      "gridPos": {"h": 4, "w": 3, "x": 21, "y": 0},
+      "targets": [
+        {
+          "expr": "avg(vllm:kv_cache_usage_perc) * 100",
+          "legendFormat": "kv-cache",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 70},
+              {"color": "red", "value": 90}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Generation throughput (tokens/s)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(vllm:generation_tokens_total[$__rate_interval]))",
+          "legendFormat": "tokens/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "nginx active connections",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "sum(nginx_connections_active)",
+          "legendFormat": "active"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fleet queue pressure",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "sum(vllm:num_requests_running)",
+          "legendFormat": "running"
+        },
+        {
+          "expr": "sum(vllm:num_requests_waiting)",
+          "legendFormat": "waiting"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fleet E2E request latency",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 2},
+              {"color": "red", "value": 5}
+            ]
+          },
+          "custom": {
+            "axisGridShow": true,
+            "thresholdsStyle": {"mode": "line"}
+          }
+        }
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Generation throughput by replica (now)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {
+          "expr": "sum by (replica, instance) (rate(vllm:generation_tokens_total[$__rate_interval]))",
+          "legendFormat": "r{{replica}} · {{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Waiting requests by replica",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "targets": [
+        {
+          "expr": "sum by (replica, instance) (vllm:num_requests_waiting)",
+          "legendFormat": "r{{replica}} · {{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 4}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "GPU KV-cache usage by replica",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "targets": [
+        {
+          "expr": "vllm:kv_cache_usage_perc * 100",
+          "legendFormat": "r{{replica}} · {{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 70},
+              {"color": "red", "value": 90}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "p95 latency by replica",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, replica, instance) (rate(vllm:e2e_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "r{{replica}} · {{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 2},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Replica request state",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 36},
+      "targets": [
+        {
+          "expr": "sum by (replica, instance) (vllm:num_requests_running)",
+          "legendFormat": "r{{replica}} running",
+          "instant": true
+        },
+        {
+          "expr": "sum by (replica, instance) (vllm:num_requests_waiting)",
+          "legendFormat": "r{{replica}} waiting",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 0, "min": 0}
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Requests handled per replica (range)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 44},
+      "targets": [
+        {
+          "expr": "sum by (replica, instance) (increase(vllm:request_success_total[$__range]))",
+          "legendFormat": "r{{replica}} · {{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short", "decimals": 0, "min": 0}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg generation tokens/s (over range)",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 52},
+      "targets": [
+        {
+          "expr": "sum(increase(vllm:generation_tokens_total[$__range])) / $__range_s",
+          "legendFormat": "avg tokens/s",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Avg generation throughput by replica (over range)",
+      "gridPos": {"h": 8, "w": 18, "x": 6, "y": 52},
+      "targets": [
+        {
+          "expr": "sum by (replica, instance) (increase(vllm:generation_tokens_total[$__range])) / $__range_s",
+          "legendFormat": "r{{replica}} · {{instance}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"decimals": 1, "min": 0}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request outcomes/s (by finished reason)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 60},
+      "targets": [
+        {
+          "expr": "sum by (finished_reason) (rate(vllm:request_success_total[$__rate_interval]))",
+          "legendFormat": "{{finished_reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "KV-cache pressure: preemptions/s",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 60},
+      "targets": [
+        {
+          "expr": "sum(rate(vllm:num_preemptions_total[$__rate_interval]))",
+          "legendFormat": "preemptions/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    }
+  ]
+}

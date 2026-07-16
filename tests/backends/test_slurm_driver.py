@@ -18,7 +18,12 @@ import jinja2
 import pytest
 
 from domyn_swarm.backends.serving.slurm_driver import SlurmDriver
-from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
+from domyn_swarm.config.slurm import (
+    GpuExporterConfig,
+    MonitoringConfig,
+    SlurmConfig,
+    SlurmEndpointConfig,
+)
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 
 
@@ -61,6 +66,45 @@ def test_submit_replicas(mock_get_template, mock_check_output, slurm_driver, tmp
     assert job_id == 12345
     mock_get_template.assert_called()
     mock_check_output.assert_called()
+
+
+@patch("domyn_swarm.backends.serving.slurm_driver.logger")
+@patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")
+@patch("domyn_swarm.backends.serving.slurm_driver.jinja2.Environment.get_template")
+def test_submit_replicas_warns_when_ray_and_gpu_monitoring_enabled(
+    mock_get_template, mock_check_output, mock_logger, slurm_driver, tmp_path
+):
+    mock_template = MagicMock()
+    mock_template.render.return_value = "#!/bin/bash\necho test"
+    mock_get_template.return_value = mock_template
+    mock_check_output.return_value = "12345;dummy"
+
+    slurm_driver.cfg.backend.requires_ray = True
+    slurm_driver.cfg.backend.endpoint.monitoring = MonitoringConfig(
+        enabled=True,
+        gpu_exporter=GpuExporterConfig(enabled=True, kind="nvidia_smi", image="gpu.sif"),
+    )
+
+    slurm_driver.submit_replicas("test_job", 4, 2, 4, 2, 2, str(tmp_path))
+    mock_logger.warning.assert_called_once()
+    assert "Ray" in mock_logger.warning.call_args[0][0]
+
+
+@patch("domyn_swarm.backends.serving.slurm_driver.logger")
+@patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")
+@patch("domyn_swarm.backends.serving.slurm_driver.jinja2.Environment.get_template")
+def test_submit_replicas_no_warning_when_gpu_monitoring_disabled(
+    mock_get_template, mock_check_output, mock_logger, slurm_driver, tmp_path
+):
+    mock_template = MagicMock()
+    mock_template.render.return_value = "#!/bin/bash\necho test"
+    mock_get_template.return_value = mock_template
+    mock_check_output.return_value = "12345;dummy"
+
+    slurm_driver.cfg.backend.requires_ray = True
+
+    slurm_driver.submit_replicas("test_job", 4, 2, 4, 2, 2, str(tmp_path))
+    mock_logger.warning.assert_not_called()
 
 
 @patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")
@@ -118,3 +162,14 @@ def test_get_node_from_jobid(mock_check_output, slurm_driver):
     mock_check_output.side_effect = ["nodespec\n", "node001\nnode002\n"]
     node = slurm_driver.get_node_from_jobid(11111)
     assert node == "node001"
+
+
+@patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")
+def test_submit_endpoint_writes_static_server_conf(mock_check_output, slurm_driver, tmp_path):
+    mock_check_output.return_value = "55555"
+    swarm_dir = tmp_path / "swarms" / "s1"
+    (swarm_dir / "serving").mkdir(parents=True)
+    slurm_driver.submit_endpoint("job", 12345, 2, str(swarm_dir))
+    server_conf = swarm_dir / "serving" / "10-server.conf"
+    assert server_conf.exists()
+    assert "proxy_pass http://llm;" in server_conf.read_text()

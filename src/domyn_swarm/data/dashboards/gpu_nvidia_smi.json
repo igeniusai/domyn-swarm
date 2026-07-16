@@ -1,0 +1,116 @@
+{
+  "title": "domyn-swarm GPUs (nvidia_smi)",
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "replica",
+        "type": "query",
+        "label": "Replica",
+        "multi": true,
+        "includeAll": true,
+        "query": "label_values(dswarm_gpu_owner, replica)"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "GPU memory used (per replica)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "nvidia_smi_memory_used_bytes * on(uuid) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{uuid}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU utilization",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "nvidia_smi_utilization_gpu_ratio * on(uuid) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{uuid}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU memory-bus utilization",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "nvidia_smi_utilization_memory_ratio * on(uuid) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{uuid}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Power draw (W)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "nvidia_smi_power_draw_watts * on(uuid) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{uuid}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 1,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory temperature (°C)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "nvidia_smi_temperature_memory * on(uuid) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{uuid}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    }
+  ]
+}
