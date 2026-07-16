@@ -16,6 +16,7 @@ import importlib
 import sys
 from types import SimpleNamespace
 
+from click import unstyle
 import pytest
 from typer.testing import CliRunner
 
@@ -62,6 +63,51 @@ class _FakeStateManager:
     def load(cls, *, deployment_name: str):
         cls._swarm_instance.calls.append(("load", deployment_name))
         return cls._swarm_instance
+
+
+def test_cli_help_lists_lazy_subapps_by_registered_name():
+    expected_commands = {
+        "db": "Manage the Domyn-Swarm state database.",
+        "init": "Initialize a new Domyn-Swarm configuration.",
+        "job": "Submit a workload to a Domyn-Swarm allocation.",
+        "pool": "Submit a pool of swarm allocations from a YAML config.",
+        "swarm": "Manage swarm allocations.",
+    }
+
+    result = runner.invoke(app, ["--help"], terminal_width=160)
+
+    assert result.exit_code == 0
+    output = unstyle(result.output)
+    for command, help_text in expected_commands.items():
+        assert any(f"│ {command}" in line and help_text in line for line in output.splitlines())
+
+
+def test_cli_init_defaults_is_nested():
+    result = runner.invoke(app, ["init", "--help"])
+
+    assert result.exit_code == 0
+    assert any("│ defaults" in line for line in unstyle(result.output).splitlines())
+
+
+def test_cli_init_defaults_dispatches(monkeypatch, tmp_path):
+    import domyn_swarm.cli.init as init_module
+
+    answers = iter([True, False, True])
+    monkeypatch.setattr(init_module, "_yesno", lambda *args, **kwargs: next(answers))
+    monkeypatch.setattr(
+        init_module,
+        "_configure_slurm_defaults",
+        lambda existing: {"slurm": {"image": "img.sif"}},
+    )
+
+    output = tmp_path / "defaults.yaml"
+    result = runner.invoke(
+        app,
+        ["init", "defaults", "--output", str(output), "--force"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert output.exists()
 
 
 def test_cli_version(monkeypatch, disable_autoupgrade):

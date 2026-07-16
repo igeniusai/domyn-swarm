@@ -72,11 +72,14 @@ class LazyGroup(TyperGroup):
         spec = _LAZY_SUBAPPS.get(cmd_name)
         if spec is None:
             return None
-        module_path, attr, _ = spec
-        from typer.main import get_command as _typer_to_click
+        module_path, attr, help_text = spec
+        from typer.main import get_group as _typer_to_click_group
 
         sub_app = getattr(importlib.import_module(module_path), attr)
-        click_cmd = _typer_to_click(sub_app)
+        wrapper = typer.Typer()
+        wrapper.add_typer(sub_app, name=cmd_name, help=help_text)
+        click_cmd = _typer_to_click_group(wrapper).get_command(ctx, cmd_name)
+        assert click_cmd is not None
         self.add_command(click_cmd, cmd_name)
         return click_cmd
 
