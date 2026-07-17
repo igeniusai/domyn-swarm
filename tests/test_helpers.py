@@ -27,11 +27,9 @@ from domyn_swarm.helpers.data import (
     parquet_hash,
 )
 from domyn_swarm.helpers.reverse_proxy import (
-    generate_ssh_tunnel_cmd,
     get_login_node_suffix,
     get_unused_port,
     launch_nginx_singularity,
-    launch_reverse_proxy,
     run_command,
 )
 from domyn_swarm.utils.env_path import EnvPath
@@ -108,16 +106,6 @@ def test_run_command_failure():
         run_command("ls non_existent_file")
 
 
-def test_generate_ssh_tunnel_cmd_basic():
-    cmd = generate_ssh_tunnel_cmd(
-        user="fdambro1", localhost_port=8888, nginx_port=9000, login_node_suffix="35"
-    )
-
-    expected = "ssh -N -L 8888:login35.leonardo.local:9000 fdambro1@login35-ext.leonardo.cineca.it"
-
-    assert cmd == expected
-
-
 def test_launch_nginx_singularity(monkeypatch, tmp_path):
     # Setup fake paths
     sif_path = EnvPath(tmp_path / "nginx.sif")
@@ -159,35 +147,6 @@ def test_launch_nginx_singularity(monkeypatch, tmp_path):
 
     log_path = tmp_path / "nginx_singularity.log"
     assert log_path.exists()
-
-
-def test_launch_reverse_proxy(mock_launch_reverse_proxy, tmp_path, capsys):
-    nginx_template = EnvPath(tmp_path / "nginx_template.j2")
-    nginx_template.write_text("# template")
-
-    image_path = EnvPath(tmp_path / "nginx_image.sif")
-    image_path.write_text("# sif")
-
-    launch_reverse_proxy(
-        nginx_template=nginx_template,
-        image_path=image_path,
-        lb_node="lrdn001",
-        head_node="lrdn001",
-        vllm_port=8000,
-        ray_dashboard_port=8265,
-    )
-
-    out = capsys.readouterr().out
-    assert "[INFO] Launching reverse proxy on port 54321" in out
-    assert (
-        "ssh -N -L 54321:login42.leonardo.local:54321 \nfakeuser@login42-ext.leonardo.cineca.it"
-        in out
-    )
-
-    called = mock_launch_reverse_proxy["called_launch"]
-    assert called.get("called") is True
-    assert "nginx.conf" in called["conf_path"].name
-    assert "index.html" in called["html_path"].name
 
 
 def test_parquet_hash_blake2b(parquet_file):

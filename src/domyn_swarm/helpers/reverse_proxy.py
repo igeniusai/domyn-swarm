@@ -16,7 +16,6 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 
 import jinja2
@@ -69,15 +68,6 @@ def run_command(command: str):
     return_code = process.returncode
     assert return_code == 0, f"Command failed with error: {errors.decode('utf-8')}"
     return output.decode("utf-8").strip()
-
-
-def generate_ssh_tunnel_cmd(
-    user: str, localhost_port: int, nginx_port: int, login_node_suffix: str
-) -> str:
-    return (
-        f"ssh -N -L {localhost_port}:login{login_node_suffix}.leonardo.local:{nginx_port} "
-        f"{user}@login{login_node_suffix}-ext.leonardo.cineca.it"
-    )
 
 
 def generate_nginx_config(
@@ -134,60 +124,6 @@ def launch_nginx_singularity(
         subprocess.Popen(command, stdout=log, stderr=log)
 
     rprint(f"[INFO] NGINX container started in background. Logs: {logfile}")
-
-
-def launch_reverse_proxy(
-    nginx_template: utils.EnvPath,
-    image_path: utils.EnvPath,
-    lb_node: str,
-    head_node: str,
-    vllm_port: int,
-    ray_dashboard_port: int,
-):
-    port = get_unused_port()
-    rprint(f"[INFO] Launching reverse proxy on port {port}...")
-    nginx_conf = generate_nginx_config(
-        nginx_template,
-        host=head_node,
-        public_port=0,
-        vllm_port=vllm_port,
-        ray_port=ray_dashboard_port,
-    )
-
-    # Deletion control is only available from Python 3.12
-    if sys.version_info >= (3, 12):
-        tmp_directory = tempfile.TemporaryDirectory(delete=False)
-    else:
-        tmp_directory = tempfile.TemporaryDirectory()
-
-    with tmp_directory as temp_dir:
-        conf_path = utils.EnvPath(temp_dir) / "nginx.conf"
-        with open(conf_path, "w") as f:
-            f.write(nginx_conf)
-        html_path = utils.EnvPath(temp_dir) / "html" / "index.html"
-        html_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(html_path, "w") as f:
-            f.write(
-                f"<h1>Reverse proxy for {lb_node}</h1>\n<p>vLLM port: "
-                f"{vllm_port}</p>\n<p>Ray dashboard port: {ray_dashboard_port}</p>"
-            )
-        launch_nginx_singularity(
-            sif_path=image_path,
-            conf_path=conf_path,
-            html_path=html_path,
-        )
-    user = run_command("whoami").strip()
-    login_node_suffix = get_login_node_suffix()
-    ssh_cmd = generate_ssh_tunnel_cmd(
-        user=user,
-        localhost_port=port,
-        nginx_port=port,
-        login_node_suffix=login_node_suffix,
-    )
-
-    rprint("\n[INFO] Run the following command in your local terminal to create the SSH tunnel:")
-    rprint(ssh_cmd)
-    rprint("[DONE]")
 
 
 def is_endpoint_healthy(endpoint: str, timeout: float = 2.0) -> bool:

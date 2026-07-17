@@ -216,13 +216,6 @@ def launch_up(
         typer.FileText,
         typer.Option(..., "-c", "--config", help="Path to YAML config for LLMSwarmConfig"),
     ],
-    reverse_proxy: Annotated[
-        bool,
-        typer.Option(
-            "--reverse-proxy/--no-reverse-proxy",
-            help="Enable reverse proxy for the swarm allocation",
-        ),
-    ] = False,
     replicas: Annotated[
         int | None,
         typer.Option(
