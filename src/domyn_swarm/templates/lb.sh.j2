@@ -71,7 +71,7 @@ mkdir -p "$HOST_DIR/run"
 singularity exec --writable-tmpfs --bind "{{ supervisor_script_path }}:/opt/lb_supervisor.py,$HOST_DIR" "$PYTHON_IMG" \
   python3 /opt/lb_supervisor.py --once \
   --serving-dir "$SERVING_DIR" \
-  {% if cfg.backend.requires_ray %}--ray-enabled --ray-dashboard-port {{ cfg.backend.ray_dashboard_port }} --ray-port {{ cfg.backend.ray_port }} {% endif %}{% if cfg.backend.endpoint.monitoring.enabled %}--emit-targets {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}--emit-gpu-targets {% endif %}{% endif %}
+  {% if cfg.backend.requires_ray %}--ray-enabled --ray-dashboard-port {{ cfg.backend.ray_dashboard_port }} --ray-port {{ cfg.backend.ray_port }} {% endif %}{% if cfg.backend.endpoint.monitoring.enabled %}--emit-targets {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}--emit-gpu-targets {% endif %}{% if cfg.backend.endpoint.monitoring.ray_metrics.enabled %}--emit-ray-targets {% endif %}{% endif %}
 
 CACHE_DIR="$TMPDIR/cache"
 mkdir -p "$CACHE_DIR"
@@ -131,7 +131,7 @@ echo "[lb] started monitoring sidecars (prometheus=$PROM_PID, nginx_exporter=$NG
 singularity exec --writable-tmpfs --bind "{{ supervisor_script_path }}:/opt/lb_supervisor.py,$HOST_DIR" "$PYTHON_IMG" \
   python3 /opt/lb_supervisor.py \
   --serving-dir "$SERVING_DIR" \
-  {% if cfg.backend.requires_ray %}--ray-enabled --ray-dashboard-port {{ cfg.backend.ray_dashboard_port }} --ray-port {{ cfg.backend.ray_port }} {% endif %}{% if cfg.backend.endpoint.monitoring.enabled %}--emit-targets {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}--emit-gpu-targets {% endif %}{% endif %}\
+  {% if cfg.backend.requires_ray %}--ray-enabled --ray-dashboard-port {{ cfg.backend.ray_dashboard_port }} --ray-port {{ cfg.backend.ray_port }} {% endif %}{% if cfg.backend.endpoint.monitoring.enabled %}--emit-targets {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}--emit-gpu-targets {% endif %}{% if cfg.backend.endpoint.monitoring.ray_metrics.enabled %}--emit-ray-targets {% endif %}{% endif %}\
   >>"$HOST_DIR/logs/supervisor.log" 2>&1 &
 SUPERVISOR_PID=$!
 echo "[lb] started supervisor PID $SUPERVISOR_PID"

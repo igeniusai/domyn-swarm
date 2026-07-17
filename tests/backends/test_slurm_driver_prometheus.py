@@ -16,7 +16,7 @@ def _render(**ctx) -> str:
 
 
 class _Mon:
-    def __init__(self, gpu_enabled):
+    def __init__(self, gpu_enabled, ray_enabled=False):
         self.scrape_interval = "15s"
         self.exporter_port = 9113
 
@@ -25,6 +25,11 @@ class _Mon:
             port = 9835
 
         self.gpu_exporter = _GX()
+
+        class _RX:
+            enabled = ray_enabled
+
+        self.ray_metrics = _RX()
 
 
 class _Cfg:
@@ -49,3 +54,26 @@ def test_prometheus_gpu_jobs_absent_when_disabled():
     )
     assert "job_name: gpu" not in out
     assert "gpu_ownership" not in out
+
+
+def test_prometheus_ray_job_present_when_enabled():
+    out = _render(
+        monitoring=_Mon(False, ray_enabled=True),
+        targets_path="/t.json",
+        gpu_targets_path="/g.json",
+        ray_targets_path="/serving/ray_targets.json",
+        cfg=_Cfg(),
+    )
+    assert "job_name: ray" in out
+    assert "ray_targets.json" in out
+
+
+def test_prometheus_ray_job_absent_when_disabled():
+    out = _render(
+        monitoring=_Mon(False, ray_enabled=False),
+        targets_path="/t.json",
+        gpu_targets_path="/g.json",
+        ray_targets_path="/serving/ray_targets.json",
+        cfg=_Cfg(),
+    )
+    assert "job_name: ray" not in out

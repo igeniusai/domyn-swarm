@@ -24,3 +24,10 @@ scrape_configs:
     static_configs:
       - targets: ["127.0.0.1:{{ cfg.backend.endpoint.port }}"]
 {% endif %}
+{% if monitoring.ray_metrics.enabled %}
+  - job_name: ray
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - {{ ray_targets_path }}
+{% endif %}

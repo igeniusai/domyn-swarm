@@ -6,8 +6,9 @@ import jinja2
 TPL_DIR = Path("src/domyn_swarm/templates")
 
 
-def _cfg(gpu_enabled):
+def _cfg(gpu_enabled, ray_enabled=False):
     gx = SimpleNamespace(enabled=gpu_enabled, port=9835, kind="nvidia_smi")
+    rx = SimpleNamespace(enabled=ray_enabled, port=8090)
     mon = SimpleNamespace(
         enabled=True,
         route_prefix="/prometheus",
@@ -20,6 +21,7 @@ def _cfg(gpu_enabled):
         exporter_port=9113,
         retention="12h",
         gpu_exporter=gx,
+        ray_metrics=rx,
     )
     ep = SimpleNamespace(port=9000, monitoring=mon)
     backend = SimpleNamespace(
@@ -52,3 +54,11 @@ def test_supervisor_gets_emit_gpu_targets_when_enabled():
 
 def test_supervisor_no_emit_gpu_targets_when_disabled():
     assert _render(_cfg(False)).count("--emit-gpu-targets") == 0
+
+
+def test_supervisor_gets_emit_ray_targets_when_enabled():
+    assert _render(_cfg(False, ray_enabled=True)).count("--emit-ray-targets") == 2
+
+
+def test_supervisor_no_emit_ray_targets_when_disabled():
+    assert _render(_cfg(False, ray_enabled=False)).count("--emit-ray-targets") == 0

@@ -224,6 +224,7 @@ def test_prometheus_yml_render():
         exporter_port = 9113
         route_prefix = "/prometheus"
         gpu_exporter = SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835)
+        ray_metrics = SimpleNamespace(enabled=False, port=8090)
 
     out = (
         _env()
@@ -277,6 +278,7 @@ def _render_lb_with_monitoring(enabled: bool):
                     scrape_interval="15s",
                     retention="12h",
                     gpu_exporter=SimpleNamespace(enabled=False, kind="nvidia_smi", port=9835),
+                    ray_metrics=SimpleNamespace(enabled=False, port=8090),
                 ),
             ),
         ),
