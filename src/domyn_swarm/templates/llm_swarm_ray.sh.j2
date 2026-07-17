@@ -43,6 +43,8 @@ SHARED_RAY_LOGS="$RAY_LOG_DIR/ray_logs/"
 mkdir -p "$SHARED_RAY_LOGS" "$LOCAL_RAY_LOGS"
 export REPLICA_ENV={{ swarm_directory }}/serving/replica-${REPL_ID}.env
 
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% set _ray_mon = _mon.enabled and _mon.ray_metrics and _mon.ray_metrics.enabled %}
 function start_ray_head() {
   echo "[head] starting Singularity instance ($HEAD_NODE)..."
   echo "VLLM_HOST_IP=$VLLM_HOST_IP" > $REPLICA_ENV
@@ -51,8 +53,11 @@ function start_ray_head() {
                 --env-file $REPLICA_ENV \
                 --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
                 --disable-usage-stats --head --block \
-                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.backend.ray_dashboard_port }} --include-dashboard=true
+                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.backend.ray_dashboard_port }} --include-dashboard=true{{ (" --metrics-export-port=" ~ _mon.ray_metrics.port) if _ray_mon else "" }}
   echo "[head] Singularity instance started: instance://$INSTANCE_TAG"
+{% if _ray_mon %}
+  echo "$(hostname):{{ _mon.ray_metrics.port }}" > "{{ swarm_directory }}/serving/ray-$(hostname).target"
+{% endif %}
 
   src="$HOME/.singularity/instances/logs/$(hostname -f)/$USER"
   dst="$RAY_LOG_DIR/head"
@@ -92,6 +97,9 @@ function start_ray_workers() {
        mkdir -p "$LOCAL_BASE"
        SHARED_NODE_LOGS='"$SHARED_RAY_LOGS"'/"${NODE_TAG}"
        mkdir -p "$SHARED_NODE_LOGS"
+{% if _ray_mon %}
+       echo "$(hostname):{{ _mon.ray_metrics.port }}" > "{{ swarm_directory }}/serving/ray-$(hostname).target"
+{% endif %}
 
        echo "[$NODE_TAG] VLLM_HOST_IP=$SINGULARITYENV_VLLM_HOST_IP"
        echo "[$NODE_TAG] LOCAL_BASE=$LOCAL_BASE"
@@ -103,6 +111,9 @@ function start_ray_workers() {
        $inst \
           --disable-usage-stats \
           --address='"$HEAD_NODE"':'"$HEAD_PORT"' \
+{% if _ray_mon %}
+          --metrics-export-port={{ _mon.ray_metrics.port }} \
+{% endif %}
           --block
 
       # Sync loop while the instance exists
@@ -190,15 +201,21 @@ final_sync_ray_logs() {
   done
 }
 {% set _mon = cfg.backend.endpoint.monitoring %}
-{% if _mon.enabled and _mon.gpu_exporter.enabled %}
-_cleanup_gpu_monitoring() {
+{% set _gpu_mon = _mon.enabled and _mon.gpu_exporter.enabled %}
+{% if _gpu_mon or _ray_mon %}
+_cleanup_monitoring() {
+{% if _gpu_mon %}
   kill ${GPU_EXPORTER_PID:-} 2>/dev/null || true
   rm -f "{{ swarm_directory }}/serving/gpu-$(hostname).target" \
         "{{ swarm_directory }}/serving/gpu-owner-${REPL_ID}-"*.txt 2>/dev/null || true
+{% endif %}
+{% if _ray_mon %}
+  rm -f "{{ swarm_directory }}/serving/ray-$(hostname).target" 2>/dev/null || true
+{% endif %}
 }
 _on_exit() {
   final_sync_ray_logs
-  _cleanup_gpu_monitoring
+  _cleanup_monitoring
 }
 trap _on_exit EXIT
 {% else %}

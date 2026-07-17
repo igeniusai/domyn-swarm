@@ -99,3 +99,21 @@ def test_ray_gpu_exporter_absent_when_disabled():
 def test_ray_gpu_exporter_absent_when_monitoring_off():
     out = _render(_cfg(mon_enabled=False, gpu_enabled=True))
     assert "launch_gpu_exporter" not in out
+
+
+def _ray_metrics(enabled, port=8090):
+    return SimpleNamespace(enabled=enabled, port=port)
+
+
+def test_ray_metrics_port_present_when_enabled():
+    cfg = _cfg(mon_enabled=True, gpu_enabled=False, ray_metrics=_ray_metrics(True))
+    out = _render(cfg)
+    assert "--metrics-export-port=8090" in out
+    assert "ray-$(hostname).target" in out
+
+
+def test_ray_metrics_absent_when_disabled():
+    cfg = _cfg(mon_enabled=True, gpu_enabled=False, ray_metrics=_ray_metrics(False))
+    out = _render(cfg)
+    assert "--metrics-export-port" not in out
+    assert "ray-$(hostname).target" not in out
