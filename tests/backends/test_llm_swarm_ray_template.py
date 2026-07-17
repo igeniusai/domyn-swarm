@@ -90,6 +90,19 @@ def test_ray_gpu_exporter_present_when_enabled():
     assert "--gres=gpu:4" in out
 
 
+def test_ray_gpu_exporter_fanout_threads_ray_log_dir():
+    """The gpu-exporter fan-out srun/bash -lc must thread RAY_LOG_DIR into the
+    remote task, otherwise launch_gpu_exporter's redirect resolves to an empty
+    path inside the srun'd shell (RAY_LOG_DIR is a shell-local var on the head
+    node, not exported)."""
+    out = _render(_cfg(mon_enabled=True, gpu_enabled=True))
+    fanout_lines = [line for line in out.splitlines() if 'bash -lc "REPL_ID=' in line]
+    assert len(fanout_lines) == 1
+    fanout_line = fanout_lines[0]
+    assert "RAY_LOG_DIR=" in fanout_line
+    assert "launch_gpu_exporter" in fanout_line
+
+
 def test_ray_gpu_exporter_absent_when_disabled():
     out = _render(_cfg(mon_enabled=True, gpu_enabled=False))
     assert "launch_gpu_exporter" not in out

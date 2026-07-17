@@ -278,7 +278,7 @@ launch_gpu_exporter() {
   GPU_EXPORTER_PID=$!
 }
 srun --overlap --ntasks-per-node=1 --nodes=$SLURM_JOB_NUM_NODES \
-  --gres=gpu:{{ cfg.gpus_per_node }} bash -lc "REPL_ID=$REPL_ID; $(declare -f launch_gpu_exporter); launch_gpu_exporter; sleep infinity" &
+  --gres=gpu:{{ cfg.gpus_per_node }} bash -lc "REPL_ID=$REPL_ID; RAY_LOG_DIR=$RAY_LOG_DIR; $(declare -f launch_gpu_exporter); launch_gpu_exporter; sleep infinity" &
 GPU_EXPORTER_PID=$!
 {% endif %}
 start_vllm_server
