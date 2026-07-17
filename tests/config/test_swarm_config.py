@@ -118,3 +118,52 @@ def test_ray_metrics_off_when_not_ray():
         }
     )
     assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is False
+
+
+def test_ray_metrics_off_when_monitoring_disabled_but_ray():
+    """monitoring disabled but requires_ray -> ray_metrics.enabled resolves to False."""
+    cfg = _ray_cfg(enabled=False)
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is False
+
+
+def test_ray_metrics_off_when_monitoring_block_absent_ray():
+    """No monitoring block at all (ray deployment) -> ray_metrics.enabled resolves to False."""
+    cfg = _cfg(gpus_per_replica=8, gpus_per_node=4, replicas=1)
+    assert cfg.backend.requires_ray is True
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is False
+
+
+def test_ray_metrics_off_when_monitoring_block_absent_non_ray():
+    """No monitoring block at all (non-ray deployment) -> ray_metrics.enabled resolves to False."""
+    cfg = _cfg(gpus_per_replica=1, gpus_per_node=4, replicas=2)
+    assert cfg.backend.requires_ray is False
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is False
+
+
+def test_ray_metrics_explicit_true_respected_on_non_ray():
+    """Explicit ray_metrics.enabled=True on a non-ray deployment stays True."""
+    cfg = DomynLLMSwarmConfig.model_validate(
+        {
+            "name": "s",
+            "model": "m",
+            "image": "v.sif",
+            "replicas": 2,
+            "gpus_per_replica": 1,
+            "gpus_per_node": 4,
+            "backend": {
+                "type": "slurm",
+                "account": "a",
+                "partition": "p",
+                "qos": "q",
+                "endpoint": {
+                    "monitoring": {
+                        "enabled": True,
+                        "mode": "binary",
+                        "ray_metrics": {"enabled": True},
+                    }
+                },
+            },
+        }
+    )
+    assert cfg.backend.requires_ray is False
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is True

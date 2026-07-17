@@ -214,6 +214,27 @@ class DomynLLMSwarmConfig(BaseModel):
 
         return data
 
+    @model_validator(mode="after")
+    def _finalize_ray_metrics(self) -> "DomynLLMSwarmConfig":
+        """Resolve ``ray_metrics.enabled`` to a concrete bool in all cases.
+
+        The before-validator (``validate_resource_allocations``) only auto-resolves
+        ``ray_metrics.enabled`` when a monitoring block is present and enabled. This
+        after-validator runs once all nested objects exist (with their defaults) and
+        is the final authority: it guarantees ``ray_metrics.enabled`` is never left
+        as ``None`` after a full config is validated, regardless of whether
+        monitoring is disabled or the monitoring block was absent entirely. Explicit
+        ``True``/``False`` values set by the user are always respected.
+        """
+        from domyn_swarm.config.slurm import SlurmConfig
+
+        be = self.backend
+        if isinstance(be, SlurmConfig):
+            rm = be.endpoint.monitoring.ray_metrics
+            if rm.enabled is None:
+                rm.enabled = bool(be.endpoint.monitoring.enabled and be.requires_ray)
+        return self
+
 
 def _load_swarm_config(
     config_file: io.TextIOWrapper,
