@@ -1,0 +1,37 @@
+{
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Ray alive nodes",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "count(ray_node_cpu_count)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ray object store used (per node)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "ray_object_store_memory",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ray tasks by state",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "sum by (State) (ray_tasks)",
+          "legendFormat": "{{State}}"
+        }
+      ]
+    }
+  ]
+}

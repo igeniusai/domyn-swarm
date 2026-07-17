@@ -122,6 +122,46 @@ def _bundled_gpu_dashboard(kind: str) -> Path | None:
         return None
 
 
+def _append_ray_panels(base_path: Path) -> Path:
+    """Merge the bundled Ray panel group onto a base dashboard.
+
+    Reads ``ray_panels.json`` from package data, offsets each Ray panel below
+    the base dashboard's panels, writes the merged dashboard to a temp file,
+    and returns its path.
+
+    Args:
+        base_path: Path to the base dashboard JSON (e.g. the bundled vLLM
+            dashboard) onto which the Ray panels should be appended.
+
+    Returns:
+        Path to the merged dashboard JSON written to a temp file, or
+        ``base_path`` unchanged if the base or the Ray panel fragment is
+        missing or unreadable.
+    """
+    import json
+    import tempfile
+
+    try:
+        base = json.loads(base_path.read_text())
+        ref = resources.files("domyn_swarm.data.dashboards").joinpath("ray_panels.json")
+        ray = json.loads(ref.read_text())
+    except (OSError, ValueError):
+        return base_path
+    panels = base.get("panels", [])
+    y_off = max(
+        (p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0) for p in panels),
+        default=0,
+    )
+    for p in ray.get("panels", []):
+        p = {**p, "gridPos": {**p["gridPos"], "y": p["gridPos"].get("y", 0) + y_off}}
+        panels.append(p)
+    base["panels"] = panels
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fd:
+        json.dump(base, fd)
+        name = fd.name
+    return Path(name)
+
+
 def monitor(
     name: Annotated[str, typer.Argument(help="Swarm name to monitor.")],
     dashboard: Annotated[
@@ -216,6 +256,9 @@ def monitor(
             raise typer.Exit(code=2)
     else:
         dashboard = _bundled_dashboard()
+        rm = getattr(mon, "ray_metrics", None)
+        if dashboard is not None and rm is not None and getattr(rm, "enabled", False):
+            dashboard = _append_ray_panels(dashboard)
     argv = resolve_grafatui_argv(url, dashboard=dashboard, extra=extra, variables=variables)
 
     typer.echo(f"Launching grafatui with:\n  {_pretty_argv(argv)}")

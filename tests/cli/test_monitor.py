@@ -14,6 +14,7 @@
 
 from importlib import resources
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -158,3 +159,88 @@ def test_bundled_gpu_dashboard_resolves_by_kind():
     assert p is not None and p.name == "gpu_dcgm.json"
     p2 = monitor_mod._bundled_gpu_dashboard("nvidia_smi")
     assert p2 is not None and p2.name == "gpu_nvidia_smi.json"
+
+
+def test_ray_panels_json_valid_and_typed():
+    ref = resources.files("domyn_swarm.data.dashboards").joinpath("ray_panels.json")
+    data = json.loads(ref.read_text())
+    allowed = {"timeseries", "stat", "gauge", "bargauge", "table", "heatmap", "graph"}
+    assert data["panels"], "expected at least one Ray panel"
+    for p in data["panels"]:
+        assert p["type"] in allowed
+        assert p["title"] and p["gridPos"]
+        assert p["targets"] and p["targets"][0]["expr"]
+
+
+def test_append_ray_panels_merges_and_offsets(tmp_path):
+    base = tmp_path / "vllm.json"
+    base.write_text(
+        json.dumps(
+            {
+                "title": "v",
+                "panels": [
+                    {
+                        "type": "stat",
+                        "title": "a",
+                        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+                        "targets": [{"expr": "up"}],
+                    }
+                ],
+            }
+        )
+    )
+    merged_path = monitor_mod._append_ray_panels(base)
+    merged = json.loads(Path(merged_path).read_text())
+    titles = [p["title"] for p in merged["panels"]]
+    assert "a" in titles and "Ray alive nodes" in titles
+    ray_panel = next(p for p in merged["panels"] if p["title"] == "Ray alive nodes")
+    assert ray_panel["gridPos"]["y"] >= 4  # offset below the base panel
+
+
+def test_append_ray_panels_returns_base_unchanged_when_base_missing(tmp_path):
+    missing = tmp_path / "nope.json"
+    assert monitor_mod._append_ray_panels(missing) == missing
+
+
+def test_monitor_appends_ray_panels_when_ray_metrics_enabled(monkeypatch, tmp_path):
+    swarm = _swarm()
+    swarm.cfg.backend.endpoint.monitoring.ray_metrics = SimpleNamespace(enabled=True)
+
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+    monkeypatch.setattr(
+        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+    )
+    monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
+    captured: dict = {}
+    monkeypatch.setattr(monitor_mod.os, "execvp", lambda f, argv: captured.update(argv=argv))
+
+    monitor_mod.monitor("some-swarm")
+
+    argv = captured["argv"]
+    idx = argv.index("--grafana-json")
+    merged = json.loads(Path(argv[idx + 1]).read_text())
+    titles = [p["title"] for p in merged["panels"]]
+    assert "Ray alive nodes" in titles
+
+
+def test_monitor_skips_ray_panels_when_dashboard_overridden(monkeypatch, tmp_path):
+    swarm = _swarm()
+    swarm.cfg.backend.endpoint.monitoring.ray_metrics = SimpleNamespace(enabled=True)
+    custom = tmp_path / "custom.json"
+    custom.write_text(json.dumps({"title": "c", "panels": []}))
+
+    from domyn_swarm.core.state.state_manager import SwarmStateManager
+
+    monkeypatch.setattr(
+        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+    )
+    monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
+    captured: dict = {}
+    monkeypatch.setattr(monitor_mod.os, "execvp", lambda f, argv: captured.update(argv=argv))
+
+    monitor_mod.monitor("some-swarm", dashboard=custom)
+
+    argv = captured["argv"]
+    idx = argv.index("--grafana-json")
+    assert argv[idx + 1] == str(custom)
