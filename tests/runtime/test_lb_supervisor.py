@@ -237,3 +237,20 @@ def test_reconcile_no_gpu_files_when_disabled(tmp_path: Path):
     lbs.reconcile_once(opts)
     assert not (serving / "gpu_targets.json").exists()
     assert not (serving / "gpu_ownership.prom").exists()
+
+
+def test_gpu_ownership_aggregates_per_node_files_under_replica(tmp_path):
+    (tmp_path / "gpu-owner-0-nodeA.txt").write_text("GPU-aaa\nGPU-bbb\n")
+    (tmp_path / "gpu-owner-0-nodeB.txt").write_text("GPU-ccc\n")
+    out = lbs.render_gpu_ownership(tmp_path)
+    assert 'replica="0"' in out
+    for uuid in ("GPU-aaa", "GPU-bbb", "GPU-ccc"):
+        assert f'uuid="{uuid}"' in out
+    assert 'replica="0-nodeA"' not in out  # suffix must not leak into the label
+
+
+def test_gpu_ownership_backward_compatible_single_file(tmp_path):
+    (tmp_path / "gpu-owner-2.txt").write_text("GPU-zzz\n")
+    out = lbs.render_gpu_ownership(tmp_path)
+    assert 'uuid="GPU-zzz"' in out
+    assert 'replica="2"' in out

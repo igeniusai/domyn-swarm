@@ -186,7 +186,7 @@ def render_gpu_targets(serving_dir: Path) -> str:
 
 
 GPU_OWNERSHIP_FILENAME = "gpu_ownership.prom"
-_OWNER_RE = re.compile(r"gpu-owner-(?P<replica>.+)\.txt$")
+_OWNER_RE = re.compile(r"gpu-owner-(?P<replica>\d+)(?:-.+)?\.txt$")
 
 
 def render_gpu_ownership(serving_dir: Path) -> str:
