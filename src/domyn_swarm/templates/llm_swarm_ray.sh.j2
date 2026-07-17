@@ -189,7 +189,21 @@ final_sync_ray_logs() {
     sync_ray_logs_from_node "$n" "$LOCAL_RAY_LOGS" "$SHARED_RAY_LOGS" "$USER"
   done
 }
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+_cleanup_gpu_monitoring() {
+  kill ${GPU_EXPORTER_PID:-} 2>/dev/null || true
+  rm -f "{{ swarm_directory }}/serving/gpu-$(hostname).target" \
+        "{{ swarm_directory }}/serving/gpu-owner-${REPL_ID}-"*.txt 2>/dev/null || true
+}
+_on_exit() {
+  final_sync_ray_logs
+  _cleanup_gpu_monitoring
+}
+trap _on_exit EXIT
+{% else %}
 trap final_sync_ray_logs EXIT
+{% endif %}
 
 sync_ray_logs_from_node() {
   local node="$1"
@@ -223,6 +237,33 @@ wait_for_ray_ready
 start_ray_workers
 echo "[head] checking Ray status ..."
 singularity exec instance://"$INSTANCE_TAG" ray status
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+# --- GPU exporter (one per node of the Ray allocation, in the job's GPU cgroup) ---
+launch_gpu_exporter() {
+  echo "$(hostname):{{ _mon.gpu_exporter.port }}" > "{{ swarm_directory }}/serving/gpu-$(hostname).target"
+  nvidia-smi --query-gpu=uuid --format=csv,noheader 2>/dev/null | tr -d ' ' \
+    > "{{ swarm_directory }}/serving/gpu-owner-${REPL_ID}-$(hostname).txt" || true
+{% if _mon.gpu_exporter.kind == "dcgm" %}
+  singularity exec --nv \
+    --bind "{{ dcgm_core_counters_path }}:/etc/dcgm-exporter/core.csv" \
+    "{{ _mon.gpu_exporter.resolved_image(mode=_mon.mode) }}" \
+    dcgm-exporter -a ":{{ _mon.gpu_exporter.port }}" -f /etc/dcgm-exporter/core.csv \
+    >> "$RAY_LOG_DIR/gpu_exporter.log" 2>&1 &
+{% elif _mon.mode == "container" %}
+  singularity exec --nv "{{ _mon.gpu_exporter.resolved_image(mode=_mon.mode) }}" \
+    {{ _mon.gpu_exporter.resolved_binary(mode=_mon.mode) }} --web.listen-address=":{{ _mon.gpu_exporter.port }}" \
+    >> "$RAY_LOG_DIR/gpu_exporter.log" 2>&1 &
+{% else %}
+  {{ _mon.gpu_exporter.resolved_binary(mode=_mon.mode) }} --web.listen-address=":{{ _mon.gpu_exporter.port }}" \
+    >> "$RAY_LOG_DIR/gpu_exporter.log" 2>&1 &
+{% endif %}
+  GPU_EXPORTER_PID=$!
+}
+srun --overlap --ntasks-per-node=1 --nodes=$SLURM_JOB_NUM_NODES \
+  --gres=gpu:{{ cfg.gpus_per_node }} bash -lc "REPL_ID=$REPL_ID; $(declare -f launch_gpu_exporter); launch_gpu_exporter; sleep infinity" &
+GPU_EXPORTER_PID=$!
+{% endif %}
 start_vllm_server
 wait_for_vllm_server_ready
 

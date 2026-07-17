@@ -51,16 +51,6 @@ class SlurmDriver:
         Returns the job ID of the submitted job."""
 
         assert isinstance(self.cfg.backend, SlurmConfig)
-        if (
-            self.cfg.backend.requires_ray
-            and self.cfg.backend.endpoint.monitoring.enabled
-            and self.cfg.backend.endpoint.monitoring.gpu_exporter.enabled
-        ):
-            logger.warning(
-                "GPU monitoring (gpu_exporter) is not yet supported for Ray "
-                "(multi-node) replicas; no GPU metrics will be collected for "
-                "this deployment."
-            )
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(self.cfg.backend.template_path.parent),
             autoescape=False,
