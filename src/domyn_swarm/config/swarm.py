@@ -106,6 +106,29 @@ class DomynLLMSwarmConfig(BaseModel):
             raise ValueError("At least one backend must be configured")
         return v
 
+    @staticmethod
+    def _resolve_ray_metrics(backend: dict, requires_ray: bool) -> None:
+        """Auto-resolve ``monitoring.ray_metrics.enabled`` on a backend dict.
+
+        Mirrors how ``watchdog.ray.enabled`` is derived: when monitoring is on
+        and ``ray_metrics.enabled`` hasn't been set explicitly, it becomes
+        ``True`` iff the deployment requires Ray; explicit values are left
+        untouched.
+
+        Args:
+            backend: The (possibly mutated in place) backend config dict.
+            requires_ray: Whether this deployment requires Ray.
+        """
+        endpoint = backend.get("endpoint")
+        if not isinstance(endpoint, dict):
+            return
+        mon = endpoint.get("monitoring")
+        if not (isinstance(mon, dict) and mon.get("enabled")):
+            return
+        rm = mon.setdefault("ray_metrics", {})
+        if isinstance(rm, dict) and rm.get("enabled") is None:
+            rm["enabled"] = bool(requires_ray)
+
     @classmethod
     def read(cls, path: str) -> "DomynLLMSwarmConfig":
         config_path = to_path(path)
@@ -184,6 +207,8 @@ class DomynLLMSwarmConfig(BaseModel):
                     / "templates"
                     / "llm_swarm_ray.sh.j2"
                 )
+
+            cls._resolve_ray_metrics(backend, requires_ray)
 
         data["backend"] = backend
 

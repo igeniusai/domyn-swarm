@@ -56,6 +56,22 @@ class GpuExporterConfig(BaseModel):
         return None  # nvidia_smi container mode requires an explicit image
 
 
+class RayMetricsConfig(BaseModel):
+    """Optional scraping of Ray's per-node Prometheus metrics (``ray_*``).
+
+    Only effective for Ray multi-node replicas (``requires_ray``). Resolved to
+    ``enabled=True`` when monitoring is on and the deployment requires Ray,
+    unless explicitly set to ``False``.
+
+    Attributes:
+        enabled: Tri-state. ``None`` means auto (True iff monitoring+requires_ray).
+        port: Fixed Ray ``--metrics-export-port`` so announce files are stable.
+    """
+
+    enabled: bool | None = None
+    port: int = 8090
+
+
 class MonitoringConfig(BaseModel):
     """Optional Prometheus-based monitoring sidecar for the LB node.
 
@@ -92,6 +108,7 @@ class MonitoringConfig(BaseModel):
     scrape_interval: str = "15s"
     retention: str = "12h"
     gpu_exporter: GpuExporterConfig = Field(default_factory=GpuExporterConfig)
+    ray_metrics: RayMetricsConfig = Field(default_factory=RayMetricsConfig)
 
     @field_validator("route_prefix")
     @classmethod

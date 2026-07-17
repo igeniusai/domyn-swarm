@@ -100,3 +100,11 @@ def test_dcgm_container_mode_does_not_raise():
         gpu_exporter=GpuExporterConfig(enabled=True, kind="dcgm"),
     )
     assert mon.gpu_exporter.kind == "dcgm"
+
+
+def test_ray_metrics_defaults():
+    from domyn_swarm.config.slurm import MonitoringConfig
+
+    m = MonitoringConfig()
+    assert m.ray_metrics.enabled is None
+    assert m.ray_metrics.port == 8090

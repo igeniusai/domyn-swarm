@@ -58,3 +58,63 @@ def test_user_template_override_respected_for_ray():
     )
     assert cfg.backend.requires_ray is True
     assert cfg.backend.template_path.name == "my.sh.j2"
+
+
+def _ray_cfg(**mon):
+    """Build a validated swarm config with a fresh backend dict, requiring Ray.
+
+    Mirrors ``_cfg`` above: the validator mutates the backend dict, so each
+    case gets its own fresh dict to avoid cross-test leakage.
+    """
+    from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+
+    return DomynLLMSwarmConfig.model_validate(
+        {
+            "name": "s",
+            "model": "m",
+            "image": "v.sif",
+            "replicas": 1,
+            "gpus_per_replica": 8,
+            "gpus_per_node": 4,
+            "backend": {
+                "type": "slurm",
+                "account": "a",
+                "partition": "p",
+                "qos": "q",
+                "endpoint": {"monitoring": {"enabled": True, "mode": "binary", **mon}},
+            },
+        }
+    )
+
+
+def test_ray_metrics_auto_on_when_monitoring_and_ray():
+    cfg = _ray_cfg()
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is True
+
+
+def test_ray_metrics_explicit_false_respected():
+    cfg = _ray_cfg(ray_metrics={"enabled": False})
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is False
+
+
+def test_ray_metrics_off_when_not_ray():
+    from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+
+    cfg = DomynLLMSwarmConfig.model_validate(
+        {
+            "name": "s",
+            "model": "m",
+            "image": "v.sif",
+            "replicas": 2,
+            "gpus_per_replica": 1,
+            "gpus_per_node": 4,
+            "backend": {
+                "type": "slurm",
+                "account": "a",
+                "partition": "p",
+                "qos": "q",
+                "endpoint": {"monitoring": {"enabled": True, "mode": "binary"}},
+            },
+        }
+    )
+    assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is False
