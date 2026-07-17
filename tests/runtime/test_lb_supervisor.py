@@ -254,3 +254,48 @@ def test_gpu_ownership_backward_compatible_single_file(tmp_path):
     out = lbs.render_gpu_ownership(tmp_path)
     assert 'uuid="GPU-zzz"' in out
     assert 'replica="2"' in out
+
+
+def test_render_ray_targets_dedups_by_host(tmp_path):
+    import json
+
+    from domyn_swarm.runtime import lb_supervisor as lbs
+
+    (tmp_path / "ray-nodeA.target").write_text("nodeA:8090\n")
+    (tmp_path / "ray-nodeB.target").write_text("nodeB:8090\n")
+    payload = json.loads(lbs.render_ray_targets(tmp_path))
+    hosts = sorted(t for g in payload for t in g["targets"])
+    assert hosts == ["nodeA:8090", "nodeB:8090"]
+    assert all(g["labels"]["job"] == "ray" for g in payload)
+
+
+def test_render_ray_targets_empty(tmp_path):
+    import json
+
+    from domyn_swarm.runtime import lb_supervisor as lbs
+
+    assert json.loads(lbs.render_ray_targets(tmp_path)) == []
+
+
+def test_reconcile_writes_ray_targets_when_enabled(tmp_path):
+    from domyn_swarm.runtime import lb_supervisor as lbs
+
+    serving = tmp_path / "serving"
+    serving.mkdir()
+    (serving / "ray-nodeA.target").write_text("nodeA:8090\n")
+    opts = lbs.SupervisorOptions(
+        serving_dir=serving,
+        ray_enabled=True,
+        ray_dashboard_port=8265,
+        ray_port=6379,
+        emit_ray_targets=True,
+    )
+    lbs.reconcile_once(opts)
+    assert (serving / "ray_targets.json").is_file()
+
+
+def test_parse_args_emit_ray_targets_flag():
+    from domyn_swarm.runtime import lb_supervisor as lbs
+
+    opts, _once, _interval = lbs.parse_args(["--serving-dir", "/srv", "--emit-ray-targets"])
+    assert opts.emit_ray_targets is True

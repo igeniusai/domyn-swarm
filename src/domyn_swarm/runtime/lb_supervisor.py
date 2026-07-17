@@ -136,6 +136,7 @@ def write_if_changed(target: Path, content: str) -> bool:
 UPSTREAMS_FILENAME = "00-upstreams.conf"
 TARGETS_FILENAME = "targets.json"
 GPU_TARGETS_FILENAME = "gpu_targets.json"
+RAY_TARGETS_FILENAME = "ray_targets.json"
 
 
 def render_targets(serving_dir: Path) -> str:
@@ -185,6 +186,34 @@ def render_gpu_targets(serving_dir: Path) -> str:
     return json.dumps(groups) + "\n"
 
 
+def read_ray_target_entries(serving_dir: Path) -> list[tuple[str, str]]:
+    """Return ``(host, "host:port")`` for each Ray node announce file, deduped
+    by host.
+
+    Reads ``ray-<host>.target`` files (each a single ``host:port`` line).
+    Multiple files for the same host (replicas sharing a node) collapse to
+    one entry.
+    """
+    serving_dir = Path(serving_dir)
+    by_host: dict[str, str] = {}
+    for f in serving_dir.glob("ray-*.target"):
+        addr = f.read_text().strip()
+        if not addr or ":" not in addr:
+            continue
+        host = addr.split(":", 1)[0]
+        by_host.setdefault(host, addr)
+    return sorted(by_host.items(), key=lambda kv: kv[0])
+
+
+def render_ray_targets(serving_dir: Path) -> str:
+    """Render Prometheus file_sd targets for per-node Ray metrics agents (deduped)."""
+    groups = [
+        {"targets": [addr], "labels": {"job": "ray"}}
+        for _host, addr in read_ray_target_entries(serving_dir)
+    ]
+    return json.dumps(groups) + "\n"
+
+
 GPU_OWNERSHIP_FILENAME = "gpu_ownership.prom"
 _OWNER_RE = re.compile(r"gpu-owner-(?P<replica>\d+)(?:-.+)?\.txt$")
 
@@ -230,6 +259,7 @@ class SupervisorOptions:
         ray_port: Ray client port.
         emit_targets: Whether to also write the Prometheus file_sd targets.json.
         emit_gpu_targets: Whether to also write gpu_targets.json and gpu_ownership.prom.
+        emit_ray_targets: Whether to also write the Prometheus file_sd ray_targets.json.
     """
 
     serving_dir: Path
@@ -238,6 +268,7 @@ class SupervisorOptions:
     ray_port: int
     emit_targets: bool = False
     emit_gpu_targets: bool = False
+    emit_ray_targets: bool = False
 
 
 def reconcile_once(opts: SupervisorOptions) -> bool:
@@ -268,6 +299,10 @@ def reconcile_once(opts: SupervisorOptions) -> bool:
         )
         write_if_changed(
             opts.serving_dir / GPU_OWNERSHIP_FILENAME, render_gpu_ownership(opts.serving_dir)
+        )
+    if opts.emit_ray_targets:
+        write_if_changed(
+            opts.serving_dir / RAY_TARGETS_FILENAME, render_ray_targets(opts.serving_dir)
         )
     return changed
 
@@ -326,6 +361,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[SupervisorOptions, bool, 
     p.add_argument("--once", action="store_true")
     p.add_argument("--emit-targets", action="store_true")
     p.add_argument("--emit-gpu-targets", action="store_true")
+    p.add_argument("--emit-ray-targets", action="store_true")
     a = p.parse_args(argv)
     opts = SupervisorOptions(
         serving_dir=Path(a.serving_dir),
@@ -334,6 +370,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[SupervisorOptions, bool, 
         ray_port=a.ray_port,
         emit_targets=a.emit_targets,
         emit_gpu_targets=a.emit_gpu_targets,
+        emit_ray_targets=a.emit_ray_targets,
     )
     return opts, a.once, a.interval
 
