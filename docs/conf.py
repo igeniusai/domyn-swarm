@@ -46,6 +46,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx_copybutton",
     "sphinx_design",
+    "gen_config_reference",
 ]
 
 exclude_patterns = [

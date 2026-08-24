@@ -30,6 +30,7 @@ from domyn_swarm.config.lepton import (
     LeptonJobConfig,
 )
 from domyn_swarm.config.pool import SwarmPoolConfig, SwarmPoolElement
+from domyn_swarm.config.settings import Settings
 from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.config.watchdog import WatchdogConfig, WatchdogRayConfig
@@ -46,6 +47,7 @@ DOCUMENTED_MODELS: tuple[type[BaseModel], ...] = (
     WatchdogRayConfig,
     SwarmPoolConfig,
     SwarmPoolElement,
+    Settings,
 )
 
 

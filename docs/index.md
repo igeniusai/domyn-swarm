@@ -6,4 +6,6 @@ high-throughput batch jobs against them, on Slurm and NVIDIA DGX Cloud Lepton.
 ```{toctree}
 :hidden:
 :maxdepth: 2
+
+reference/index
 ```

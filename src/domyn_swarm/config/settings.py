@@ -36,7 +36,10 @@ class Settings(BaseSettings):
     )
 
     # --- General -------------------------------------------------------------
-    log_level: str = "INFO"
+    log_level: str = Field(
+        default="INFO",
+        description="Global logging level, e.g. `DEBUG`, `INFO` or `WARNING`.",
+    )
     home: Path = Field(
         default=Path("~/.domyn_swarm").expanduser(),
         description="Path to domyn-swarm home directory",
