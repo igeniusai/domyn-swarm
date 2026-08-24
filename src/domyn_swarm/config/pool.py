@@ -14,7 +14,7 @@
 
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import yaml
 
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
@@ -23,12 +23,21 @@ from domyn_swarm.helpers.io import to_path
 
 
 class SwarmPoolElement(BaseModel):
-    name: str
-    config_path: str
+    name: str = Field(
+        description="Label identifying this swarm within the pool.",
+    )
+    config_path: str = Field(
+        description=(
+            "Path to a `DomynLLMSwarmConfig` YAML file describing this swarm. Read "
+            "with `DomynLLMSwarmConfig.read` when the pool is built."
+        ),
+    )
 
 
 class SwarmPoolConfig(BaseModel):
-    pool: list[SwarmPoolElement]
+    pool: list[SwarmPoolElement] = Field(
+        description="The swarms making up the pool, one entry per swarm.",
+    )
 
 
 class SwarmPool(BaseModel):

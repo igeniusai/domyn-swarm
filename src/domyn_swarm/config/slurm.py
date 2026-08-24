@@ -139,61 +139,186 @@ class MonitoringConfig(BaseModel):
 
 
 class SlurmEndpointConfig(BaseModel):
-    cpus_per_task: int = 32
-    mem: str = "16GB"
-    threads_per_core: int = 1
-    wall_time: str = "24:00:00"
-    enable_proxy_buffering: bool = True
-    nginx_timeout: str | int = "60s"
-    port: int = 9000
-    nginx_image: str | utils.EnvPath = Field(
-        default_factory=default_for("slurm.endpoint.nginx_image")
+    """Configuration for the Nginx load-balancer job fronting the replicas."""
+
+    cpus_per_task: int = Field(
+        default=32,
+        description=("vCPUs for the driver process that launches and monitors the swarm."),
     )
-    qos: str | None = None
-    poll_interval: int = 10  # sacct polling cadence (s)
-    require_allocated_node: bool = False  # refuse srun if not inside a Slurm allocation
-    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    mem: str = Field(
+        default="16GB",
+        description="Physical memory for the driver job.",
+    )
+    threads_per_core: int = Field(
+        default=1,
+        description="SMT threads to request per physical core.",
+    )
+    wall_time: str = Field(
+        default="24:00:00",
+        description="Slurm time limit for the driver job.",
+    )
+    enable_proxy_buffering: bool = Field(
+        default=True,
+        description=(
+            "Enable Nginx response and request buffering in the generated load "
+            "balancer config. Turn it off for streaming responses that should reach "
+            "the client as they are produced."
+        ),
+    )
+    nginx_timeout: str | int = Field(
+        default="60s",
+        description=(
+            "HTTP timeout for the load balancer's proxied requests to the model "
+            "replicas. Applied to Nginx's connect, send and read timeouts."
+        ),
+    )
+    port: int = Field(
+        default=9000,
+        description="External port exposed by the Nginx load balancer.",
+    )
+    nginx_image: str | utils.EnvPath = Field(
+        default_factory=default_for("slurm.endpoint.nginx_image"),
+        description=(
+            "Path to a Singularity image running Nginx as the swarm's load "
+            "balancer. Required on the Slurm backend."
+        ),
+    )
+    qos: str | None = Field(
+        default=None,
+        description=(
+            "QoS override for the load-balancer job. When unset it stays `None`, and "
+            "the effective QoS is resolved at submission time as `endpoint.qos` or "
+            "`SlurmConfig.qos`; it is not a resolved copy of `SlurmConfig.qos`."
+        ),
+    )
+    poll_interval: int = Field(
+        default=10,
+        description=(
+            "Seconds between `sacct` status checks while waiting for the load "
+            "balancer to become ready."
+        ),
+    )
+    require_allocated_node: bool = Field(
+        default=False,
+        description=(
+            "Refuse to build an `srun` command unless already inside a Slurm "
+            "allocation. Guards against large data jobs accidentally running on the "
+            "load-balancer node."
+        ),
+    )
+    monitoring: MonitoringConfig = Field(
+        default_factory=MonitoringConfig,
+        description=(
+            "Prometheus and GPU-exporter sidecars running alongside the load "
+            "balancer. Off by default, and Slurm-only."
+        ),
+    )
 
 
 class SlurmConfig(BaseModel):
     """Configuration for SLURM-based deployments."""
 
-    type: Literal["slurm"] = "slurm"
-    partition: str = Field(default_factory=default_for("slurm.partition"))
-    account: str = Field(default_factory=default_for("slurm.account"))
-    qos: str = Field(default_factory=default_for("slurm.qos"))
+    type: Literal["slurm"] = Field(
+        default="slurm",
+        description="Backend discriminator; always `slurm` for this model.",
+    )
+    partition: str = Field(
+        default_factory=default_for("slurm.partition"),
+        description="Slurm partition to submit to.",
+    )
+    account: str = Field(
+        default_factory=default_for("slurm.account"),
+        description="Slurm account or charge code.",
+    )
+    qos: str = Field(
+        default_factory=default_for("slurm.qos"),
+        description=(
+            "Slurm QoS for the cluster and load-balancer jobs. The load balancer "
+            "can override it with `endpoint.qos`."
+        ),
+    )
 
     # Ray-related settings
     requires_ray: bool | None = Field(
         description="Whether to use Ray for distributed execution",
         default=None,
     )
-    ray_port: int = 6379
-    ray_dashboard_port: int = 8265
+    ray_port: int = Field(
+        default=6379,
+        description="Port for Ray's GCS / head node inside each replica.",
+    )
+    ray_dashboard_port: int = Field(
+        default=8265,
+        description="Port for the optional Ray dashboard.",
+    )
 
-    # Additional SLURM settings, not yet exposed and used anywhere
-    modules: list[str] = []
-    preamble: list[str] = []  # additional SLURM directives
+    modules: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Environment modules to `module load` at the top of the generated "
+            "cluster sbatch script."
+        ),
+    )
+    preamble: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Additional lines inserted near the top of the generated cluster sbatch "
+            "script, before the module loads. Use for extra sbatch directives or "
+            "shell setup."
+        ),
+    )
 
     template_path: utils.EnvPath = Field(
         default_factory=lambda: (
             utils.EnvPath(__file__).with_suffix("").parent.parent / "templates" / "llm_swarm.sh.j2"
-        )
+        ),
+        description=(
+            "Path to the Jinja2 template for the cluster sbatch script. Auto-filled; "
+            "there is normally no need to set it."
+        ),
     )
     nginx_template_path: utils.EnvPath = Field(
         default_factory=lambda: (
             utils.EnvPath(__file__).with_suffix("").parent.parent / "templates" / "nginx.conf.j2"
-        )
+        ),
+        description=(
+            "Path to the Jinja2 template for the Nginx config. Auto-filled; there is "
+            "normally no need to set it."
+        ),
     )
 
-    time_limit: str = "36:00:00"  # e.g. 36 hours
-    exclude_nodes: str | None = None  # e.g. "node[1-3]" (optional)
-    node_list: str | None = None  # e.g. "node[4-6]" (optional)
-    mail_user: str | None = None  # Enable email notifications if set
-    endpoint: SlurmEndpointConfig = Field(default_factory=SlurmEndpointConfig)
+    time_limit: str = Field(
+        default="36:00:00",
+        description="Overall Slurm wall-clock limit for the allocation.",
+    )
+    exclude_nodes: str | None = Field(
+        default=None,
+        description=("Nodes to exclude, passed through to Slurm, e.g. `node[001-004]`."),
+    )
+    node_list: str | None = Field(
+        default=None,
+        description="Explicit node list to run on, e.g. `node[005-008]`.",
+    )
+    mail_user: str | None = Field(
+        default=None,
+        description=(
+            "Email address for Slurm END and FAIL notifications about the resources "
+            "domyn-swarm deploys. Notifications are disabled when unset."
+        ),
+    )
+    endpoint: SlurmEndpointConfig = Field(
+        default_factory=SlurmEndpointConfig,
+        description="Configuration for the Nginx load-balancer job.",
+    )
 
-    venv_path: utils.EnvPath | None = None
-    env: dict[str, str] | None = None  # Additional env vars for all jobs
+    venv_path: utils.EnvPath | None = Field(
+        default=None,
+        description=("Virtual environment used by the driver process, not by the containers."),
+    )
+    env: dict[str, str] | None = Field(
+        default=None,
+        description=("Additional environment variables set on every job this backend submits."),
+    )
 
     mounts: list[str] = Field(
         default_factory=list,

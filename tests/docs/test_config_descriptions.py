@@ -24,14 +24,28 @@ from pydantic import BaseModel
 import pytest
 
 from domyn_swarm.config.backend import BackendsConfig
+from domyn_swarm.config.lepton import (
+    LeptonConfig,
+    LeptonEndpointConfig,
+    LeptonJobConfig,
+)
+from domyn_swarm.config.pool import SwarmPoolConfig, SwarmPoolElement
+from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.config.watchdog import WatchdogConfig, WatchdogRayConfig
 
 DOCUMENTED_MODELS: tuple[type[BaseModel], ...] = (
     DomynLLMSwarmConfig,
     BackendsConfig,
+    SlurmConfig,
+    SlurmEndpointConfig,
+    LeptonConfig,
+    LeptonEndpointConfig,
+    LeptonJobConfig,
     WatchdogConfig,
     WatchdogRayConfig,
+    SwarmPoolConfig,
+    SwarmPoolElement,
 )
 
 
