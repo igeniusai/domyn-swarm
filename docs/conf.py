@@ -55,7 +55,6 @@ extensions = [
     "sphinx_design",
     "sphinx_click",
     "gen_config_reference",
-    "markdown_docstrings",
 ]
 
 exclude_patterns = [
@@ -74,6 +73,12 @@ myst_enable_extensions = [
     "substitution",
 ]
 myst_heading_anchors = 3
+
+# Docstrings write inline code with single backticks, as Markdown does. RST would
+# otherwise read those as interpreted text with the default role; making that role
+# "literal" renders them as code, which is what was meant. This covers 72 docstrings
+# across 33 files without any conversion step.
+default_role = "literal"
 
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"

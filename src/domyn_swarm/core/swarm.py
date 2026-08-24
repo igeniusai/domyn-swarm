@@ -109,42 +109,42 @@ class DomynLLMSwarm(BaseModel):
     Example:
         Basic deployment, cleaned up on exit:
 
-        ```python
-        cfg = DomynLLMSwarmConfig.read("config.yaml")
-        with DomynLLMSwarm(cfg=cfg) as swarm:
-            # Reachable at swarm.endpoint
-            swarm.submit_job(my_job, input_path="data.parquet", output_path="results.parquet")
-        ```
+        ::
+
+            cfg = DomynLLMSwarmConfig.read("config.yaml")
+            with DomynLLMSwarm(cfg=cfg) as swarm:
+                # Reachable at swarm.endpoint
+                swarm.submit_job(my_job, input_path="data.parquet", output_path="results.parquet")
 
         Persistent deployment, reattached later from another process:
 
-        ```python
-        swarm = DomynLLMSwarm(cfg=cfg, delete_on_exit=False)
-        with swarm:
-            pass
-        # Resources remain allocated
-        swarm = DomynLLMSwarm.from_state("my-deployment-abc123")
-        ```
+        ::
+
+            swarm = DomynLLMSwarm(cfg=cfg, delete_on_exit=False)
+            with swarm:
+                pass
+            # Resources remain allocated
+            swarm = DomynLLMSwarm.from_state("my-deployment-abc123")
 
         Detached job submission:
 
-        ```python
-        with DomynLLMSwarm(cfg=cfg) as swarm:
-            handle = swarm.submit_job(
-                job=LongRunningJob(),
-                input_path="large_dataset.parquet",
-                output_path="results.parquet",
-                detach=True,
-            )
-            print(handle.pid, handle.external_id)
-        ```
+        ::
+
+            with DomynLLMSwarm(cfg=cfg) as swarm:
+                handle = swarm.submit_job(
+                    job=LongRunningJob(),
+                    input_path="large_dataset.parquet",
+                    output_path="results.parquet",
+                    detach=True,
+                )
+                print(handle.pid, handle.external_id)
 
         Running a script on the head node:
 
-        ```python
-        with DomynLLMSwarm(cfg=cfg) as swarm:
-            swarm.submit_script(Path("analysis.py"), extra_args=["--mode", "evaluation"])
-        ```
+        ::
+
+            with DomynLLMSwarm(cfg=cfg) as swarm:
+                swarm.submit_script(Path("analysis.py"), extra_args=["--mode", "evaluation"])
 
     See Also:
         SwarmJob: Base class for jobs executable within the swarm.

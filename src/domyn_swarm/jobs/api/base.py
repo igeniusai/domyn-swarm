@@ -90,22 +90,22 @@ class SwarmJob(abc.ABC):
         Processing flows through: DataFrame → batching → transform_items → results → checkpointing.
 
     Example:
-        ```python
-        class MyLLMJob(SwarmJob):
-            async def transform_items(self, items: list[Any]) -> list[Any]:
-                # Process items using self.client
-                results = []
-                for item in items:
-                    response = await self.client.chat.completions.create(
-                        model=self.model, messages=item, **self.kwargs
-                    )
-                    results.append(response.choices[0].message.content)
-                return results
+        ::
+
+            class MyLLMJob(SwarmJob):
+                async def transform_items(self, items: list[Any]) -> list[Any]:
+                    # Process items using self.client
+                    results = []
+                    for item in items:
+                        response = await self.client.chat.completions.create(
+                            model=self.model, messages=item, **self.kwargs
+                        )
+                        results.append(response.choices[0].message.content)
+                    return results
 
 
-        job = MyLLMJob(model="gpt-4", max_concurrency=5)
-        results_df = await job.run(input_df, tag="experiment_1")
-        ```
+            job = MyLLMJob(model="gpt-4", max_concurrency=5)
+            results_df = await job.run(input_df, tag="experiment_1")
 
     Attributes:
         api_version: API version for compatibility tracking (default: 2)

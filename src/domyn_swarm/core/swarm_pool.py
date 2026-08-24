@@ -30,20 +30,20 @@ def create_swarm_pool(
     """
     You can use this utility function like this:
 
-    ```
-    with create_swarm_pool(cfg1, cfg2, cfg3, max_workers=3) as (sw1, sw2, sw3):
-        sw1.submit_job()
-        sw2.submit_job()
-        sw3.submit_job()
-    ```
+    ::
+
+        with create_swarm_pool(cfg1, cfg2, cfg3, max_workers=3) as (sw1, sw2, sw3):
+            sw1.submit_job()
+            sw2.submit_job()
+            sw3.submit_job()
 
     or
 
-    ```
-    with create_swarm_pool(*my_cfg_list, max_workers=5) as swarms:
-        for swarm in swarms:
-            swarm.submit_job()
-    ```
+    ::
+
+        with create_swarm_pool(*my_cfg_list, max_workers=5) as swarms:
+            for swarm in swarms:
+                swarm.submit_job()
 
     """
 
