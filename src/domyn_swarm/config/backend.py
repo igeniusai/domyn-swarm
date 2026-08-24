@@ -28,7 +28,12 @@ BackendConfig = Annotated[
 
 
 class BackendsConfig(BaseModel):
-    backends: list[BackendConfig]
+    backends: list[BackendConfig] = Field(
+        description=(
+            "Backend configurations to build deployment plans for. Each entry is "
+            "selected by its `type` discriminator: `slurm` or `lepton`."
+        ),
+    )
 
     def build_all(self, cfg_ctx) -> list[DeploymentPlan]:
         return [b.build(cfg_ctx) for b in self.backends]
