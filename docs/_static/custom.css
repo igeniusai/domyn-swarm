@@ -1,0 +1,16 @@
+/* Keep generated reference tables readable: wrap prose, don't wrap types. */
+table.docutils td,
+table.docutils th {
+  vertical-align: top;
+}
+
+table.docutils td:first-child,
+table.docutils td:nth-child(2) {
+  white-space: nowrap;
+}
+
+/* The generated config tables are wide; let them scroll rather than squash. */
+.bd-content table.docutils {
+  display: table;
+  width: 100%;
+}

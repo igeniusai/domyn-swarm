@@ -78,6 +78,14 @@ dev = [
     "ruff>=0.11.13",
 ]
 linting = ["pre-commit", "ruff>=0.11.13"]
+docs = [
+    "sphinx>=8.2,<10; python_version >= '3.11'",
+    "myst-parser>=5.1; python_version >= '3.11'",
+    "pydata-sphinx-theme>=0.20; python_version >= '3.11'",
+    "sphinx-design>=0.7; python_version >= '3.11'",
+    "sphinx-copybutton>=0.5; python_version >= '3.11'",
+    "sphinx-click>=6.2; python_version >= '3.11'",
+]
 bench = [
     "datasets>=4.8.5",
     "vllm==0.22.0",

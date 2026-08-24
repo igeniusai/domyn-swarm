@@ -171,3 +171,7 @@ logs/
 .checkpoints/
 *.parquet
 .plans/
+
+# Documentation
+docs/_generated/
+docs/superpowers/
