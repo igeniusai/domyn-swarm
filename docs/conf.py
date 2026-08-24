@@ -23,6 +23,13 @@ import sys
 DOCS_DIR = Path(__file__).parent
 sys.path.insert(0, str(DOCS_DIR / "_ext"))
 
+# Build the Click group now, before autodoc runs. autodoc's own imports leave the
+# interpreter in a state where importing domyn_swarm.cli.job_helpers raises a
+# Pydantic schema-generation error, which would make sphinx-click fail to import
+# the group and silently empty the CLI reference. Importing here caches the built
+# group in sys.modules, so sphinx-click picks it up already constructed.
+import cli_app  # noqa: E402, F401
+
 project = "domyn-swarm"
 author = "iGenius S.p.A"
 copyright = "2025, iGenius S.p.A"
@@ -48,6 +55,7 @@ extensions = [
     "sphinx_design",
     "sphinx_click",
     "gen_config_reference",
+    "markdown_docstrings",
 ]
 
 exclude_patterns = [
@@ -74,8 +82,13 @@ autodoc_default_options = {
     "show-inheritance": True,
     "undoc-members": False,
 }
+# Google-style is the project's docstring convention; NumPy parsing stays off so
+# a NumPy-style docstring fails the build rather than rendering badly.
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
+# Render Attributes: sections as :ivar: fields rather than separate object
+# descriptions, which would duplicate the real class attributes autodoc finds.
+napoleon_use_ivar = True
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

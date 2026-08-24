@@ -8,5 +8,6 @@ Generated from the source on every build, so it cannot drift from the code.
 cli
 configuration
 environment
+api/index
 changelog
 ```

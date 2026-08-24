@@ -211,7 +211,7 @@ exclude = [
     "src/domyn_swarm/jobs/chat_completion.py",
     "src/domyn_swarm/utils/env_path.py",
 ]
-ignore = ["tests", "examples"]
+ignore = ["tests", "examples", "docs"]
 defineConstant = { DEBUG = true }
 stubPath = "src/stubs"
 
