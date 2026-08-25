@@ -2,12 +2,12 @@
 
 ## Two independent dials
 
-The flag names do not make this obvious, so it is worth stating first:
+Two independent knobs, easily confused:
 
 `--max-concurrency`
 : how many requests are in flight **at once**, within a shard
 
-`--num-threads`
+`--num-shards`
 : how many **shards** the input is split into
 
 They multiply. Four shards at concurrency 8 is up to 32 simultaneous requests
@@ -35,12 +35,12 @@ covered in [Monitoring and troubleshooting](monitoring.md).
 
 ## Sharding the input
 
-`--num-threads` splits the input into that many shards, run concurrently, each
+`--num-shards` splits the input into that many shards, run concurrently, each
 with its own checkpoint directory. That per-shard isolation is what makes
 concurrent flushing safe.
 
 :::{important}
-Sharded execution **requires checkpointing**. Combining `--num-threads > 1` with
+Sharded execution **requires checkpointing**. Combining `--num-shards > 1` with
 `--no-checkpointing` raises:
 
 ```text
@@ -75,13 +75,13 @@ is not stable across scans.
 
 ## Resume across a changed shard count
 
-Even with `id`, changing `--num-threads` changes `nshards` and therefore the
+Even with `id`, changing `--num-shards` changes `nshards` and therefore the
 modulo, so rows move between shards. A shard will not find another shard's
 checkpoint.
 
 Two ways through:
 
-- keep `--num-threads` fixed across resumed runs, which is the simple answer
+- keep `--num-shards` fixed across resumed runs, which is the simple answer
 - pass `--global-resume`, which filters the input against the union of done ids
   across all shards rather than each shard's own
 
@@ -104,7 +104,7 @@ downstream readers can consume the shards in parallel.
 
 ## Ray
 
-Ray takes a different execution path and does not use `--num-threads` sharding —
+Ray takes a different execution path and does not use `--num-shards` sharding —
 distribution is Ray's own concern. It requires `--native-backend` and a
 `--ray-address`. See [Choosing a data backend](data-backends.md).
 
@@ -113,9 +113,9 @@ distribution is Ray's own concern. It requires `--native-backend` and a
 For a first run on an unfamiliar model and cluster:
 
 ```bash
---max-concurrency 8 --num-threads 1 --retries 3 --timeout 600 --limit 100
+--max-concurrency 8 --num-shards 1 --retries 3 --timeout 600 --limit 100
 ```
 
 Confirm correctness on 100 rows, then raise `--max-concurrency` until throughput
-stops improving, then add shards with `--num-threads` if the driver process
+stops improving, then add shards with `--num-shards` if the driver process
 itself becomes the bottleneck rather than the endpoint.

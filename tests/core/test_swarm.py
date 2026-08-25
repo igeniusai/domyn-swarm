@@ -284,7 +284,7 @@ def test_submit_job_builds_command_env_and_calls_run(cfg_stub, monkeypatch):
         job,
         input_path=Path("/tmp/in.parquet"),
         output_path=Path("/tmp/out.parquet"),
-        num_threads=2,
+        num_shards=2,
         shard_output=True,
         detach=True,
         limit=5,
@@ -844,3 +844,60 @@ def test_cleanup_is_idempotent(cfg_stub):
     swarm.cleanup()
 
     assert dep.down_calls == ["ep"]
+
+
+# ---------------------------
+# num_threads -> num_shards
+# ---------------------------
+
+
+def _shard_job_stub():
+    """Minimal job object with the surface `submit_job` needs."""
+
+    class DummyJob:
+        name = "job"
+        checkpoint_interval = 15
+
+        def to_kwargs(self):
+            return {"alpha": 1}
+
+    return DummyJob()
+
+
+def test_submit_job_accepts_num_shards(cfg_stub):
+    """The value is a shard count, so that is what the parameter is called."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    swarm.submit_job(
+        _shard_job_stub(),
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        num_shards=4,
+    )
+
+    command = dep.run_calls[-1]["command"]
+    assert "--num-shards=4" in command
+
+
+def test_submit_job_num_threads_still_works_but_warns(cfg_stub):
+    """The old name keeps working for one release, with a warning."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    with pytest.warns(DeprecationWarning, match="num_shards"):
+        swarm.submit_job(
+            _shard_job_stub(),
+            input_path=Path("/tmp/in.parquet"),
+            output_path=Path("/tmp/out.parquet"),
+            num_threads=4,
+        )
+
+    command = dep.run_calls[-1]["command"]
+    assert "--num-shards=4" in command

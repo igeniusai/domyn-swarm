@@ -198,17 +198,28 @@ def submit_job(
         "-t",
         help="Timeout for each request in seconds (default: 600)",
     ),
-    num_threads: int = typer.Option(
+    num_shards: int = typer.Option(
         1,
+        "--num-shards",
+        "-ns",
+        help=(
+            "How many shards to split the input into. This is part of the checkpoint "
+            "layout: keep it fixed across resumes of the same job, or completed rows "
+            "will be reprocessed."
+        ),
+    ),
+    num_threads: int | None = typer.Option(
+        None,
         "--num-threads",
         "-nt",
-        help="How many threads should be used by the driver to run the job",
+        hidden=True,
+        help="Deprecated alias for --num-shards.",
     ),
     shard_output: bool = typer.Option(
         False,
         "--shard-output",
         help="When output is a directory and using the Polars runner, write one parquet file per "
-        "shard (based on --num-threads) using checkpoint outputs as the source of truth.",
+        "shard (based on --num-shards) using checkpoint outputs as the source of truth.",
     ),
     limit: int | None = typer.Option(
         None,
@@ -220,10 +231,10 @@ def submit_job(
     shard_mode: Literal["id", "index"] = typer.Option(
         "id",
         "--shard-mode",
-        help="How to split input when --num-threads > 1. "
+        help="How to split input when --num-shards > 1. "
         "'id' uses stable id hashing (resume-friendly), "
         "'index' uses legacy row order sharding. "
-        "Keep --num-threads fixed across resumes to avoid reshuffling shards.",
+        "Keep --num-shards fixed across resumes to avoid reshuffling shards.",
     ),
     global_resume: bool = typer.Option(
         False,
@@ -278,6 +289,14 @@ def submit_job(
         backend_read_kwargs=backend_read_kwargs,
         backend_write_kwargs=backend_write_kwargs,
     )
+    if num_threads is not None:
+        typer.echo(
+            "warning: --num-threads is deprecated, use --num-shards. The value has "
+            "always been a shard count, not a thread count.",
+            err=True,
+        )
+        num_shards = num_threads
+
     run_spec = helpers.JobRunSpec(
         input_path=input,
         output_path=output,
@@ -286,7 +305,7 @@ def submit_job(
         no_resume=no_resume,
         no_checkpointing=no_checkpointing,
         runner=runner,
-        num_threads=num_threads,
+        num_shards=num_shards,
         limit=limit,
         shard_mode=shard_mode,
         global_resume=global_resume,

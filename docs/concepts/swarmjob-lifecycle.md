@@ -46,7 +46,7 @@ method it provides:
 - **bounded concurrency** — `--max-concurrency` in-flight requests, no more
 - **retries** — tenacity-backed backoff on transient failures
 - **checkpointing** — periodic flushes so a crash resumes instead of restarting
-- **sharding** — `--num-threads` splits the input, `--shard-mode` decides how
+- **sharding** — `--num-shards` splits the input, `--shard-mode` decides how
 - **data backend selection** — pandas, polars or Ray, with a matching runner
 
 See [Checkpointing and resuming](../guides/checkpointing.md) and

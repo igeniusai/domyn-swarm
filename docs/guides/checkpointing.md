@@ -88,17 +88,17 @@ Two flags that sound similar and are not:
 
 ## Sharded runs and `--global-resume`
 
-With `--num-threads > 1`, each shard keeps its own checkpoint directory — that is
+With `--num-shards > 1`, each shard keeps its own checkpoint directory — that is
 what makes concurrent flushing safe, since exactly one writer per directory is
 assumed by construction.
 
-The consequence: if `--num-threads` or `--limit` changes between runs, shard
+The consequence: if `--num-shards` or `--limit` changes between runs, shard
 assignment changes, and a row completed by shard 3 last time may be assigned to
 shard 5 now, where its checkpoint is invisible.
 
 `--global-resume` fixes that by filtering the input against the union of done ids
 across *all* shards rather than per-shard. Use it when you have deliberately
-changed the shard count or the limit. Otherwise keep `--num-threads` fixed
+changed the shard count or the limit. Otherwise keep `--num-shards` fixed
 between resumed runs and leave it off.
 
 See [Sharding and concurrency](sharding-concurrency.md).

@@ -770,7 +770,7 @@ async def test_amain_end_to_end(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads",
+        "--num-shards",
         "1",  # Use single-threaded path
         "--checkpoint-dir",
         str(checkpoint_dir),
@@ -804,7 +804,7 @@ async def test_amain_writes_shards_directly_for_dir_output(monkeypatch, tmp_path
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads",
+        "--num-shards",
         "2",
         "--checkpoint-dir",
         str(checkpoint_dir),
@@ -850,7 +850,7 @@ async def test_amain_end_to_end_polars_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads",
+        "--num-shards",
         "1",
         "--checkpoint-dir",
         str(checkpoint_dir),
@@ -889,7 +889,7 @@ async def test_amain_end_to_end_polars_backend_shard_output(monkeypatch, tmp_pat
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads",
+        "--num-shards",
         "2",
         "--runner",
         "arrow",
@@ -941,7 +941,7 @@ async def test_amain_arrow_runner_pandas_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads",
+        "--num-shards",
         "1",
         "--runner",
         "arrow",
@@ -979,7 +979,7 @@ async def test_amain_arrow_runner_sharded(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "_load_cls", lambda path: DummySwarmJob)
 
     args = [
-        "--nthreads",
+        "--num-shards",
         "2",
         "--runner",
         "arrow",
@@ -1015,7 +1015,7 @@ async def test_amain_no_resume_forces_recompute(monkeypatch, tmp_path):
     # First run creates checkpoints
     await _amain(
         [
-            "--nthreads",
+            "--num-shards",
             "1",
             "--checkpoint-dir",
             str(checkpoint_dir),
@@ -1031,7 +1031,7 @@ async def test_amain_no_resume_forces_recompute(monkeypatch, tmp_path):
     monkeypatch.setattr(DummySwarmJob, "transform_items", _raise_transform_items)
     await _amain(
         [
-            "--nthreads",
+            "--num-shards",
             "1",
             "--checkpoint-dir",
             str(checkpoint_dir),
@@ -1044,7 +1044,7 @@ async def test_amain_no_resume_forces_recompute(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="should not be called"):
         await _amain(
             [
-                "--nthreads",
+                "--num-shards",
                 "1",
                 "--checkpoint-dir",
                 str(checkpoint_dir),
@@ -1075,7 +1075,7 @@ async def test_amain_no_checkpointing_forces_recompute(monkeypatch, tmp_path):
     # First run creates checkpoints
     await _amain(
         [
-            "--nthreads",
+            "--num-shards",
             "1",
             "--checkpoint-dir",
             str(checkpoint_dir),
@@ -1091,7 +1091,7 @@ async def test_amain_no_checkpointing_forces_recompute(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="checkpointing is disabled"):
         await _amain(
             [
-                "--nthreads",
+                "--num-shards",
                 "1",
                 "--checkpoint-dir",
                 str(checkpoint_dir),
@@ -1260,3 +1260,19 @@ def test_main_wrapper(monkeypatch):
             ]
         )
         mock_amain.assert_called_once()
+
+
+def test_nthreads_is_accepted_as_a_deprecated_alias_for_num_shards():
+    """In-flight jobs launched by an older driver keep parsing."""
+    args = parse_args(
+        [
+            "--job-class=pkg:Cls",
+            "--model=m",
+            "--input-parquet=in.parquet",
+            "--output-parquet=out.parquet",
+            "--endpoint=http://e",
+            "--nthreads",
+            "7",
+        ]
+    )
+    assert args.num_shards == 7
