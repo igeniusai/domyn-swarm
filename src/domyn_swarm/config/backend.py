@@ -6,7 +6,6 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from domyn_swarm.config.lepton import LeptonConfig
-from domyn_swarm.config.plan import DeploymentPlan
 from domyn_swarm.config.slurm import SlurmConfig
 
 BackendConfig = Annotated[
@@ -16,12 +15,16 @@ BackendConfig = Annotated[
 
 
 class BackendsConfig(BaseModel):
+    """Schema for a list of backend configurations.
+
+    Not consumed by the runtime today -- a swarm config carries a single
+    `backend`. It is kept as the declared shape for multi-backend configs and is
+    covered by the config-description test.
+    """
+
     backends: list[BackendConfig] = Field(
         description=(
             "Backend configurations to build deployment plans for. Each entry is "
             "selected by its `type` discriminator: `slurm` or `lepton`."
         ),
     )
-
-    def build_all(self, cfg_ctx) -> list[DeploymentPlan]:
-        return [b.build(cfg_ctx) for b in self.backends]
