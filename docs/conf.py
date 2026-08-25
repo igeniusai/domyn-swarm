@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
+import os
 from pathlib import Path
 import sys
 
@@ -120,6 +121,26 @@ html_theme_options = {
     "footer_start": ["copyright"],
     "footer_end": ["sphinx-version"],
 }
+
+# Which version this build represents. The deploy workflow sets it to "latest" for
+# main and "vX.Y" for a release tag; it must match the "version" field the
+# switcher emits for the dropdown to highlight the right entry.
+DOCS_VERSION = os.environ.get("DOCS_VERSION", "latest")
+
+# switcher.json lives at the gh-pages root, not inside a version directory, because
+# every published version fetches the same file. It is written by
+# scripts/update_switcher.py during deployment.
+html_theme_options["switcher"] = {
+    "json_url": f"{html_baseurl}switcher.json",
+    "version_match": DOCS_VERSION,
+}
+html_theme_options["navbar_end"] = [
+    "version-switcher",
+    "theme-switcher",
+    "navbar-icon-links",
+]
+# Tell a reader who arrived on an old version from a search engine that it is old.
+html_theme_options["show_version_warning_banner"] = True
 
 html_context = {
     "github_user": "igeniusai",

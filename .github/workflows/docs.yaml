@@ -1,0 +1,110 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pipx install uv==0.8.19
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-docs-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: uv-docs-${{ runner.os }}-
+
+      # The extras are required, not optional: building the CLI reference imports
+      # every lazily-loaded sub-app, including the Lepton SDK.
+      - name: Sync dependencies
+        run: uv sync --all-extras --group docs --frozen
+
+      - name: Resolve target version
+        id: target
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            MINOR="v$(printf '%s' "${TAG#v}" | cut -d. -f1,2)"
+            echo "version=${MINOR}" >> "$GITHUB_OUTPUT"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "version=latest" >> "$GITHUB_OUTPUT"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=latest" >> "$GITHUB_OUTPUT"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --keep-going so a PR author sees every warning at once, not just the first.
+      - name: Build (warnings are errors)
+        env:
+          DOCS_VERSION: ${{ steps.target.outputs.version }}
+        run: uv run sphinx-build -W --keep-going -b html docs site
+
+      - name: Check the docs tests
+        run: uv run pytest tests/docs -v --no-cov
+
+      # Non-blocking: a third-party outage must not fail an unrelated PR. The -W
+      # build above is the blocking gate.
+      - name: Link check
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: uv run sphinx-build -b linkcheck docs linkcheck
+
+      - name: Deploy to gh-pages
+        if: steps.target.outputs.deploy == 'true'
+        env:
+          DOCS_VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git worktree add gh-pages origin/gh-pages
+          else
+            git worktree add --orphan -b gh-pages gh-pages
+          fi
+
+          rm -rf "gh-pages/${DOCS_VERSION}"
+          mkdir -p "gh-pages/${DOCS_VERSION}"
+          cp -r site/. "gh-pages/${DOCS_VERSION}/"
+
+          # Pages would otherwise run Jekyll, which ignores _static/ and _sources/.
+          touch gh-pages/.nojekyll
+
+          uv run python scripts/update_switcher.py gh-pages
+
+          cd gh-pages
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no documentation changes to publish"
+          else
+            git commit -m "docs: publish ${DOCS_VERSION} from ${GITHUB_SHA}"
+            git push origin gh-pages
+          fi
