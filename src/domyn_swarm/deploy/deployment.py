@@ -9,6 +9,7 @@ from domyn_swarm.platform.protocols import (
     JobHandle,
     ServingBackend,
     ServingHandle,
+    ServingPhase,
     ServingStatus,
 )
 
@@ -102,7 +103,14 @@ class Deployment:
         return self.serving.ensure_ready(self._handle)
 
     def status(self) -> ServingStatus:
-        """Get the current status of the deployment."""
+        """Get the current status of the deployment.
+
+        Returns:
+            The backend-reported status, or a status with phase
+            :attr:`~domyn_swarm.platform.protocols.ServingPhase.UNKNOWN` when no
+            serving endpoint has been created yet. Querying status never raises
+            just because the deployment is not up.
+        """
         if self._handle is None:
-            raise RuntimeError("No serving handle to get status for")
+            return ServingStatus(phase=ServingPhase.UNKNOWN, url=None)
         return self.serving.status(self._handle)

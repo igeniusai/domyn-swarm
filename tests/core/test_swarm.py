@@ -9,7 +9,13 @@ import pytest
 
 import domyn_swarm.core.swarm as mod
 from domyn_swarm.core.swarm import DomynLLMSwarm
-from domyn_swarm.platform.protocols import JobHandle, JobProbe, JobStatus
+from domyn_swarm.deploy.deployment import Deployment
+from domyn_swarm.platform.protocols import (
+    JobHandle,
+    JobProbe,
+    JobStatus,
+    ServingPhase,
+)
 
 # ---------------------------
 # Tiny fakes used in tests
@@ -737,3 +743,25 @@ def test_refresh_job_status_probe_error_is_best_effort(cfg_stub, monkeypatch):
     assert out["status"] == "RUNNING"
     assert out["refresh_source"] == "backend"
     assert "scheduler unavailable" in out["refresh_error"]
+
+
+def test_status_reports_unknown_before_deployment(cfg_stub, mocker):
+    """A swarm that was never deployed reports UNKNOWN rather than raising."""
+    swarm = make_swarm(cfg_stub)
+    swarm._deployment = Deployment(serving=mocker.Mock(), compute=mocker.Mock())
+
+    status = swarm.status()
+
+    assert status.phase is ServingPhase.UNKNOWN
+
+
+def test_status_keeps_known_endpoint_when_backend_reports_none(cfg_stub, mocker):
+    """A recovered swarm still reports the endpoint it knows about."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://recovered:9000"
+    swarm._deployment = Deployment(serving=mocker.Mock(), compute=mocker.Mock())
+
+    status = swarm.status()
+
+    assert status.phase is ServingPhase.UNKNOWN
+    assert status.url == "http://recovered:9000"
