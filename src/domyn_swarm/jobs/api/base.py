@@ -24,6 +24,7 @@ Sub-classes included:
 import abc
 from collections.abc import Awaitable, Callable
 import dataclasses
+import difflib
 from enum import Enum
 import inspect
 import logging
@@ -53,6 +54,50 @@ class OutputJoinMode(str, Enum):
     APPEND = "append"
     REPLACE = "replace"
     IO_ONLY = "io_only"
+
+
+def _reject_misspelled_parameters(extra_kwargs: dict[str, Any]) -> None:
+    """Raise if an extra kwarg looks like a misspelling of a real parameter.
+
+    ``SwarmJob`` deliberately accepts arbitrary extra kwargs so callers can pass
+    provider request parameters through (``--job-kwargs '{"temperature":0.2}'``).
+    That also means a misspelled constructor argument is silently accepted, takes
+    no effect, and is forwarded into every request -- a failure that only shows up
+    once the job is already running on the cluster.
+
+    Names that closely resemble a real parameter are almost certainly typos, so
+    they are rejected here with a suggestion. Names that resemble nothing are left
+    alone: they are the request parameters this mechanism exists to carry.
+
+    Args:
+        extra_kwargs: The collected extra keyword arguments.
+
+    Raises:
+        TypeError: If a key is a near-miss of a known constructor parameter.
+    """
+    known = _constructor_parameter_names()
+    for name in extra_kwargs:
+        matches = difflib.get_close_matches(name, known, n=1, cutoff=0.85)
+        if matches:
+            raise TypeError(
+                f"{name!r} is not a SwarmJob parameter -- did you mean {matches[0]!r}? "
+                f"If {name!r} really is a provider request parameter, rename it or pass "
+                f"it explicitly inside `kwargs={{...}}`."
+            )
+
+
+def _constructor_parameter_names() -> frozenset[str]:
+    """Return the keyword parameter names accepted by :meth:`SwarmJob.__init__`.
+
+    Returns:
+        The declared parameter names, excluding ``self`` and the ``**extra_kwargs``
+        catch-all.
+    """
+    return frozenset(
+        name
+        for name, param in inspect.signature(SwarmJob.__init__).parameters.items()
+        if name != "self" and param.kind is not inspect.Parameter.VAR_KEYWORD
+    )
 
 
 class SwarmJob(abc.ABC):
@@ -240,6 +285,7 @@ class SwarmJob(abc.ABC):
         self.retries = retries
         self.timeout = timeout
         self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
+        _reject_misspelled_parameters(self.kwargs)
         self.output_mode = output_mode
         self.default_output_cols = (
             default_output_cols
