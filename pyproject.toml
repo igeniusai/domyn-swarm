@@ -205,12 +205,7 @@ max-complexity = 14
 
 [tool.pyright]
 include = ["src"]
-exclude = [
-    "**/__pycache__",
-    # Unfixable at the moment
-    "src/domyn_swarm/jobs/chat_completion.py",
-    "src/domyn_swarm/utils/env_path.py",
-]
+exclude = ["**/__pycache__"]
 ignore = ["tests", "examples", "docs"]
 defineConstant = { DEBUG = true }
 
