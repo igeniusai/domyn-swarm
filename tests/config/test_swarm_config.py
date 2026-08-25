@@ -21,7 +21,15 @@ def _cfg(*, gpus_per_replica, gpus_per_node, replicas, backend_extra=None):
     The validator mutates the backend dict (e.g. sets ``requires_ray``), so
     every case must use its own dict to avoid cross-test leakage.
     """
-    backend = {"type": "slurm", "account": "a", "partition": "p", "qos": "q"}
+    backend = {
+        "type": "slurm",
+        "account": "a",
+        "partition": "p",
+        "qos": "q",
+        # nginx_image is normally sourced from defaults.yaml; pass it explicitly
+        # so the test does not depend on a defaults file being present.
+        "endpoint": {"nginx_image": "nginx.sif"},
+    }
     if backend_extra:
         backend.update(backend_extra)
     return DomynLLMSwarmConfig.model_validate(
@@ -81,7 +89,12 @@ def _ray_cfg(**mon):
                 "account": "a",
                 "partition": "p",
                 "qos": "q",
-                "endpoint": {"monitoring": {"enabled": True, "mode": "binary", **mon}},
+                "endpoint": {
+                    # See the note in ``_cfg``: keep the test independent of
+                    # any defaults.yaml on the machine running it.
+                    "nginx_image": "nginx.sif",
+                    "monitoring": {"enabled": True, "mode": "binary", **mon},
+                },
             },
         }
     )
@@ -113,7 +126,10 @@ def test_ray_metrics_off_when_not_ray():
                 "account": "a",
                 "partition": "p",
                 "qos": "q",
-                "endpoint": {"monitoring": {"enabled": True, "mode": "binary"}},
+                "endpoint": {
+                    "nginx_image": "nginx.sif",
+                    "monitoring": {"enabled": True, "mode": "binary"},
+                },
             },
         }
     )
@@ -156,11 +172,12 @@ def test_ray_metrics_explicit_true_respected_on_non_ray():
                 "partition": "p",
                 "qos": "q",
                 "endpoint": {
+                    "nginx_image": "nginx.sif",
                     "monitoring": {
                         "enabled": True,
                         "mode": "binary",
                         "ray_metrics": {"enabled": True},
-                    }
+                    },
                 },
             },
         }

@@ -231,12 +231,11 @@ Commands:
 Start a new allocation:
 
 ```bash
-domyn-swarm up -c config.yaml --replicas 3 --reverse-proxy
+domyn-swarm up -c config.yaml --replicas 3
 ```
 
 * `-c/--config` — path to your YAML config
 * `-r/--replicas` — override number of replicas from config
-* `--reverse-proxy/--no-reverse-proxy` — enable an optional reverse proxy for the allocation
 
 ### `domyn-swarm down`
 
