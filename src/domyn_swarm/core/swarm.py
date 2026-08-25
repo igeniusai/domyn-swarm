@@ -229,19 +229,49 @@ class DomynLLMSwarm(BaseModel):
         logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}...")
 
         handle = self._deployment.up(self.name, ctx)
-        # We save the handle before waiting to be ready, so we can clean up
-        self.serving_handle = handle
-        handle = self._deployment.wait_ready(timeout_s=ctx.timeout_s or self.cfg.wait_endpoint_s)
 
-        # Update the handle and deployment with the ready state
+        # Record the handle and persist it *before* waiting for readiness. From
+        # here on the platform holds real resources, so both this object and the
+        # state DB must know about them -- otherwise a failure below would strand
+        # the allocation with no way for `domyn-swarm down` to find it.
         self.serving_handle = handle
-        self.endpoint = handle.url
-        self._deployment.compute = self._make_compute_backend(handle)
-
-        # Persist the state after successful deployment
         self._persist(self.name)
 
+        try:
+            handle = self._deployment.wait_ready(
+                timeout_s=ctx.timeout_s or self.cfg.wait_endpoint_s
+            )
+
+            # Update the handle and deployment with the ready state
+            self.serving_handle = handle
+            self.endpoint = handle.url
+            self._deployment.compute = self._make_compute_backend(handle)
+
+            # Persist again now that the endpoint is known
+            self._persist(self.name)
+        except Exception:
+            # KeyboardInterrupt is deliberately not caught: interrupting `up` is a
+            # user decision, and the CLI asks whether to cancel or keep waiting.
+            self._cleanup_failed_startup()
+            raise
+
         return self
+
+    def _cleanup_failed_startup(self) -> None:
+        """Release resources allocated by a startup that did not complete.
+
+        Never raises: a teardown failure must not mask the error that caused the
+        startup to fail. When teardown does fail the state record is deliberately
+        left in place so the deployment stays reachable via ``domyn-swarm down``.
+        """
+        logger.warning(f"Deployment [cyan]{self.name}[/cyan] failed to start; releasing resources")
+        try:
+            self.cleanup()
+        except Exception as exc:
+            logger.error(
+                f"Could not release resources for [cyan]{self.name}[/cyan]: {exc}. "
+                f"The deployment is still recorded -- run `domyn-swarm down {self.name}` to retry."
+            )
 
     def __exit__(self, exc_type, exc, tb):
         if self.delete_on_exit:
@@ -922,6 +952,17 @@ class DomynLLMSwarm(BaseModel):
         return refreshed
 
     def cleanup(self):
+        """Release the swarm's resources and drop its state record.
+
+        Idempotent: calling it again after a successful teardown is a no-op, so
+        overlapping paths (a failed startup, ``__exit__``, an explicit ``down()``)
+        cannot issue a second cancel against the platform.
+
+        The record is dropped only once teardown succeeds -- if ``down`` raises,
+        the record survives so the deployment stays reachable for a retry.
+        """
+        if self._cleaned:
+            return
         if self._deployment and self.serving_handle:
             self._deployment.down(self.serving_handle)
         self._delete_record()
