@@ -765,3 +765,82 @@ def test_status_keeps_known_endpoint_when_backend_reports_none(cfg_stub, mocker)
 
     assert status.phase is ServingPhase.UNKNOWN
     assert status.url == "http://recovered:9000"
+
+
+# ---------------------------
+# Startup failure must not strand the allocation
+# ---------------------------
+
+
+def test_failed_readiness_tears_down_the_allocation(cfg_stub):
+    """A readiness failure releases the resources `up` already allocated."""
+    swarm = make_swarm(cfg_stub)
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.wait_ready = lambda *a, **k: (_ for _ in ()).throw(TimeoutError("endpoint never came up"))
+
+    with pytest.raises(TimeoutError, match="endpoint never came up"), swarm:
+        pass
+
+    assert dep.down_calls == ["My_Swarm"], "the allocation from up() was never released"
+
+
+def test_failed_readiness_persists_state_before_failing(cfg_stub):
+    """State is written as soon as resources exist, so `down` can find them."""
+    swarm = make_swarm(cfg_stub)
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.wait_ready = lambda *a, **k: (_ for _ in ()).throw(TimeoutError("boom"))
+
+    with pytest.raises(TimeoutError), swarm:
+        pass
+
+    assert swarm._state_mgr.saved >= 1, "no state record existed while resources were allocated"
+
+
+def test_state_record_survives_a_failed_teardown(cfg_stub):
+    """If teardown also fails, the record stays so `domyn-swarm down` can retry."""
+    swarm = make_swarm(cfg_stub)
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.wait_ready = lambda *a, **k: (_ for _ in ()).throw(TimeoutError("boom"))
+    dep.down = lambda handle: (_ for _ in ()).throw(RuntimeError("scancel unavailable"))
+
+    with pytest.raises(TimeoutError, match="boom"), swarm:
+        pass
+
+    assert swarm._state_mgr.deleted == 0, "record was dropped while resources may still exist"
+
+
+def test_failed_creation_propagates_without_teardown(cfg_stub):
+    """When `up` itself fails there is nothing allocated to release."""
+    swarm = make_swarm(cfg_stub)
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.up = lambda name, ctx: (_ for _ in ()).throw(RuntimeError("submit rejected"))
+
+    with pytest.raises(RuntimeError, match="submit rejected"), swarm:
+        pass
+
+    assert dep.down_calls == []
+
+
+def test_keyboard_interrupt_leaves_teardown_to_the_caller(cfg_stub):
+    """Ctrl-C is a user decision: the CLI asks whether to cancel, so don't pre-empt it."""
+    swarm = make_swarm(cfg_stub)
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.wait_ready = lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt())
+
+    with pytest.raises(KeyboardInterrupt), swarm:
+        pass
+
+    assert dep.down_calls == []
+    assert swarm.serving_handle is not None, "handle must survive so the CLI can tear it down"
+
+
+def test_cleanup_is_idempotent(cfg_stub):
+    """Tearing down twice must not issue a second cancel against the platform."""
+    swarm = make_swarm(cfg_stub)
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://x", meta={})
+
+    swarm.cleanup()
+    swarm.cleanup()
+
+    assert dep.down_calls == ["ep"]

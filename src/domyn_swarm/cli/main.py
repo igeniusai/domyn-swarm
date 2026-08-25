@@ -247,8 +247,8 @@ def launch_up(
             raise typer.Abort() from ki
         typer.echo(f"Waiting for swarm {swarm_ctx.name}…", err=True)
     except SwarmReplicaFailure as srf:
+        # Resources were already released by DomynLLMSwarm on startup failure.
         logger.error(f"Swarm replica failure detected: {srf}")
-        _safe_down(swarm_ctx)
         raise typer.Exit(code=1) from srf
 
 
