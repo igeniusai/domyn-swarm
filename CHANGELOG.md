@@ -1,3 +1,74 @@
+## v0.30.0 (2026-08-25)
+
+### Feat
+
+- **docs**: deploy through the Pages artifact instead of a gh-pages branch
+- **docs**: add versioned gh-pages deployment
+- **docs**: generate the CLI reference over the lazy command group
+- **docs**: generate config and environment reference from models
+- **monitor**: append Ray dashboard panels when Ray metrics are active
+- **monitor**: add Prometheus ray scrape job and wire --emit-ray-targets
+- **monitor**: export Ray metrics port and announce ray-*.target on all nodes
+- **lb_supervisor**: emit ray_targets.json from per-node ray-*.target files
+- **config**: add ray_metrics with auto-on resolution for Ray deployments
+- **monitor**: launch per-node GPU exporter + ownership on Ray head and workers
+- **config**: auto-select the Ray template when a deployment requires Ray
+- **monitor**: guard unsupported GPU-monitoring configs (Ray, nvidia_smi/container, dcgm/binary)
+- **images**: add nvidia_smi + dcgm GPU exporter build recipes
+- **monitor**: --gpu flag loads the GPU dashboard for the configured kind
+- **monitor**: bundle nvidia_smi + dcgm GPU dashboards (uuid->replica join)
+- **monitor**: launch per-node GPU exporter + capture per-replica GPU ownership
+- **monitor**: enable supervisor GPU target/ownership emission in lb.sh
+- **monitor**: serve gpu_ownership.prom via nginx for Prometheus scrape
+- **monitor**: add gpu + gpu_ownership Prometheus scrape jobs
+- **data**: bundle DCGM core-only counters CSV (no profiling fields)
+- **lb_supervisor**: emit gpu_targets.json + gpu_ownership.prom under --emit-gpu-targets
+- **lb_supervisor**: render uuid->replica GPU ownership join metric
+- **lb_supervisor**: render deduped per-node GPU exporter targets
+- **config**: add GpuExporterConfig (off by default, nvidia_smi/dcgm kinds)
+- **slurm**: add QoS override for load-balancer job and update template usage
+- **lb_supervisor**: refactor head file reading and update render_targets to include replica labels
+- **monitor**: add _pretty_argv function for improved argument display in grafatui launch
+- **monitor**: implement lightweight monitor view for SwarmStateManager and update tests
+- **config**: update model configuration and enhance monitoring settings
+- **monitoring**: add range-average generation throughput (overall + per replica)
+- **monitoring**: parameterize bundled dashboard with swarm/model/vllm_job/replicas vars
+- **monitor**: support custom dashboards via --dashboard, drop --no-dashboard
+- **cli**: add 'domyn-swarm monitor' command
+- **data**: add bundled vLLM/nginx Grafana dashboard
+- **config**: add MonitoringConfig to SlurmEndpointConfig
+- **runtime**: add generation-only LB supervisor
+- **runtime**: add lb_supervisor upstreams generator
+
+### Fix
+
+- **docs**: drop the tag trigger, which could never deploy
+- **docs**: stop the navbar wordmark running under the nav links
+- **docs**: publish at the Pages custom domain, not the github.io URL
+- **cli**: preserve lazy subcommand hierarchy
+- **monitor**: thread RAY_LOG_DIR into the Ray GPU-exporter fan-out so it logs correctly
+- **config**: resolve ray_metrics.enabled to a concrete bool in all cases
+- **lb_supervisor**: aggregate per-node gpu-owner files under the integer replica id
+- **deps**: patch dependency vulnerabilities flagged by Dependabot
+- **monitor**: serve gpu_ownership from the nginx-mounted serving path
+- **lb_supervisor**: emit both uuid and UUID labels on dswarm_gpu_owner for dcgm+nvidia_smi joins
+- **types**: fix pyright typing
+- **monitoring**: make config test defaults-independent and dashboard multi-replica aware
+
+### Refactor
+
+- **cli**: remove reverse proxy option from 'up' command
+- **templates**: split llm_swarm into vLLM-only + Ray, share _swarm_common
+- **monitor**: simplify dashboard variable handling and update tests
+- **slurm**: drive LB nginx via supervisor; add prometheus sidecars
+
+### Perf
+
+- **cli**: defer heavy imports off the swarm-load path
+- **cli**: load heavy sub-apps lazily via TyperGroup
+- **lepton**: probe the Lepton SDK lazily, not at import
+- **io**: import pandas lazily in helpers/io
+
 ## v0.29.0 (2026-06-04)
 
 ### Feat

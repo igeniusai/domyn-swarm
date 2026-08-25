@@ -51,7 +51,7 @@ pip install 'domyn-swarm[all]'
 **From source (GitHub):**
 
 ```bash
-RELEASE=v0.29.0
+RELEASE=v0.30.0
 uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE --python 3.12 domyn-swarm
 ```
 
