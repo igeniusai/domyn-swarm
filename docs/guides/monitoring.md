@@ -111,7 +111,7 @@ load-balancer job's own log rather than the replicas'.
 ## When requests time out under load
 
 Endpoint healthy, individual requests failing: this is usually concurrency, not
-health. `--max-concurrency` multiplied by `--num-threads` is the real in-flight
+health. `--max-concurrency` multiplied by `--num-shards` is the real in-flight
 count, and a `--timeout` tuned against an idle endpoint will fire once requests
 start queueing. See
 [Sharding and concurrency](sharding-concurrency.md).

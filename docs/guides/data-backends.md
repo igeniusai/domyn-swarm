@@ -59,7 +59,7 @@ Two hard requirements:
   Ray backend requires native execution (native_backend=True).
   ```
 
-Ray does not use `--num-threads` sharding — distribution is Ray's own concern.
+Ray does not use `--num-shards` sharding — distribution is Ray's own concern.
 
 Worth being honest about the trade: Ray adds a second scheduler underneath a
 system that already has one. If your bottleneck is the model endpoint rather than

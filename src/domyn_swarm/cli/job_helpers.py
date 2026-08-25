@@ -74,7 +74,7 @@ class JobRunSpec:
     no_resume: bool
     no_checkpointing: bool
     runner: str
-    num_threads: int
+    num_shards: int
     limit: int | None
     detach: bool
     mail_user: str | None
@@ -364,7 +364,7 @@ def submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> Job
         request.job,
         input_path=request.run.input_path,
         output_path=request.run.output_path,
-        num_threads=request.run.num_threads,
+        num_shards=request.run.num_shards,
         shard_output=request.run.shard_output,
         limit=request.run.limit,
         detach=request.run.detach,

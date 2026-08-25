@@ -49,7 +49,7 @@ with create_swarm_pool(*configs) as swarms:
             job,
             input_path="examples/data/chat_completion.parquet",
             output_path=f"results_{index}.parquet",
-            num_threads=2,
+            num_shards=2,
             detach=True,
         )
         pids.append(pid)

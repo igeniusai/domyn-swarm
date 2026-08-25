@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 import uuid
+import warnings
 
 from pydantic import (
     BaseModel,
@@ -229,19 +230,49 @@ class DomynLLMSwarm(BaseModel):
         logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}...")
 
         handle = self._deployment.up(self.name, ctx)
-        # We save the handle before waiting to be ready, so we can clean up
-        self.serving_handle = handle
-        handle = self._deployment.wait_ready(timeout_s=ctx.timeout_s or self.cfg.wait_endpoint_s)
 
-        # Update the handle and deployment with the ready state
+        # Record the handle and persist it *before* waiting for readiness. From
+        # here on the platform holds real resources, so both this object and the
+        # state DB must know about them -- otherwise a failure below would strand
+        # the allocation with no way for `domyn-swarm down` to find it.
         self.serving_handle = handle
-        self.endpoint = handle.url
-        self._deployment.compute = self._make_compute_backend(handle)
-
-        # Persist the state after successful deployment
         self._persist(self.name)
 
+        try:
+            handle = self._deployment.wait_ready(
+                timeout_s=ctx.timeout_s or self.cfg.wait_endpoint_s
+            )
+
+            # Update the handle and deployment with the ready state
+            self.serving_handle = handle
+            self.endpoint = handle.url
+            self._deployment.compute = self._make_compute_backend(handle)
+
+            # Persist again now that the endpoint is known
+            self._persist(self.name)
+        except Exception:
+            # KeyboardInterrupt is deliberately not caught: interrupting `up` is a
+            # user decision, and the CLI asks whether to cancel or keep waiting.
+            self._cleanup_failed_startup()
+            raise
+
         return self
+
+    def _cleanup_failed_startup(self) -> None:
+        """Release resources allocated by a startup that did not complete.
+
+        Never raises: a teardown failure must not mask the error that caused the
+        startup to fail. When teardown does fail the state record is deliberately
+        left in place so the deployment stays reachable via ``domyn-swarm down``.
+        """
+        logger.warning(f"Deployment [cyan]{self.name}[/cyan] failed to start; releasing resources")
+        try:
+            self.cleanup()
+        except Exception as exc:
+            logger.error(
+                f"Could not release resources for [cyan]{self.name}[/cyan]: {exc}. "
+                f"The deployment is still recorded -- run `domyn-swarm down {self.name}` to retry."
+            )
 
     def __exit__(self, exc_type, exc, tb):
         if self.delete_on_exit:
@@ -426,7 +457,7 @@ class DomynLLMSwarm(BaseModel):
         *,
         input_path: Path,
         output_path: Path,
-        num_threads: int = 1,
+        num_shards: int = 1,
         shard_output: bool = False,
         detach: bool = False,
         limit: int | None = None,
@@ -441,6 +472,7 @@ class DomynLLMSwarm(BaseModel):
         job_resources: dict | None = None,
         checkpoint_tag: str | None = None,
         ray_address: str | None = None,
+        num_threads: int | None = None,
     ) -> JobHandle:
         """
         Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
@@ -459,13 +491,15 @@ class DomynLLMSwarm(BaseModel):
             Parquet file produced by the upstream pipeline stage.
         output_path : utils.EnvPath | str
             Destination Parquet file to be written by *job*.
-        num_threads : int, default 1
-            Number of CPU threads the job may use in the worker process.
+        num_shards : int, default 1
+            Number of shards to split the input into. This is part of the
+            checkpoint layout, so keep it fixed across resumes of the same job
+            or previously-completed rows will be reprocessed.
         shard_output : bool, default False
             If True and `output_path` is a directory, emit one parquet file per shard using
             checkpoint outputs as the source of truth (supported by the polars runner).
         shard_mode : str, default "id"
-            Sharding strategy for `num_threads` > 1 ("id" for stable id hashing, "index" for
+            Sharding strategy for `num_shards` > 1 ("id" for stable id hashing, "index" for
             legacy row order sharding).
         global_resume : bool, default False
             When resuming a sharded job, filter inputs using global done ids across shards.
@@ -485,7 +519,7 @@ class DomynLLMSwarm(BaseModel):
         Raises
         ------
         RuntimeError
-            The swarm manager is not ready (`self.jobid` or `self.endpoint`
+            The swarm is not ready (`self.serving_handle` or `self.endpoint`
             is ``None``).
         FileNotFoundError
             *input_path* does not exist.
@@ -506,9 +540,19 @@ class DomynLLMSwarm(BaseModel):
         ...     my_job,
         ...     input_path=Path("batch.parquet"),
         ...     output_path=Path("predictions.parquet"),
-        ...     num_threads=4,
+        ...     num_shards=4,
         ... )
         """
+        if num_threads is not None:
+            warnings.warn(
+                "`num_threads` is deprecated and will be removed in a future release; "
+                "use `num_shards`. The value has always been a shard count, not a "
+                "thread count, and it is part of the checkpoint layout.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            num_shards = num_threads
+
         if checkpoint_dir is None:
             checkpoint_dir = self.swarm_dir / "checkpoints"
 
@@ -530,7 +574,7 @@ class DomynLLMSwarm(BaseModel):
             job_kwargs=job_kwargs,
             input_parquet=input_parquet,
             output_parquet=output_parquet,
-            num_threads=num_threads,
+            num_shards=num_shards,
             checkpoint_dir=checkpoint_dir,
             checkpoint_interval=checkpoint_interval,
             runner=runner,
@@ -625,7 +669,7 @@ class DomynLLMSwarm(BaseModel):
         job_kwargs: str,
         input_parquet: Path,
         output_parquet: Path,
-        num_threads: int,
+        num_shards: int,
         checkpoint_dir: str | Path,
         checkpoint_interval: int | None,
         runner: str,
@@ -647,7 +691,7 @@ class DomynLLMSwarm(BaseModel):
             job_kwargs: Serialized job kwargs JSON.
             input_parquet: Input dataset path.
             output_parquet: Output dataset path.
-            num_threads: Worker thread count.
+            num_shards: Number of shards to split the input into.
             checkpoint_dir: Checkpoint directory.
             checkpoint_interval: Checkpoint interval override.
             runner: Runner implementation name.
@@ -673,7 +717,7 @@ class DomynLLMSwarm(BaseModel):
             f"--input-parquet={input_parquet}",
             f"--output-parquet={output_parquet}",
             f"--endpoint={self.endpoint}",
-            f"--nthreads={num_threads}",
+            f"--num-shards={num_shards}",
             f"--checkpoint-dir={checkpoint_dir}",
             f"--checkpoint-interval={checkpoint_interval or job.checkpoint_interval}",
             f"--runner={runner}",
@@ -922,6 +966,17 @@ class DomynLLMSwarm(BaseModel):
         return refreshed
 
     def cleanup(self):
+        """Release the swarm's resources and drop its state record.
+
+        Idempotent: calling it again after a successful teardown is a no-op, so
+        overlapping paths (a failed startup, ``__exit__``, an explicit ``down()``)
+        cannot issue a second cancel against the platform.
+
+        The record is dropped only once teardown succeeds -- if ``down`` raises,
+        the record survives so the deployment stays reachable for a retry.
+        """
+        if self._cleaned:
+            return
         if self._deployment and self.serving_handle:
             self._deployment.down(self.serving_handle)
         self._delete_record()
@@ -950,9 +1005,18 @@ class DomynLLMSwarm(BaseModel):
             raise RuntimeError(f"Unsupported platform for compute backend: {self._plan.platform}")
 
     def status(self) -> ServingStatus:
-        """Get the current status of the swarm."""
-        if self._deployment:
-            s = self._deployment.status()
-            if s is not None:
-                return s
-        return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
+        """Get the current status of the swarm.
+
+        Safe to call at any point in the lifecycle: a swarm that has not been
+        deployed reports :attr:`ServingPhase.UNKNOWN` rather than raising.
+
+        Returns:
+            The backend-reported serving status, falling back to the endpoint
+            this swarm already knows about when the backend reports none.
+        """
+        if self._deployment is None:
+            return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
+        status = self._deployment.status()
+        if status.url is None:
+            status.url = self.endpoint
+        return status

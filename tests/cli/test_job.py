@@ -193,7 +193,7 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
             "2",
             "--timeout",
             "123",
-            "--num-threads",
+            "--num-shards",
             "4",
             "--limit",
             "100",
@@ -209,7 +209,7 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     k = call.kwargs
     assert k["input_path"] == in_path
     assert k["output_path"] == out_path
-    assert k["num_threads"] == 4
+    assert k["num_shards"] == 4
     assert k["limit"] == 100
     assert k["detach"] is True
     assert "checkpoint_dir" in k
@@ -389,7 +389,7 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
             str(out_path),
             "-c",
             str(tmp_path / "cfg.yaml"),
-            "--num-threads",
+            "--num-shards",
             "3",
             "--limit",
             "50",
@@ -406,7 +406,7 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
     assert res.exit_code == 0
     swarm.submit_job.assert_called_once()
     kwargs = swarm.submit_job.call_args.kwargs
-    assert kwargs["num_threads"] == 3
+    assert kwargs["num_shards"] == 3
     assert kwargs["limit"] == 50
     assert kwargs["detach"] is True
     assert kwargs["mail_user"] == "me@example.com"
@@ -776,3 +776,40 @@ def test_status_job_without_refresh_skips_backend(mocker):
     assert payload["job"]["status"] == "SUCCEEDED"
     assert payload["job"]["refresh_source"] == "db"
     assert payload["job"]["refresh_error"] is None
+
+
+def test_submit_job_accepts_deprecated_num_threads_alias(mocker, tmp_path: Path):
+    """`--num-threads` keeps working for one release and says what to use instead."""
+    in_path, out_path = _mk_files(tmp_path)
+    config_path = tmp_path / "cfg.yaml"
+    config_path.write_text("model: my-model\nname: my-swarm")
+
+    mocker.patch.object(mod, "_load_swarm_config", return_value=object())
+
+    swarm = mocker.MagicMock()
+    swarm.endpoint = "http://host:9000"
+    swarm.model = "m"
+    cm = mocker.MagicMock()
+    cm.__enter__.return_value = swarm
+    cm.__exit__.return_value = None
+    mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", return_value=object())
+
+    res = runner.invoke(
+        mod.job_app,
+        [
+            "submit",
+            "--input",
+            str(in_path),
+            "--output",
+            str(out_path),
+            "-c",
+            str(config_path),
+            "--num-threads",
+            "5",
+        ],
+    )
+
+    assert res.exit_code == 0
+    assert swarm.submit_job.call_args.kwargs["num_shards"] == 5
+    assert "--num-shards" in res.stderr

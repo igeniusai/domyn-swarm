@@ -7,6 +7,7 @@ import pytest
 
 from domyn_swarm.config.plan import DeploymentContext
 from domyn_swarm.deploy.deployment import Deployment
+from domyn_swarm.platform.protocols import ServingPhase
 
 
 @pytest.fixture
@@ -153,13 +154,17 @@ def test_ensure_ready_delegates_to_serving(mocker):
     assert out == "READY"
 
 
-def test_status_raises_without_handle(mocker):
+def test_status_reports_unknown_without_handle(mocker):
+    """Querying status is a question, not an assertion: no handle means UNKNOWN."""
     serving = mocker.Mock()
     compute = mocker.Mock()
     dep = Deployment(serving=serving, compute=compute)
 
-    with pytest.raises(RuntimeError, match="No serving handle"):
-        dep.status()
+    out = dep.status()
+
+    assert out.phase is ServingPhase.UNKNOWN
+    assert out.url is None
+    serving.status.assert_not_called()
 
 
 def test_status_delegates_to_serving(mocker):
