@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import logging
+import sys
 import types
 
 from domyn_swarm.runtime import watchdog as watchdog_mod
@@ -83,3 +85,87 @@ def test_probe_and_update_marks_running(monkeypatch):
     )
     assert state == watchdog_mod.ReplicaState.RUNNING
     assert ready is True
+
+
+# ---------------------------
+# restart backoff
+# ---------------------------
+
+
+def test_restart_backoff_grows_exponentially():
+    """Repeated restarts back off instead of hammering the scheduler at a fixed rate."""
+    cfg = watchdog_mod.WatchdogConfig(restart_backoff_s=5.0, restart_backoff_max_s=60.0)
+
+    delays = [watchdog_mod._restart_backoff_delay(cfg, attempt) for attempt in range(1, 5)]
+
+    assert delays == [5.0, 10.0, 20.0, 40.0]
+
+
+def test_restart_backoff_is_capped_by_the_configured_ceiling():
+    """`restart_backoff_max` is the documented upper bound, so it must bind."""
+    cfg = watchdog_mod.WatchdogConfig(restart_backoff_s=5.0, restart_backoff_max_s=30.0)
+
+    delays = [watchdog_mod._restart_backoff_delay(cfg, attempt) for attempt in range(1, 6)]
+
+    assert delays == [5.0, 10.0, 20.0, 30.0, 30.0]
+
+
+# ---------------------------
+# log level
+# ---------------------------
+
+
+def test_log_level_suppresses_lower_severity_diagnostics(caplog):
+    """`watchdog.log_level: warning` must actually quieten the watchdog."""
+    watchdog_mod._configure_logging("warning")
+
+    with caplog.at_level(logging.DEBUG, logger=watchdog_mod.logger.name):
+        watchdog_mod.logger.debug("a debug line")
+        watchdog_mod.logger.info("an info line")
+        watchdog_mod.logger.warning("a warning line")
+
+    assert watchdog_mod.logger.level == logging.WARNING
+    assert not watchdog_mod.logger.isEnabledFor(logging.INFO)
+    assert watchdog_mod.logger.isEnabledFor(logging.WARNING)
+
+
+def test_debug_level_lets_everything_through():
+    """Raising verbosity is the documented way to debug a stuck replica."""
+    watchdog_mod._configure_logging("debug")
+
+    assert watchdog_mod.logger.isEnabledFor(logging.DEBUG)
+
+
+def test_unknown_log_level_falls_back_to_info():
+    """A bad value must not silence the watchdog entirely."""
+    watchdog_mod._configure_logging("not-a-level")
+
+    assert watchdog_mod.logger.level == logging.INFO
+
+
+def test_logging_goes_to_stderr_only():
+    """Watchdog output must land in the same captured stream as the child process."""
+    watchdog_mod._configure_logging("info")
+
+    handlers = watchdog_mod.logger.handlers
+    assert handlers, "the watchdog configures its own handler; it has no root config"
+    assert all(h.stream is sys.stderr for h in handlers)
+    assert watchdog_mod.logger.propagate is False
+
+
+def test_configure_logging_is_idempotent():
+    """Re-configuring must not stack duplicate handlers."""
+    watchdog_mod._configure_logging("info")
+    watchdog_mod._configure_logging("debug")
+
+    assert len(watchdog_mod.logger.handlers) == 1
+
+
+def test_replica_exit_summary_bypasses_logging(capsys):
+    """The summary line is parsed by callers, so it carries no prefix and is never filtered."""
+    watchdog_mod._configure_logging("error")
+
+    watchdog_mod._emit_exit_summary(0, {"exit_code": 0})
+
+    err = capsys.readouterr().err
+    assert err.strip() == 'watchdog[0]: {"exit_code":0}'

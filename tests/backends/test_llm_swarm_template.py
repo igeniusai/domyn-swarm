@@ -78,3 +78,26 @@ def test_gpu_exporter_absent_when_disabled():
     out = _render(_cfg(False))
     assert "nvidia_gpu_exporter" not in out
     assert "gpu-owner-" not in out
+
+
+def test_watchdog_wraps_vllm_when_enabled():
+    """The watchdog supervises `vllm serve` as its child process."""
+    cfg = _cfg(False)
+    cfg.watchdog = SimpleNamespace(enabled=True)
+
+    out = _render(cfg)
+
+    assert "python3 /opt/watchdog.py" in out
+    assert "vllm serve" in out
+
+
+def test_watchdog_is_not_launched_when_disabled():
+    """`watchdog.enabled: false` is documented as the master switch."""
+    cfg = _cfg(False)
+    cfg.watchdog = SimpleNamespace(enabled=False)
+
+    out = _render(cfg)
+
+    # The script stays bind-mounted (harmless); what matters is that it is not invoked.
+    assert "python3 /opt/watchdog.py" not in out
+    assert "vllm serve" in out, "the server itself must still start"

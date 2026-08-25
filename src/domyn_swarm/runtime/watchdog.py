@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 import enum
 from http.client import BadStatusLine
 import json
+import logging
 import os
 from pathlib import Path
 import random
@@ -104,18 +105,73 @@ class WatchdogConfig:
     # Restart
     restart_policy: str = "on-failure"  # "always" | "on-failure" | "never"
     restart_backoff_s: float = 10.0
+    restart_backoff_max_s: float = 60.0  # ceiling for the exponential backoff
     max_restarts: int | None = None  # None => unlimited
 
     readiness_timeout: float = 60.0  # seconds to wait for initial readiness
 
     # Metadata
     agent_version: str = "unknown"
+    log_level: str = "info"
 
     # Ray-aware options
     ray: WatchdogRayConfig = field(default_factory=WatchdogRayConfig)
 
     def http_url(self) -> str:
         return f"http://{self.host}:{self.port}{self.http_path}"
+
+
+# This module is bind-mounted into the vLLM container and run by that container's
+# interpreter, so it must stay standard-library only -- no `domyn_swarm` imports,
+# and in particular not the repo's Rich-based `helpers.logger`.
+logger = logging.getLogger("domyn_swarm.watchdog")
+
+_LOG_LEVELS = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+}
+
+
+def _configure_logging(level: str) -> None:
+    """Send the watchdog's diagnostics to stderr at the requested verbosity.
+
+    Diagnostics go to stderr so they land in the same captured stream as the child
+    vLLM process. The handler is attached to this module's logger rather than the
+    root logger, and propagation is disabled, so importing this module never
+    reconfigures logging for a host process.
+
+    Idempotent: re-configuring replaces the handler instead of stacking another.
+
+    Args:
+        level: One of ``debug``, ``info``, ``warning`` or ``error``. Unknown values
+            fall back to ``info`` -- a bad value must not silence the watchdog.
+    """
+    logger.setLevel(_LOG_LEVELS.get(level, logging.INFO))
+    logger.propagate = False
+    for stale in list(logger.handlers):
+        logger.removeHandler(stale)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("watchdog %(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+
+
+def _emit_exit_summary(replica_id: int | str, exit_status: dict) -> None:
+    """Write the replica exit summary straight to stderr.
+
+    Deliberately not routed through :data:`logger`: this line is parsed by callers
+    looking for ``watchdog[<id>]: {...}``, so it must carry no level prefix and must
+    never be filtered out by a raised log level.
+
+    Args:
+        replica_id: Replica identifier used in the line prefix.
+        exit_status: JSON-serialisable summary of how the child exited.
+    """
+    print(
+        f"watchdog[{replica_id}]: {json.dumps(exit_status, separators=(',', ':'))}",
+        file=sys.stderr,
+    )
 
 
 def _ensure_leading_slash(path: str) -> str:
@@ -136,10 +192,7 @@ def _send_status_once(collector_address: str, payload: dict) -> bool:
         return True
     except OSError as e:
         # log & continue; status reporting must not kill watchdog
-        print(
-            f"watchdog[{payload['replica_id']}]: failed to send status: {e!r}",
-            file=sys.stderr,
-        )
+        logger.error("watchdog[%s]: failed to send status: %r", payload["replica_id"], e)
         return False
 
 
@@ -258,7 +311,7 @@ def _check_http(url: str, timeout: float) -> bool:
         with request.urlopen(url, timeout=timeout) as resp:
             return 200 <= resp.status < 300
     except (urlerror.URLError, urlerror.HTTPError, TimeoutError, OSError, BadStatusLine) as exc:
-        print(f"watchdog: HTTP probe to {url} failed: {exc!r}", file=sys.stderr)
+        logger.debug("HTTP probe to %s failed: %r", url, exc)
         return False
 
 
@@ -282,7 +335,7 @@ def _ray_cluster_ok(ray_prefix: Sequence[str]) -> bool:
         )
         return p.returncode == 0
     except Exception as e:
-        print(f"watchdog: Ray status check failed: {e!r}", file=sys.stderr)
+        logger.error("Ray status check failed: %r", e)
         return False
 
 
@@ -314,7 +367,7 @@ def _ray_capacity_ok(
             available_workers += 1
 
         if available_workers == 0:
-            print("watchdog: Ray has 0 ALIVE nodes", file=sys.stderr)
+            logger.warning("Ray has 0 ALIVE nodes")
             return False
 
         if (
@@ -322,10 +375,10 @@ def _ray_capacity_ok(
             and expected_workers > 0
             and available_workers < expected_workers
         ):
-            print(
-                f"watchdog: Ray has {available_workers} ALIVE workers, "
-                f"expected at least {expected_workers}",
-                file=sys.stderr,
+            logger.warning(
+                "Ray has %s ALIVE workers, expected at least %s",
+                available_workers,
+                expected_workers,
             )
             return False
 
@@ -337,16 +390,17 @@ def _ray_capacity_ok(
             required_total_gpus = float(expected_tp) * float(required_workers)
 
             if total_gpu < required_total_gpus:
-                print(
-                    f"watchdog: Ray has total_gpu={total_gpu}, "
-                    f"expected at least {required_total_gpus} "
-                    f"(tp={expected_tp}, workers={required_workers})",
-                    file=sys.stderr,
+                logger.warning(
+                    "Ray has total_gpu=%s, expected at least %s (tp=%s, workers=%s)",
+                    total_gpu,
+                    required_total_gpus,
+                    expected_tp,
+                    required_workers,
                 )
                 return False
         return True
     except Exception as e:
-        print(f"watchdog: Ray GPU capacity check failed: {e!r}", file=sys.stderr)
+        logger.error("Ray GPU capacity check failed: %r", e)
         return False
 
 
@@ -355,7 +409,7 @@ def _ray_probe_once(ray_cfg: WatchdogRayConfig, ray_prefix: Sequence[str]) -> bo
         return True
     alive = _ray_cluster_ok(ray_prefix)
     capacity = _ray_capacity_ok(ray_prefix, ray_cfg.expected_tp, ray_cfg.expected_workers)
-    print(f"watchdog: Ray cluster alive={alive}, capacity_ok={capacity}", file=sys.stderr)
+    logger.debug("Ray cluster alive=%s, capacity_ok=%s", alive, capacity)
     return alive and capacity
 
 
@@ -446,6 +500,24 @@ def _spawn_child_and_mark_running(
     return child, pid
 
 
+def _restart_backoff_delay(cfg: WatchdogConfig, attempt: int) -> float:
+    """Return the seconds to wait before restart attempt ``attempt``.
+
+    Grows exponentially from ``restart_backoff_s`` and is capped at
+    ``restart_backoff_max_s`` so a replica that keeps dying does not hammer the
+    scheduler at a fixed rate.
+
+    Args:
+        cfg: Watchdog configuration carrying the initial delay and the ceiling.
+        attempt: 1-based restart attempt number.
+
+    Returns:
+        Delay in seconds, never above ``cfg.restart_backoff_max_s``.
+    """
+    delay = cfg.restart_backoff_s * (2 ** max(0, attempt - 1))
+    return min(delay, cfg.restart_backoff_max_s)
+
+
 def _should_restart(exit_code: int, cfg: WatchdogConfig, restart_count: int) -> bool:
     if exit_code == RAY_FATAL_EXIT_CODE:
         return False
@@ -498,7 +570,7 @@ def _probe_and_update(
 
         ray_ready = ray_ok_since is not None and (now - ray_ok_since) >= cfg.ray.status_grace_s
 
-    print(f"watchdog[{meta.replica_id}] HTTP ok={http_ok}, Ray Ready={ray_ready} ", file=sys.stderr)
+    logger.debug("watchdog[%s] HTTP ok=%s, Ray Ready=%s", meta.replica_id, http_ok, ray_ready)
     ready_flag = bool(http_ok_since) and ray_ready
 
     # Running vs Unhealthy
@@ -513,11 +585,14 @@ def _probe_and_update(
             else ReplicaState.RUNNING
         )
 
-    print(
-        f"watchdog[{meta.replica_id}] HTTP ready={ready_flag}, "
-        f"State={state}, HTTP Failures={http_failures}, Ray ready={ray_ready}, "
-        f"Startup grace={in_startup_grace}",
-        file=sys.stderr,
+    logger.debug(
+        "watchdog[%s] HTTP ready=%s, State=%s, HTTP Failures=%s, Ray ready=%s, Startup grace=%s",
+        meta.replica_id,
+        ready_flag,
+        state,
+        http_failures,
+        ray_ready,
+        in_startup_grace,
     )
 
     _mark_state(
@@ -653,10 +728,10 @@ def _monitor_child_loop(
             "last_ray_probe": last_ray_probe,
         }
 
-        print(
-            f"watchdog[{meta.replica_id}] Status:",
+        logger.debug(
+            "watchdog[%s] Status: %s",
+            meta.replica_id,
             json.dumps(monitor_status, separators=(",", ":")),
-            file=sys.stderr,
         )
 
         if state == ReplicaState.RUNNING:
@@ -685,10 +760,9 @@ def _monitor_child_loop(
                     raw_ret = child.returncode
                     ret = raw_ret if raw_ret not in (None, 0) else 1
 
-                    print(
-                        f"watchdog[{meta.replica_id}] Marking FAILED due to "
-                        "sustained UNHEALTHY state",
-                        file=sys.stderr,
+                    logger.warning(
+                        "watchdog[%s] Marking FAILED due to sustained UNHEALTHY state",
+                        meta.replica_id,
                     )
 
                     if not ray_ready:
@@ -711,10 +785,8 @@ def _monitor_child_loop(
                     )
                     should_restart = _should_restart(ret, cfg, restart_count)
 
-                    print(
-                        f"watchdog[{meta.replica_id}] should_restart =",
-                        should_restart,
-                        file=sys.stderr,
+                    logger.debug(
+                        "watchdog[%s] should_restart = %s", meta.replica_id, should_restart
                     )
                     return ret, should_restart, fail_reason
 
@@ -740,7 +812,7 @@ def run_watchdog(
     - Decides whether to restart based on restart_policy/max_restarts
     """
     if not child_argv:
-        print("watchdog: no child command provided", file=sys.stderr)
+        logger.error("no child command provided")
         return 1
 
     cfg.port = port
@@ -768,10 +840,7 @@ def run_watchdog(
         # 1) Spawn child and mark STARTING/RUNNING
         child, pid = _spawn_child_and_mark_running(collector_address, meta, cfg, child_argv)
 
-        print(
-            f"watchdog[{meta.replica_id}]: spawned child with pid {pid}",
-            file=sys.stderr,
-        )
+        logger.info("watchdog[%s]: spawned child with pid %s", meta.replica_id, pid)
         # 2) Monitor until it exits or we get a stop signal
         exit_code, should_restart, fail_reason = _monitor_child_loop(
             collector_address,
@@ -791,20 +860,14 @@ def run_watchdog(
             "fail_reason": fail_reason,
         }
 
-        print(
-            f"watchdog[{meta.replica_id}]: {json.dumps(exit_status, separators=(',', ':'))}",
-            file=sys.stderr,
-        )
+        _emit_exit_summary(meta.replica_id, exit_status)
 
         if not should_restart:
             return exit_code
 
         restart_count += 1
 
-        print(
-            f"watchdog[{meta.replica_id}]: restarting child (attempt #{restart_count})",
-            file=sys.stderr,
-        )
+        logger.info("watchdog[%s]: restarting child (attempt #%s)", meta.replica_id, restart_count)
 
         # 3) Mark RESTARTING and backoff before re-spawn
         _mark_state(
@@ -818,7 +881,7 @@ def run_watchdog(
             exit_signal=None,
             fail_reason=fail_reason,
         )
-        time.sleep(cfg.restart_backoff_s)
+        time.sleep(_restart_backoff_delay(cfg, restart_count))
 
 
 # ---------------------------------------------------------------------------
@@ -882,6 +945,24 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=5.0,
         help="Seconds to sleep before restarting the child (default: 5).",
+    )
+    parser.add_argument(
+        "--restart-backoff-max",
+        type=float,
+        default=60.0,
+        help="Upper bound in seconds for the exponential restart backoff (default: 60).",
+    )
+    parser.add_argument(
+        "--kill-grace-seconds",
+        type=float,
+        default=10.0,
+        help="Seconds to wait after SIGTERM before sending SIGKILL (default: 10).",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error"],
+        default="info",
+        help="Verbosity of the watchdog's own diagnostics (default: info).",
     )
     parser.add_argument(
         "--max-restarts",
@@ -991,19 +1072,17 @@ def main(argv: list[str] | None = None) -> int:
 
     watchdog_argv, child_argv = split_watchdog_and_child(argv)
 
-    print(f"Watchdog args: {' '.join(watchdog_argv)}", file=sys.stderr)
-    print(f"vLLM args: {' '.join(child_argv)}", file=sys.stderr)
-
     args = _parse_args(watchdog_argv)
+    _configure_logging(args.log_level)
+
+    logger.debug("Watchdog args: %s", " ".join(watchdog_argv))
+    logger.debug("vLLM args: %s", " ".join(child_argv))
 
     if not child_argv:
-        print("watchdog: no child command provided after '--'", file=sys.stderr)
+        logger.error("no child command provided after '--'")
         return 1
 
-    print(
-        f"[debug] restart_policy={args.restart_policy}, max_restarts={args.max_restarts}",
-        file=sys.stderr,
-    )
+    logger.debug("restart_policy=%s, max_restarts=%s", args.restart_policy, args.max_restarts)
 
     cfg = WatchdogConfig(
         host="127.0.0.1",  # typically localhost inside the replica node
@@ -1015,8 +1094,11 @@ def main(argv: list[str] | None = None) -> int:
         unhealthy_restart_after=args.unhealthy_restart_after,
         restart_policy=args.restart_policy,
         restart_backoff_s=args.restart_backoff,
+        restart_backoff_max_s=args.restart_backoff_max,
+        kill_grace_seconds=args.kill_grace_seconds,
         max_restarts=args.max_restarts,
         agent_version=args.agent_version,
+        log_level=args.log_level,
         readiness_timeout=args.readiness_timeout,
         ray=WatchdogRayConfig(
             enabled=bool(args.ray_enabled),

@@ -140,6 +140,7 @@ function start_vllm_server() {
   echo "[head] starting vLLM REST server ..."
   singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
            instance://"$INSTANCE_TAG" \
+{% if cfg.watchdog is not defined or cfg.watchdog.enabled %}
            python3 /opt/watchdog.py \
             {{ args_to_str(build_watchdog_args(
               cfg.watchdog,
@@ -155,6 +156,7 @@ function start_vllm_server() {
               ray_expected_workers="$SLURM_JOB_NUM_NODES"
             )) }} \
             -- \
+{% endif %}
            vllm serve {{ cfg.model }} \
            {% if 'tensor-parallel-size' not in cfg.args %}
            --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
