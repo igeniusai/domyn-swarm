@@ -3,9 +3,14 @@ name: Docs
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+# Deliberately not triggered by v* tags. The github-pages environment only permits
+# deploys from the main branch, so a tag push would queue a deploy it is not
+# allowed to run. It does not need to: every deploy rebuilds each released minor
+# from its tag, so a new release is published by the next push to main, or
+# immediately by running this workflow by hand.
 
 # Pages allows one deployment at a time, and cancelling a half-finished one can
 # leave the site partially replaced, so queue rather than cancel.
