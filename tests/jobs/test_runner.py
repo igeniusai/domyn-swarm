@@ -14,6 +14,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_run_sharded_single_shard(mocker):
     mod = importlib.import_module("domyn_swarm.jobs.runner")
+    impl = importlib.import_module("domyn_swarm.jobs.api.runner")
 
     df = pd.DataFrame({"messages": [f"m{i}" for i in range(6)]}, index=pd.RangeIndex(0, 6))
     store_uri = "file:///tmp/out.parquet"
@@ -51,8 +52,8 @@ async def test_run_sharded_single_shard(mocker):
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 
-    mocker.patch.object(mod, "ParquetShardStore", FakeStore)
-    mocker.patch.object(mod, "JobRunner", FakeJobRunner)
+    mocker.patch.object(impl, "ParquetShardStore", FakeStore)
+    mocker.patch.object(impl, "JobRunner", FakeJobRunner)
 
     factory_calls = {"n": 0}
 
@@ -93,6 +94,7 @@ async def test_run_sharded_single_shard(mocker):
 @pytest.mark.asyncio
 async def test_run_sharded_multiple_shards(mocker):
     mod = importlib.import_module("domyn_swarm.jobs.runner")
+    impl = importlib.import_module("domyn_swarm.jobs.api.runner")
 
     n = 10
     df = pd.DataFrame({"messages": [f"m{i}" for i in range(n)]}, index=np.arange(n))
@@ -129,8 +131,8 @@ async def test_run_sharded_multiple_shards(mocker):
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 
-    mocker.patch.object(mod, "ParquetShardStore", FakeStore)
-    mocker.patch.object(mod, "JobRunner", FakeJobRunner)
+    mocker.patch.object(impl, "ParquetShardStore", FakeStore)
+    mocker.patch.object(impl, "JobRunner", FakeJobRunner)
 
     factory_calls = {"n": 0}
 
@@ -177,6 +179,7 @@ async def test_run_sharded_multiple_shards_respects_splitting(mocker):
     Extra check: indices passed to each shard runner are disjoint and cover the full set.
     """
     mod = importlib.import_module("domyn_swarm.jobs.runner")
+    impl = importlib.import_module("domyn_swarm.jobs.api.runner")
 
     df = pd.DataFrame({"messages": [f"m{i}" for i in range(11)]}, index=np.arange(11))
     base_uri = "file:///tmp/out.parquet"
@@ -199,8 +202,8 @@ async def test_run_sharded_multiple_shards_respects_splitting(mocker):
             out[col] = [f"{x}-out" for x in sub_df[input_col].tolist()]
             return out
 
-    mocker.patch.object(mod, "ParquetShardStore", FakeStore)
-    mocker.patch.object(mod, "JobRunner", FakeJobRunner)
+    mocker.patch.object(impl, "ParquetShardStore", FakeStore)
+    mocker.patch.object(impl, "JobRunner", FakeJobRunner)
 
     def job_factory():
         return object()
