@@ -7,7 +7,7 @@ concurrency, retries and checkpointing are provided by the framework.
 
 :::{note}
 Import `SwarmJob` from the `domyn_swarm` package root. The
-`domyn_swarm.jobs.base` module is deprecated in favour of
+`domyn_swarm.jobs.base` module is a deprecated alias for
 `domyn_swarm.jobs.api.base`, which is what is documented here.
 :::
 
