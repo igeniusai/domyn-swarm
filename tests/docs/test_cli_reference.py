@@ -26,7 +26,7 @@ EXPECTED_SUBCOMMANDS: dict[str, set[str]] = {
     "pool": {"pool"},
 }
 
-EXPECTED_ROOT_COMMANDS = {"version", "up", "status", "down"}
+EXPECTED_ROOT_COMMANDS = {"version", "up", "status", "down", "monitor"}
 
 
 def test_warmed_group_registers_every_lazy_subapp() -> None:

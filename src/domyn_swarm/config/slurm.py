@@ -19,16 +19,45 @@ _DCGM_DEFAULT_IMAGE = "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04"
 class GpuExporterConfig(BaseModel):
     """Optional per-node GPU metrics exporter for replica nodes.
 
-    Disabled by default. `kind` selects the exporter implementation and the
-    bundled dashboard vocabulary. See
-    docs/superpowers/specs/2026-07-02-gpu-monitoring-design.md.
+    Disabled by default. `kind` selects both the exporter implementation and the
+    metric vocabulary the bundled dashboard expects, so changing it changes which
+    dashboard `domyn-swarm monitor --gpu` loads.
     """
 
-    enabled: bool = False
-    kind: Literal["nvidia_smi", "dcgm"] = "nvidia_smi"
-    image: str | None = None
-    binary: str | None = None
-    port: int = 9835
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Run a GPU exporter on every replica node. Requires "
+            "`monitoring.enabled`; on its own it does nothing."
+        ),
+    )
+    kind: Literal["nvidia_smi", "dcgm"] = Field(
+        default="nvidia_smi",
+        description=(
+            "Which exporter to run. `nvidia_smi` is a small static binary that "
+            "works unprivileged wherever `nvidia-smi` is present. `dcgm` emits "
+            "NVIDIA's standard `DCGM_FI_*` series but is pinned to the 3.x line, "
+            "because 4.x aborts when run unprivileged."
+        ),
+    )
+    image: str | None = Field(
+        default=None,
+        description=(
+            "Singularity image for the exporter. Required for `nvidia_smi` with "
+            "`mode: container`; `dcgm` falls back to a public NVIDIA image."
+        ),
+    )
+    binary: str | None = Field(
+        default=None,
+        description=(
+            "Exporter binary for `mode: binary`. Defaults to "
+            "`nvidia_gpu_exporter` on PATH, and is required for `dcgm`."
+        ),
+    )
+    port: int = Field(
+        default=9835,
+        description="Port each node's exporter listens on for Prometheus to scrape.",
+    )
 
     def resolved_binary(self, *, mode: str) -> str:
         if self.binary:
@@ -46,58 +75,107 @@ class GpuExporterConfig(BaseModel):
 
 
 class RayMetricsConfig(BaseModel):
-    """Optional scraping of Ray's per-node Prometheus metrics (``ray_*``).
+    """Optional scraping of Ray's per-node Prometheus metrics (`ray_*`).
 
-    Only effective for Ray multi-node replicas (``requires_ray``). Resolved to
-    ``enabled=True`` when monitoring is on and the deployment requires Ray,
-    unless explicitly set to ``False``.
-
-    Attributes:
-        enabled: Tri-state. ``None`` means auto (True iff monitoring+requires_ray).
-        port: Fixed Ray ``--metrics-export-port`` so announce files are stable.
+    Only meaningful for Ray multi-node replicas. Left unset it resolves itself:
+    on when monitoring is on and the deployment requires Ray, off otherwise.
     """
 
-    enabled: bool | None = None
-    port: int = 8090
+    enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Scrape Ray's own `ray_*` metrics from every node. Unset means auto: "
+            "`true` when monitoring is enabled and the deployment requires Ray, "
+            "`false` otherwise. An explicit value is always respected, and the "
+            "field is never left unset on a validated config."
+        ),
+    )
+    port: int = Field(
+        default=8090,
+        description=(
+            "Ray's `--metrics-export-port`. Fixed rather than ephemeral so the "
+            "per-node announce files Prometheus reads have stable contents."
+        ),
+    )
 
 
 class MonitoringConfig(BaseModel):
-    """Optional Prometheus-based monitoring sidecar for the LB node.
+    """Optional Prometheus-based monitoring sidecars for the load-balancer node.
 
-    Disabled by default; when disabled the LB behaves exactly as before. See
-    docs/superpowers/specs/2026-06-05-vllm-prometheus-monitoring-design.md.
-
-    Attributes:
-        enabled: Master switch. When False, all other fields are ignored.
-        mode: 'container' (singularity images) or 'binary' (host binaries).
-        prometheus_image: Singularity image for Prometheus (mode='container').
-        nginx_exporter_image: Singularity image for nginx-prometheus-exporter.
-        prometheus_binary: Prometheus binary name/path (mode='binary').
-        nginx_exporter_binary: nginx-exporter binary name/path (mode='binary').
-        port: Prometheus listen port on the LB node (proxied; not user-facing).
-        exporter_port: nginx-exporter metrics port (scraped by Prometheus).
-        route_prefix: nginx path prefix Prometheus is served under.
-        scrape_interval: Prometheus global scrape interval (e.g. '15s').
-        retention: TSDB retention window (e.g. '12h').
+    Disabled by default; when disabled the load balancer behaves exactly as it
+    did before monitoring existed. Slurm only.
     """
 
-    enabled: bool = False
-    mode: Literal["container", "binary"] = "container"
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Run Prometheus and an Nginx exporter alongside the load balancer. "
+            "Master switch: with it off, every other field here is ignored."
+        ),
+    )
+    mode: Literal["container", "binary"] = Field(
+        default="container",
+        description=(
+            "Whether the sidecars run from Singularity images or from binaries "
+            "already on the node's PATH."
+        ),
+    )
     prometheus_image: str | None = Field(
-        default_factory=default_for("slurm.endpoint.prometheus_image", None)
+        default_factory=default_for("slurm.endpoint.prometheus_image", None),
+        description="Singularity image running Prometheus. Required for `mode: container`.",
     )
     nginx_exporter_image: str | None = Field(
-        default_factory=default_for("slurm.endpoint.nginx_exporter_image", None)
+        default_factory=default_for("slurm.endpoint.nginx_exporter_image", None),
+        description=(
+            "Singularity image running nginx-prometheus-exporter. Required for `mode: container`."
+        ),
     )
-    prometheus_binary: str = "prometheus"
-    nginx_exporter_binary: str = "nginx-prometheus-exporter"
-    port: int = 9090
-    exporter_port: int = 9113
-    route_prefix: str = "/prometheus"
-    scrape_interval: str = "15s"
-    retention: str = "12h"
-    gpu_exporter: GpuExporterConfig = Field(default_factory=GpuExporterConfig)
-    ray_metrics: RayMetricsConfig = Field(default_factory=RayMetricsConfig)
+    prometheus_binary: str = Field(
+        default="prometheus",
+        description="Prometheus binary name or path, for `mode: binary`.",
+    )
+    nginx_exporter_binary: str = Field(
+        default="nginx-prometheus-exporter",
+        description="nginx-prometheus-exporter binary name or path, for `mode: binary`.",
+    )
+    port: int = Field(
+        default=9090,
+        description=(
+            "Port Prometheus listens on, on the load-balancer node. Reached "
+            "through the load balancer rather than directly, so this is not the "
+            "port you connect to."
+        ),
+    )
+    exporter_port: int = Field(
+        default=9113,
+        description="Port the Nginx exporter serves its metrics on for Prometheus to scrape.",
+    )
+    route_prefix: str = Field(
+        default="/prometheus",
+        description=(
+            "Path under the swarm's endpoint where Prometheus is served. A "
+            "leading slash is added if missing."
+        ),
+    )
+    scrape_interval: str = Field(
+        default="15s",
+        description="How often Prometheus scrapes every target.",
+    )
+    retention: str = Field(
+        default="12h",
+        description=(
+            "How long Prometheus keeps samples. The database is node-local and "
+            "dies with the load-balancer job, so this only caps a single run."
+        ),
+    )
+    gpu_exporter: GpuExporterConfig = Field(
+        default_factory=GpuExporterConfig,
+        description="Per-node GPU metrics exporter. Off by default.",
+    )
+    ray_metrics: RayMetricsConfig = Field(
+        default_factory=RayMetricsConfig,
+        description="Scraping of Ray's own metrics. Auto-enabled for Ray deployments.",
+    )
 
     @field_validator("route_prefix")
     @classmethod
@@ -229,7 +307,13 @@ class SlurmConfig(BaseModel):
 
     # Ray-related settings
     requires_ray: bool | None = Field(
-        description="Whether to use Ray for distributed execution",
+        description=(
+            "Whether replicas form a Ray cluster spanning several nodes. "
+            "Derived rather than set by hand: true when one replica needs more "
+            "GPUs than a single node has, which also requires `gpus_per_replica` "
+            "to be a multiple of `gpus_per_node`. It selects the sbatch template "
+            "and turns on the Ray watchdog and Ray metrics."
+        ),
         default=None,
     )
     ray_port: int = Field(
@@ -262,8 +346,10 @@ class SlurmConfig(BaseModel):
             utils.EnvPath(__file__).with_suffix("").parent.parent / "templates" / "llm_swarm.sh.j2"
         ),
         description=(
-            "Path to the Jinja2 template for the cluster sbatch script. Auto-filled; "
-            "there is normally no need to set it."
+            "Path to the Jinja2 template for the cluster sbatch script. "
+            "Auto-filled and normally left alone: a Ray deployment renders from "
+            "`llm_swarm_ray.sh.j2` and a single-node one from `llm_swarm.sh.j2`. "
+            "Setting it pins the template and disables that choice."
         ),
     )
     nginx_template_path: utils.EnvPath = Field(

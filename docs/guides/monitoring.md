@@ -4,6 +4,9 @@ The operational counterpart to
 [Watchdog and collector](../concepts/watchdog-collector.md), which explains why
 health reporting is built this way. This page is for when something is wrong.
 
+For *how fast* rather than *is it broken* — throughput, queue depth, GPU
+utilisation — see [Metrics and dashboards](metrics.md).
+
 ## Reading `domyn-swarm status`
 
 ```bash
@@ -112,6 +115,11 @@ health. `--max-concurrency` multiplied by `--num-threads` is the real in-flight
 count, and a `--timeout` tuned against an idle endpoint will fire once requests
 start queueing. See
 [Sharding and concurrency](sharding-concurrency.md).
+
+This is the case where health checks tell you least and metrics tell you most:
+every replica is *running* and the queue is simply deeper than it can drain. If
+monitoring is enabled, vLLM's queue-depth and throughput series show it directly
+— see [Metrics and dashboards](metrics.md).
 
 ## Log locations
 

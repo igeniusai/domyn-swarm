@@ -18,6 +18,7 @@ Task-oriented, and mostly independent of one another — read the one you need.
 
 - [Managing swarm state](swarm-state.md) — the state database, `db` commands, inspecting swarms
 - [Monitoring and troubleshooting](monitoring.md) — reading `status`, and what to do when a replica is unhealthy
+- [Metrics and dashboards](metrics.md) — Prometheus, GPU exporters and `domyn-swarm monitor`
 - [Swarm pools](swarm-pools.md) — incomplete; read before trying to use it
 
 For *why* things are built this way rather than how to use them, see
@@ -36,4 +37,5 @@ data-backends
 swarm-pools
 swarm-state
 monitoring
+metrics
 ```

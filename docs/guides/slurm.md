@@ -96,6 +96,39 @@ backend:
 of the script, before the module loads, which makes them suitable for extra
 sbatch directives or shell setup.
 
+## Replicas larger than one node
+
+A replica that needs more GPUs than a single node has cannot be one process, so
+it becomes a **Ray cluster**: one head and enough workers to reach
+`gpus_per_replica`, with vLLM's tensor parallelism spanning them.
+
+You do not ask for this. It follows from the arithmetic:
+
+```yaml
+model: "deepseek-ai/DeepSeek-R1-0528"
+gpus_per_replica: 16     # more than one node holds
+gpus_per_node: 4         # so each replica spans four nodes
+replicas: 2
+```
+
+`gpus_per_replica > gpus_per_node` sets `requires_ray`, which in turn:
+
+- renders the sbatch script from `llm_swarm_ray.sh.j2` instead of
+  `llm_swarm.sh.j2` — both share `_swarm_common.sh.j2`, so the two paths differ
+  only where Ray genuinely requires it
+- enables `watchdog.ray`, so cluster liveness is checked alongside the HTTP probe
+- enables `monitoring.ray_metrics` when monitoring is on, adding Ray's own
+  metrics and a group of Ray panels to the dashboard
+
+`gpus_per_replica` must be a **multiple** of `gpus_per_node` in this case.
+Anything else would leave a partly-used node inside a replica, and it is rejected
+with *When gpus_per_replica > gpus_per_node, gpus_per_replica must be a multiple
+of gpus_per_node*.
+
+`backend.template_path` pins the template if you need your own, which also
+disables the automatic choice — so a custom template has to handle Ray itself if
+the deployment needs it.
+
 ## Node selection and limits
 
 `backend.partition`, `account` and `qos` are required. Beyond those,
@@ -114,3 +147,9 @@ domyn-swarm down my-swarm-name
 
 Takes a swarm name and stops the load balancer and every replica job via
 `scancel`.
+
+## Metrics
+
+The load balancer can also run Prometheus and a GPU exporter as sidecars, giving
+you throughput and GPU dashboards over the swarm. Slurm-only, off by default —
+see [Metrics and dashboards](metrics.md).

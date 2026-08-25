@@ -96,6 +96,31 @@ possible, and what `swarm list` reads.
 
 See [Managing swarm state](../guides/swarm-state.md).
 
+## The load balancer reconciles rather than being configured
+
+Nginx needs to know where the replicas are, but nothing knows that at submission
+time — Slurm decides placement, and replicas appear one by one. So the
+load-balancer config is not written once; it converges.
+
+Each replica writes a `replica-<id>.head` file, holding its `host:port`, into the
+swarm's shared serving directory. A **supervisor** process watches that directory
+and regenerates `00-upstreams.conf` from whatever is currently there, plus
+Prometheus's target files when monitoring is on. Adding or losing a replica is
+therefore a file appearing or vanishing, not an event anyone has to deliver.
+
+The supervisor only *writes*. It never reloads Nginx — and that split is forced
+rather than chosen. Nginx runs in its own Singularity instance, and
+`singularity instance start` puts it in a private PID namespace, so a process in
+another container cannot signal the Nginx master. Instead the load-balancer script
+watches the generated file host-side and, when it changes, runs `nginx -t` and
+then `nginx -s reload` through `singularity exec instance://`. A config that
+fails validation is not loaded, so a partial write cannot take the endpoint down.
+
+The same reconcile loop is what makes metrics work without configuration: the
+targets Prometheus reads are generated from the same head files as the upstreams,
+which is why a new replica is scraped without anyone editing a scrape config. See
+[Metrics and dashboards](../guides/metrics.md).
+
 ## Health is reported, not inferred
 
 Replicas do not simply run and hope. Each is supervised by a watchdog that probes
