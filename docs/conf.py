@@ -98,7 +98,9 @@ html_title = "domyn-swarm"
 # keeps one copy of the asset rather than a copy per consumer.
 html_static_path = ["_static", "../static"]
 html_css_files = ["custom.css"]
-html_baseurl = "https://igeniusai.github.io/domyn-swarm/"
+# The Pages custom domain, not the github.io URL: github.io 301-redirects to
+# it, so canonical links and the switcher must name the destination.
+html_baseurl = "https://domynswarm.domym.com/"
 
 html_theme_options = {
     "logo": {

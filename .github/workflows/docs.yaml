@@ -98,6 +98,10 @@ jobs:
           # Pages would otherwise run Jekyll, which ignores _static/ and _sources/.
           touch gh-pages/.nojekyll
 
+          # The custom domain lives in this file as well as in the repository
+          # settings; publishing a gh-pages tree without it clears the domain.
+          echo "domynswarm.domym.com" > gh-pages/CNAME
+
           uv run python docs/update_switcher.py gh-pages
 
           cd gh-pages

@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 import sys
 
-BASE_URL = "https://igeniusai.github.io/domyn-swarm"
+BASE_URL = "https://domynswarm.domym.com"
 VERSION_DIR = re.compile(r"^v(\d+)\.(\d+)$")
 
 

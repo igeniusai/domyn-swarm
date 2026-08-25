@@ -51,7 +51,7 @@ def test_non_version_directories_are_ignored(site: Path) -> None:
 def test_urls_are_absolute_and_trailing_slashed(site: Path) -> None:
     for entry in update_switcher.build_entries(site):
         url = str(entry["url"])
-        assert url.startswith("https://igeniusai.github.io/domyn-swarm/")
+        assert url.startswith("https://domynswarm.domym.com/")
         assert url.endswith("/")
 
 
@@ -59,7 +59,7 @@ def test_root_redirect_points_at_the_preferred_version(site: Path) -> None:
     entries = update_switcher.build_entries(site)
     update_switcher.write_root_redirect(site, entries)
     html = (site / "index.html").read_text()
-    assert "https://igeniusai.github.io/domyn-swarm/v0.29/" in html
+    assert "https://domynswarm.domym.com/v0.29/" in html
     assert "http-equiv" in html
 
 
