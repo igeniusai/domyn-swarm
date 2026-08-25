@@ -106,6 +106,29 @@ class DomynLLMSwarmConfig(BaseModel):
             raise ValueError("At least one backend must be configured")
         return v
 
+    @staticmethod
+    def _resolve_ray_metrics(backend: dict, requires_ray: bool) -> None:
+        """Auto-resolve ``monitoring.ray_metrics.enabled`` on a backend dict.
+
+        Mirrors how ``watchdog.ray.enabled`` is derived: when monitoring is on
+        and ``ray_metrics.enabled`` hasn't been set explicitly, it becomes
+        ``True`` iff the deployment requires Ray; explicit values are left
+        untouched.
+
+        Args:
+            backend: The (possibly mutated in place) backend config dict.
+            requires_ray: Whether this deployment requires Ray.
+        """
+        endpoint = backend.get("endpoint")
+        if not isinstance(endpoint, dict):
+            return
+        mon = endpoint.get("monitoring")
+        if not (isinstance(mon, dict) and mon.get("enabled")):
+            return
+        rm = mon.setdefault("ray_metrics", {})
+        if isinstance(rm, dict) and rm.get("enabled") is None:
+            rm["enabled"] = bool(requires_ray)
+
     @classmethod
     def read(cls, path: str) -> "DomynLLMSwarmConfig":
         config_path = to_path(path)
@@ -174,10 +197,43 @@ class DomynLLMSwarmConfig(BaseModel):
                 backend = backend.model_dump()
             if backend.get("type") == "slurm" and "requires_ray" not in backend:
                 backend["requires_ray"] = requires_ray
+            # Ray multi-node deployments render from a dedicated template.
+            # Select it automatically unless the user pinned a custom path.
+            if backend.get("type") == "slurm" and requires_ray and "template_path" not in backend:
+                from domyn_swarm.config import slurm as _slurm_mod
+
+                backend["template_path"] = (
+                    utils.EnvPath(_slurm_mod.__file__).parent.parent
+                    / "templates"
+                    / "llm_swarm_ray.sh.j2"
+                )
+
+            cls._resolve_ray_metrics(backend, requires_ray)
 
         data["backend"] = backend
 
         return data
+
+    @model_validator(mode="after")
+    def _finalize_ray_metrics(self) -> "DomynLLMSwarmConfig":
+        """Resolve ``ray_metrics.enabled`` to a concrete bool in all cases.
+
+        The before-validator (``validate_resource_allocations``) only auto-resolves
+        ``ray_metrics.enabled`` when a monitoring block is present and enabled. This
+        after-validator runs once all nested objects exist (with their defaults) and
+        is the final authority: it guarantees ``ray_metrics.enabled`` is never left
+        as ``None`` after a full config is validated, regardless of whether
+        monitoring is disabled or the monitoring block was absent entirely. Explicit
+        ``True``/``False`` values set by the user are always respected.
+        """
+        from domyn_swarm.config.slurm import SlurmConfig
+
+        be = self.backend
+        if isinstance(be, SlurmConfig):
+            rm = be.endpoint.monitoring.ray_metrics
+            if rm.enabled is None:
+                rm.enabled = bool(be.endpoint.monitoring.enabled and be.requires_ray)
+        return self
 
 
 def _load_swarm_config(

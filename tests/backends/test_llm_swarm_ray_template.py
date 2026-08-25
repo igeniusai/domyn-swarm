@@ -1,0 +1,132 @@
+# Copyright 2025 iGenius S.p.A
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import jinja2
+
+from domyn_swarm.config.slurm import GpuExporterConfig
+
+TPL_DIR = Path("src/domyn_swarm/templates")
+
+
+def _cfg(mon_enabled, gpu_enabled, ray_metrics=None):
+    """Build a minimal config-like object for rendering llm_swarm_ray.sh.j2."""
+    gx = GpuExporterConfig(enabled=gpu_enabled)
+    mon = SimpleNamespace(
+        enabled=mon_enabled, mode="binary", gpu_exporter=gx, ray_metrics=ray_metrics
+    )
+    ep = SimpleNamespace(port=9000, monitoring=mon, ray_port=6379)
+    backend = SimpleNamespace(
+        endpoint=ep,
+        requires_ray=True,
+        ray_port=6379,
+        ray_dashboard_port=8265,
+        account="a",
+        qos="q",
+        partition="p",
+        time_limit="1:00:00",
+        preamble=[],
+        modules=[],
+        exclude_nodes=None,
+        node_list=None,
+        mail_user=None,
+    )
+    return SimpleNamespace(
+        backend=backend,
+        gpus_per_node=4,
+        gpus_per_replica=8,
+        replicas=1,
+        replicas_per_node=1,
+        cpus_per_task=8,
+        image="vllm.sif",
+        model="m",
+        args="",
+        port=9000,
+        env={"HF_HOME": "/hf"},
+        mail_user=None,
+    )
+
+
+def _render(cfg):
+    """Render llm_swarm_ray.sh.j2 with the same callables the driver passes."""
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(TPL_DIR),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    return env.get_template("llm_swarm_ray.sh.j2").render(
+        cfg=cfg,
+        job_name="jx",
+        swarm_directory="/swarm",
+        path_exists=lambda *_: True,
+        is_folder=lambda *_: True,
+        cuda_visible_devices=["0", "1", "2", "3"],
+        watchdog_script_path="/w.py",
+        dswarm_agent_version="0.0.0",
+        build_watchdog_args=lambda *a, **k: [],
+        args_to_str=lambda *_: "",
+    )
+
+
+def test_ray_gpu_exporter_present_when_enabled():
+    out = _render(_cfg(mon_enabled=True, gpu_enabled=True))
+    assert "launch_gpu_exporter" in out
+    assert "gpu-$(hostname).target" in out
+    assert "gpu-owner-" in out
+    assert "--gres=gpu:4" in out
+
+
+def test_ray_gpu_exporter_fanout_threads_ray_log_dir():
+    """The gpu-exporter fan-out srun/bash -lc must thread RAY_LOG_DIR into the
+    remote task, otherwise launch_gpu_exporter's redirect resolves to an empty
+    path inside the srun'd shell (RAY_LOG_DIR is a shell-local var on the head
+    node, not exported)."""
+    out = _render(_cfg(mon_enabled=True, gpu_enabled=True))
+    fanout_lines = [line for line in out.splitlines() if 'bash -lc "REPL_ID=' in line]
+    assert len(fanout_lines) == 1
+    fanout_line = fanout_lines[0]
+    assert "RAY_LOG_DIR=" in fanout_line
+    assert "launch_gpu_exporter" in fanout_line
+
+
+def test_ray_gpu_exporter_absent_when_disabled():
+    out = _render(_cfg(mon_enabled=True, gpu_enabled=False))
+    assert "launch_gpu_exporter" not in out
+    assert "gpu-owner-" not in out
+
+
+def test_ray_gpu_exporter_absent_when_monitoring_off():
+    out = _render(_cfg(mon_enabled=False, gpu_enabled=True))
+    assert "launch_gpu_exporter" not in out
+
+
+def _ray_metrics(enabled, port=8090):
+    return SimpleNamespace(enabled=enabled, port=port)
+
+
+def test_ray_metrics_port_present_when_enabled():
+    cfg = _cfg(mon_enabled=True, gpu_enabled=False, ray_metrics=_ray_metrics(True))
+    out = _render(cfg)
+    assert "--metrics-export-port=8090" in out
+    assert "ray-$(hostname).target" in out
+
+
+def test_ray_metrics_absent_when_disabled():
+    cfg = _cfg(mon_enabled=True, gpu_enabled=False, ray_metrics=_ray_metrics(False))
+    out = _render(cfg)
+    assert "--metrics-export-port" not in out
+    assert "ray-$(hostname).target" not in out

@@ -1,0 +1,116 @@
+{
+  "title": "domyn-swarm GPUs (DCGM)",
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "replica",
+        "type": "query",
+        "label": "Replica",
+        "multi": true,
+        "includeAll": true,
+        "query": "label_values(dswarm_gpu_owner, replica)"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "GPU memory used (per replica)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_FB_USED * on(UUID) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "decimals": 1,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU utilization",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_GPU_UTIL * on(UUID) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU memory-bus utilization",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_MEM_COPY_UTIL * on(UUID) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Power draw (W)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_POWER_USAGE * on(UUID) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 1,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory temperature (°C)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_MEMORY_TEMP * on(UUID) group_left(replica) dswarm_gpu_owner",
+          "legendFormat": "r{{replica}} · gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "min": 0,
+          "custom": {"axisGridShow": true}
+        }
+      }
+    }
+  ]
+}

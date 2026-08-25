@@ -1,121 +1,5 @@
-#!/bin/bash
-###############################################################################
-#  SLURM DIRECTIVES
-###############################################################################
-#SBATCH --account={{ cfg.backend.account }}
-{% if cfg.mail_user %}
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user={{ cfg.backend.mail_user }}
-{% endif %}
-#SBATCH --qos={{ cfg.backend.qos }}
-#SBATCH --exclusive=user
-#SBATCH --job-name={{ job_name }}
-#SBATCH --partition={{ cfg.backend.partition }}
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:{{ cfg.gpus_per_node }}
-#SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
-#SBATCH --mem=0
-#SBATCH --time={{ cfg.backend.time_limit }}
-#SBATCH --requeue
-{% if cfg.backend.exclude_nodes %}
-#SBATCH --exclude={{ cfg.backend.exclude_nodes }}
-{% endif %}
-{% if cfg.backend.node_list %}
-#SBATCH --nodelist={{ cfg.backend.node_list | default('') }}
-{% endif %}
-#SBATCH --output={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.out
-#SBATCH --error={{ swarm_directory }}/logs/slurm/{{ job_name }}.%j.err
-{% for pre in cfg.backend.preamble %}
-#SBATCH {{ pre }}
-{% endfor %}
+{% include "_swarm_common.sh.j2" %}
 
-set -euo pipefail
-
-module purge
-{% for mod in cfg.backend.modules %}
-module load {{ mod }}
-{% endfor %}
-
-###############################################################################
-#  ENVIRONMENT VARIABLES
-###############################################################################
-export VLLM_IMAGE="{{ cfg.image }}"
-export HF_HOME="{{ cfg.env.HF_HOME }}"
-
-# User-defined environment variables (to be passed to Singularity)
-{% for k, v in (cfg.env | default({}, true)).items() -%}
-{% set KEY = k|replace('-', '_') %}
-export SINGULARITYENV_{{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
-export {{ KEY }}="{{ v | string | replace('\\','\\\\') | replace('"','\\"') }}"
-{% endfor -%}
-
-export REPLICAS={{ cfg.replicas }}
-export GPUS_PER_REPLICA={{ cfg.gpus_per_replica }}
-{% if not cfg.backend.requires_ray %}
-export REPLICAS_PER_NODE={{ cfg.replicas_per_node }}
-{% endif %}
-export HF_HUB_OFFLINE=1
-export PYTHONNOUSERSITE=1
-
-
-# Calculated variables
-export GPUS_PER_NODE={{ cfg.gpus_per_node }}
-export TOTAL_GPUS=$(( SLURM_JOB_NUM_NODES * {{ cfg.gpus_per_node }} ))
-export REQUIRED_GPUS=$(( REPLICAS * GPUS_PER_REPLICA ))
-
-# Job-specific variables
-REPL_ID=${SLURM_ARRAY_TASK_ID:-0}
-REPL_JOB_ID=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
-{% if not cfg.backend.requires_ray %}
-GLOBAL_BASE=$(( REPL_ID * REPLICAS_PER_NODE ))
-{% endif %}
-export DSWARM_AGENT_VERSION={{ dswarm_agent_version }}
-export SWARM_DIR="{{ swarm_directory }}"
-export LOG_DIR={{ swarm_directory }}/logs/replicas/replica-${REPL_ID}
-export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
-export VLLM_API_KEY="${SINGULARITYENV_VLLM_API_KEY:-${VLLM_API_KEY:-${API_TOKEN:-}}}"
-mkdir -p "$LOG_DIR"
-
-###############################################################################
-#  NODE AND PORT CONFIGURATION
-###############################################################################
-mapfile -t NODES < <(scontrol show hostnames "$SLURM_JOB_NODELIST")
-HEAD_NODE=${NODES[0]}
-INSTANCE_TAG="{{ job_name }}_${REPL_ID}_head"
-HEAD_PORT="{{ cfg.backend.ray_port }}"
-REST_PORT="{{ cfg.port }}"
-
-echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${NODES[*]:1}"
-
-# Mount configuration
-LOCAL_RAY_LOGS="$TMPDIR/ray_tmp"
-export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
-{% if is_folder(cfg.model) and path_exists(cfg.model) %}
-MOUNTS=$MOUNTS,{{ cfg.model }}
-{% endif %}
-
-# User-defined extra mounts (from backend.mounts in the YAML config)
-{% for mount in cfg.backend.mounts | default([], true) %}
-MOUNTS=$MOUNTS,{{ mount }}
-{% endfor %}
-
-{% if cfg.backend.requires_ray %}
-MOUNTS=$MOUNTS,$LOCAL_RAY_LOGS:/tmp/ray
-{% endif %}
-
-#Wait for creation of file "SWARM_DIR/serving/collector.env" containing COLLECTOR_HOST and COLLECTOR_PORT
-echo "[replica $REPL_ID] waiting for collector.env file..."
-while [ ! -f "{{ swarm_directory }}/serving/collector.env" ]; do
-    sleep 2
-done
-
-source "{{ swarm_directory }}/serving/collector.env"
-echo "[replica $REPL_ID] loaded collector config: COLLECTOR_HOST=$COLLECTOR_HOST COLLECTOR_PORT=$COLLECTOR_PORT"
-
-###############################################################################
-#  SINGLE-NODE or SHARED-NODES DEPLOYMENT
-###############################################################################
-{% if not cfg.backend.requires_ray %}
 echo "[single-node] Running colocated replicas..."
 
 function start_vllm_replica() {
@@ -138,6 +22,12 @@ function start_vllm_replica() {
   echo "[replica $global_id] → $node port=$port"
 
   echo "VLLM logging will be written to $log_dir/vllm.log"
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+  srun --overlap -n1 -N1 -w "$node" --gres=gpu:{{ cfg.gpus_per_replica }} \
+     bash -lc 'nvidia-smi --query-gpu=uuid --format=csv,noheader \
+       > "{{ swarm_directory }}/serving/gpu-owner-'"$global_id"'.txt"' 2>/dev/null || true
+{% endif %}
   srun --export=ALL -n1 -N1 -w $node --gres=gpu:{{ cfg.gpus_per_replica }} \
      --cpus-per-task={{ cfg.cpus_per_task }} \
      singularity exec --bind $MOUNTS --nv --writable-tmpfs "$VLLM_IMAGE" \
@@ -224,6 +114,37 @@ for ((i=0; i<REPLICAS_PER_NODE; i++)); do
   start_vllm_replica "$GLOBAL_ID" "$VLLM_PORT" "${hosts[-1]}"
 done
 
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+# --- GPU exporter (one per node, in the job's GPU cgroup) ---
+launch_gpu_exporter() {
+  echo "$(hostname):{{ _mon.gpu_exporter.port }}" > "{{ swarm_directory }}/serving/gpu-$(hostname).target"
+{% if _mon.gpu_exporter.kind == "dcgm" %}
+  singularity exec --nv \
+    --bind "{{ dcgm_core_counters_path }}:/etc/dcgm-exporter/core.csv" \
+    "{{ _mon.gpu_exporter.resolved_image(mode=_mon.mode) }}" \
+    dcgm-exporter -a ":{{ _mon.gpu_exporter.port }}" -f /etc/dcgm-exporter/core.csv \
+    >> "$LOG_DIR/gpu_exporter.log" 2>&1 &
+{% elif _mon.mode == "container" %}
+  singularity exec --nv "{{ _mon.gpu_exporter.resolved_image(mode=_mon.mode) }}" \
+    {{ _mon.gpu_exporter.resolved_binary(mode=_mon.mode) }} --web.listen-address=":{{ _mon.gpu_exporter.port }}" \
+    >> "$LOG_DIR/gpu_exporter.log" 2>&1 &
+{% else %}
+  {{ _mon.gpu_exporter.resolved_binary(mode=_mon.mode) }} --web.listen-address=":{{ _mon.gpu_exporter.port }}" \
+    >> "$LOG_DIR/gpu_exporter.log" 2>&1 &
+{% endif %}
+  GPU_EXPORTER_PID=$!
+}
+{% raw %}
+if (( ${SLURM_JOB_NUM_NODES:-1} > 1 )); then
+  srun --overlap --ntasks-per-node=1 --nodes=$SLURM_JOB_NUM_NODES \
+{% endraw %}
+    --gres=gpu:{{ cfg.gpus_per_node }} bash -lc "$(declare -f launch_gpu_exporter); launch_gpu_exporter; sleep infinity" &
+  GPU_EXPORTER_PID=$!
+else
+  launch_gpu_exporter
+fi
+{% endif %}
 # Wait for all replicas to be ready
 {% raw %}
 echo "[head] checking vLLM readiness for ${#global_ids[@]} replicas..."
@@ -237,284 +158,14 @@ for ((j = 0; j < ${#global_ids[@]}; j++)); do
   wait_for_vllm_ready "$endpoint" "$id"
 done
 
+{% set _mon = cfg.backend.endpoint.monitoring %}
+{% if _mon.enabled and _mon.gpu_exporter.enabled %}
+trap 'echo "[batch] caught SIGTERM → shutting down"; kill ${GPU_EXPORTER_PID:-} 2>/dev/null; rm -f "{{ swarm_directory }}/serving/gpu-$(hostname).target" "{{ swarm_directory }}/serving/gpu-owner-"*.txt 2>/dev/null; exit 0' SIGTERM
+{% else %}
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
+{% endif %}
 
 # Keep job alive
 while true; do
   sleep 60
 done
-
-{% else %}
-###############################################################################
-#  MULTI-NODE DEPLOYMENT (RAY)
-###############################################################################
-
-requeue_this_job() {
-  # Requeue *this* Slurm job or array element.
-  #
-  # - For arrays: requeues <array_job_id>_<task_id>
-  # - For normal jobs: requeues <job_id>
-  # Exits the script afterward (0 on success, 1 on failure).
-
-  local jid
-
-  if [[ -n "${SLURM_ARRAY_JOB_ID:-}" && -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
-    jid="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
-  else
-    jid="${SLURM_JOB_ID:-}"
-  fi
-
-  if [[ -z "${jid}" ]]; then
-    echo "[head] cannot requeue: no SLURM_JOB_ID / SLURM_ARRAY_* set" >&2
-    # Nothing else we can do — fail hard so it shows up.
-    exit 1
-  fi
-
-  echo "[head] requesting requeue via: scontrol requeue ${jid}"
-
-  if scontrol requeue "${jid}"; then
-    echo "[head] requeue request accepted for ${jid}, exiting 0"
-    exit 0
-  else
-    echo "[head] scontrol requeue failed for ${jid}, exiting 1" >&2
-    exit 1
-  fi
-}
-
-echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
-
-RAY_LOG_DIR="$LOG_DIR/ray"
-SHARED_RAY_LOGS="$RAY_LOG_DIR/ray_logs/"
-mkdir -p "$SHARED_RAY_LOGS" "$LOCAL_RAY_LOGS"
-export REPLICA_ENV={{ swarm_directory }}/serving/replica-${REPL_ID}.env
-
-function start_ray_head() {
-  echo "[head] starting Singularity instance ($HEAD_NODE)..."
-  echo "VLLM_HOST_IP=$VLLM_HOST_IP" > $REPLICA_ENV
-
-  singularity instance start --bind $MOUNTS --contain --writable-tmpfs \
-                --env-file $REPLICA_ENV \
-                --nv "$VLLM_IMAGE" "$INSTANCE_TAG" \
-                --disable-usage-stats --head --block \
-                --port=$HEAD_PORT --dashboard-host=0.0.0.0 --dashboard-port={{ cfg.backend.ray_dashboard_port }} --include-dashboard=true
-  echo "[head] Singularity instance started: instance://$INSTANCE_TAG"
-
-  src="$HOME/.singularity/instances/logs/$(hostname -f)/$USER"
-  dst="$RAY_LOG_DIR/head"
-  mkdir -p "$dst"
-
-  find "$src" -maxdepth 1 -type f -name "${INSTANCE_TAG}*" -print0 |
-    while IFS= read -r -d '' f; do
-      ln -sfn "$f" "$dst/$(basename "$f")"
-    done
-}
-
-function wait_for_ray_ready() {
-  echo "[head] waiting for Ray to come up ..."
-  until singularity exec instance://"$INSTANCE_TAG" ray status &>/dev/null; do
-    singularity exec instance://"$INSTANCE_TAG" env | grep VLLM_HOST_IP
-    sleep 2
-  done
-  echo "[head] Ray OK"
-}
-
-function start_ray_workers() {
-  local comma_separated_workers=$(IFS=,; echo "${NODES[*]:1}")
-  echo "[workers] launching Ray workers on $((SLURM_JOB_NUM_NODES-1)) nodes ($comma_separated_workers)..."
-
-  srun --ntasks=$((SLURM_JOB_NUM_NODES-1)) \
-     --nodelist=$comma_separated_workers \
-     --nodes=$((SLURM_JOB_NUM_NODES-1)) \
-     --ntasks-per-node=1 \
-     --exclusive \
-     --error="$RAY_LOG_DIR/workers/worker_%N_%t.err" \
-     --output="$RAY_LOG_DIR/workers/worker_%N_%t.out" \
-     bash -c '
-       export SINGULARITYENV_VLLM_HOST_IP=$(hostname -I | awk "{print \$1}")
-       NODE_TAG="$(hostname -s)"
-
-       LOCAL_BASE='"${TMPDIR:-/tmp}"'/ray_tmp
-       mkdir -p "$LOCAL_BASE"
-       SHARED_NODE_LOGS='"$SHARED_RAY_LOGS"'/"${NODE_TAG}"
-       mkdir -p "$SHARED_NODE_LOGS"
-
-       echo "[$NODE_TAG] VLLM_HOST_IP=$SINGULARITYENV_VLLM_HOST_IP"
-       echo "[$NODE_TAG] LOCAL_BASE=$LOCAL_BASE"
-       echo "[$NODE_TAG] SHARED_NODE_LOGS=$SHARED_NODE_LOGS"
-
-       inst="{{ job_name }}-worker"
-
-       singularity instance start --bind '"$MOUNTS"' --contain --writable-tmpfs --nv '"$VLLM_IMAGE"' \
-       $inst \
-          --disable-usage-stats \
-          --address='"$HEAD_NODE"':'"$HEAD_PORT"' \
-          --block
-
-      # Sync loop while the instance exists
-      while singularity instance list 2>/dev/null | awk "{print \$1}" | grep -qx "$inst"; do
-        latest="$(ls -1dt "$LOCAL_BASE"/session_[0-9]* 2>/dev/null | head -n1 || true)"
-        if [ -n "$latest" ] && [ -d "$latest/logs" ]; then
-          timeout 8s rsync -a \
-            --exclude="*.sock" --exclude="sockets/" \
-            "$latest/logs/" \
-            "$SHARED_NODE_LOGS/" \
-            || true
-        fi
-
-        ( dmesg -T | tail -200 ) >"$SHARED_NODE_LOGS/dmesg_tail_200.txt" || true
-        sleep 5
-      done
-     ' 2>&1 &
-
-  echo "[workers] waiting for workers to start ..."
-  sleep 60
-}
-
-function start_vllm_server() {
-  echo "[head] starting vLLM REST server ..."
-  singularity exec --bind $MOUNTS --nv --contain --writable-tmpfs --env VLLM_USE_PRECOMPILED=1 \
-           instance://"$INSTANCE_TAG" \
-           python3 /opt/watchdog.py \
-            {{ args_to_str(build_watchdog_args(
-              cfg.watchdog,
-              swarm_id=job_name,
-              replica_id="$REPL_ID",
-              node="$HEAD_NODE",
-              port="$REST_PORT",
-              log_dir="$RAY_LOG_DIR",
-              collector_address="$COLLECTOR_HOST:$COLLECTOR_PORT",
-              agent_version="$DSWARM_AGENT_VERSION",
-              ray_enabled=True,
-              ray_expected_tp=([cfg.gpus_per_replica,cfg.gpus_per_node] | min),
-              ray_expected_workers="$SLURM_JOB_NUM_NODES"
-            )) }} \
-            -- \
-           vllm serve {{ cfg.model }} \
-           {% if 'tensor-parallel-size' not in cfg.args %}
-           --tensor-parallel-size {{ [cfg.gpus_per_replica,cfg.gpus_per_node] | min }} \
-           {% endif %}
-           --distributed-executor-backend ray \
-           {{ cfg.args | default('') }} \
-           --port $REST_PORT \
-           >> "$RAY_LOG_DIR/vllm.log" 2>&1 &
-  WATCHDOG_PID=$!
-  echo "[head] vLLM REST server started with PID $WATCHDOG_PID"
-}
-
-function wait_for_vllm_server_ready() {
-  echo "[head] checking vLLM status ..."
-  local endpoint="$HEAD_NODE:$REST_PORT"
-  while :; do
-
-    if [[ -n $VLLM_API_KEY ]]; then
-      resp=$(curl -sf -H "Authorization: Bearer $VLLM_API_KEY" -w '\n%{http_code}' "http://$endpoint/health" || true)
-    else
-      resp=$(curl -sf -w '\n%{http_code}' "http://$endpoint/health" || true)
-    fi
-
-    body=${resp%$'\n'*}
-    code=${resp##*$'\n'}
-
-    if [[ $code == 200 ]]; then
-      echo "[head] vLLM is READY (HTTP 200)"
-      break
-    fi
-
-    echo "[head] waiting for vLLM (code=$code)…"
-    sleep 5
-  done
-
-  echo "[head] REST ready → http://$HEAD_NODE:$REST_PORT"
-  local head_file="{{ swarm_directory }}/serving/replica-${REPL_ID}.head"
-  echo "$HEAD_NODE:$REST_PORT" > "$head_file"
-}
-
-final_sync_ray_logs() {
-  for n in $NODES; do
-    sync_ray_logs_from_node "$n" "$LOCAL_RAY_LOGS" "$SHARED_RAY_LOGS" "$USER"
-  done
-}
-trap final_sync_ray_logs EXIT
-
-sync_ray_logs_from_node() {
-  local node="$1"
-  local local_ray_logs="$2"
-  local shared_root="$3"
-
-  local node_dir="$shared_root/$node"
-  mkdir -p "$node_dir"
-
-  latest_session="$(ls -1dt "$local_ray_logs"/session_[0-9]* 2>/dev/null | head -n1 || true)"
-  echo "[head] (local) syncing Ray logs from $latest_session -> $node_dir"
-
-  if [[ -n "$latest_session" && -d "$latest_session/logs" ]]; then
-    timeout 12s rsync -a --append-verify \
-        --exclude='*.sock' --exclude='sockets/' \
-        "$latest_session/logs/" \
-        "$node_dir/" \
-        >/dev/null 2>&1 || true
-  fi
-
-  ( dmesg -T | tail -200 ) >"$node_dir/dmesg_tail_200.txt" || true
-}
-
-RAY_LOG_SYNC_INTERVAL="${RAY_LOG_SYNC_INTERVAL:-15}"
-_last_sync_ts=0
-
-# Execute multi-node deployment steps
-mkdir -p "$RAY_LOG_DIR/workers"
-start_ray_head
-wait_for_ray_ready
-start_ray_workers
-echo "[head] checking Ray status ..."
-singularity exec instance://"$INSTANCE_TAG" ray status
-start_vllm_server
-wait_for_vllm_server_ready
-
-# How long we tolerate Ray being down in a row (seconds)
-RAY_CHECK_INTERVAL=30
-RAY_MAX_CONSEC_FAILS=4
-RAY_CAPACITY_EXIT_CODE=190
-
-consec_fail=0
-
-trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
-
-echo "[head] entering Ray + vLLM health loop (requeue='on')"
-
-while true; do
-  # 0) Check if watchdog died with a special exit code
-  if ! kill -0 "$WATCHDOG_PID" 2>/dev/null; then
-    # Reap it once
-    wait "$WATCHDOG_PID"
-    ec=$?
-    echo "[head] watchdog exited with code $ec"
-    if [[ $ec -eq $RAY_CAPACITY_EXIT_CODE ]]; then
-      echo "[head] Watchdog reported ray_capacity_exhausted → exiting to let Slurm requeue."
-      requeue_this_job
-    else
-      # Optional: decide what to do for other watchdog exits
-      echo "[head] Watchdog died unexpectedly (exit=$ec) → exiting to be safe."
-      requeue_this_job
-    fi
-  fi
-
-  # 1) Check Ray health
-  if singularity exec instance://"$INSTANCE_TAG" ray status >/dev/null 2>&1; then
-    consec_fail=0
-  else
-    consec_fail=$((consec_fail + 1))
-    echo "[head] ray status failed ($consec_fail/${RAY_MAX_CONSEC_FAILS})"
-  fi
-
-  if [ "$consec_fail" -ge "$RAY_MAX_CONSEC_FAILS" ]; then
-    echo "[head] Ray cluster appears dead for too long → exiting to let Slurm requeue."
-    requeue_this_job
-  fi
-
-  # 2) Best-effort: sync Ray logs to shared FS (non-blocking-ish)
-  sync_ray_logs_from_node "$HEAD_NODE" "$LOCAL_RAY_LOGS" "$SHARED_RAY_LOGS" "$USER"
-
-  sleep "$RAY_CHECK_INTERVAL"
-done
-{% endif %}

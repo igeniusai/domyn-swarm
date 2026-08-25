@@ -105,6 +105,15 @@ with retries + checkpointing.
 - Global state DB: `${DOMYN_SWARM_HOME:-~/.domyn_swarm}/swarm.db`
 - Per-swarm directory: `${DOMYN_SWARM_HOME:-~/.domyn_swarm}/swarms/<swarm-name>/`
 - Per-swarm health DB: `.../swarms/<swarm-name>/watchdog.db`
+- Per-swarm LB nginx config: `.../swarms/<swarm-name>/nginx.conf` (rendered at submit)
+- Per-swarm serving dir (`.../swarms/<swarm-name>/serving/`):
+  - `10-server.conf` — static nginx server block (rendered at submit)
+  - `00-upstreams.conf` — dynamic nginx upstreams (written by `lb_supervisor`)
+  - `targets.json` — Prometheus file_sd targets (only when monitoring enabled)
+  - `prometheus.yml` — Prometheus config (only when monitoring enabled)
+- Per-swarm LB logs (`.../swarms/<swarm-name>/logs/`):
+  - `supervisor.log` — `lb_supervisor` output
+  - `prometheus.log`, `nginx_exporter.log` — sidecar logs (only when monitoring enabled)
 - Defaults file search order (first hit wins): `DOMYN_SWARM_DEFAULTS` → `./defaults.yaml` → `./.domyn_swarm/defaults.yaml` → `~/.domyn_swarm/defaults.yaml`
 
 ### Environment variables you’ll see in code/tests

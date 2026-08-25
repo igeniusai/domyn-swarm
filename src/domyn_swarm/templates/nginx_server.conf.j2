@@ -1,0 +1,66 @@
+{# src/domyn_swarm/templates/nginx_server.conf.j2 — static server block (conf.d/10-server.conf) #}
+server {
+  listen {{ cfg.backend.endpoint.port }};
+  location / {
+    proxy_pass http://llm;
+    proxy_connect_timeout       {{ cfg.backend.endpoint.nginx_timeout }};
+    proxy_send_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
+    proxy_read_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
+    send_timeout                {{ cfg.backend.endpoint.nginx_timeout }};
+    proxy_set_header Connection "";
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    {% if cfg.backend.endpoint.enable_proxy_buffering %}
+    proxy_buffer_size 64k;
+    proxy_buffers 16 512k;
+    proxy_busy_buffers_size 1m;
+    proxy_max_temp_file_size 0;
+    client_max_body_size 50m;
+    client_body_buffer_size 1m;
+    {% else %}
+    proxy_buffering off;
+    proxy_request_buffering off;
+    {% endif %}
+    proxy_next_upstream error timeout http_502 http_504;
+    proxy_next_upstream_tries 3;
+  }
+  location = /health {
+    proxy_pass http://llm/health;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 2s;
+    proxy_cache_bypass $http_upgrade;
+  }
+  {% if cfg.backend.requires_ray %}
+  location ^~ /ray/ {
+    proxy_pass              http://ray/;
+    proxy_read_timeout      300s;
+    proxy_connect_timeout   60s;
+    proxy_set_header Host   $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+  location = /ray/dashboard {
+    return 301 /ray/dashboard/;
+  }
+  {% endif %}
+  {% if cfg.backend.endpoint.monitoring.enabled %}
+  location = /nginx_status {
+    stub_status;
+    allow 127.0.0.1;
+    deny all;
+  }
+  location {{ cfg.backend.endpoint.monitoring.route_prefix.rstrip("/") }}/ {
+    proxy_pass http://127.0.0.1:{{ cfg.backend.endpoint.monitoring.port }};
+    proxy_set_header Host $host;
+  }
+  {% if cfg.backend.endpoint.monitoring.gpu_exporter.enabled %}
+  location = /gpu_ownership {
+    alias /etc/nginx/conf.d/gpu_ownership.prom;
+    default_type text/plain;
+    allow 127.0.0.1;
+    deny all;
+  }
+  {% endif %}
+  {% endif %}
+}
