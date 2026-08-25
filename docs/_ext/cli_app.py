@@ -31,7 +31,12 @@ from domyn_swarm.cli.main import app
 
 def _warmed_group() -> click.Group:
     """Return the root Click group with every lazy sub-app resolved."""
-    group = typer.main.get_group(app)
+    # get_command, not get_group: only get_command attaches Typer's own
+    # --install-completion / --show-completion options to the root, and a
+    # reference that omits them would be missing two real global flags.
+    group = typer.main.get_command(app)
+    if not isinstance(group, click.Group):
+        raise RuntimeError("the root CLI is expected to be a group of commands")
     ctx = click.Context(group)
     for name in group.list_commands(ctx):
         resolved = group.get_command(ctx, name)

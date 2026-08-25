@@ -76,3 +76,14 @@ def test_cli_page_wraps_the_directive_in_eval_rst() -> None:
     text = page.read_text(encoding="utf-8")
     assert "```{eval-rst}" in text, "the click directive must be inside an eval-rst block"
     assert ".. click:: cli_app:cli" in text
+
+
+def test_root_carries_typers_completion_options() -> None:
+    """The root must be built with ``get_command``, not ``get_group``.
+
+    ``typer.main.get_group`` returns the command tree without Typer's own
+    ``--install-completion`` / ``--show-completion`` options, so a reference built
+    from it documents every command yet silently omits two global flags.
+    """
+    params = {p.name for p in cli.params}
+    assert {"install_completion", "show_completion"} <= params
