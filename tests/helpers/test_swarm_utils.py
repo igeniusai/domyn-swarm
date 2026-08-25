@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 import re
 
 import domyn_swarm.helpers.swarm as swarm_mod

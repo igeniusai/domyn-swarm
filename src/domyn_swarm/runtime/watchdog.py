@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Simple stdlib-only watchdog for a single vLLM replica.
 

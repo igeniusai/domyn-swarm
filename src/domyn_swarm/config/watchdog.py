@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator

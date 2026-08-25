@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 import builtins
 
 import domyn_swarm.config.lepton as lepton_mod

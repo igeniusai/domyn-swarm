@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 import importlib
 
 import numpy as np
