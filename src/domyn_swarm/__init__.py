@@ -28,9 +28,13 @@ def __getattr__(name: str):
 
         return DomynLLMSwarmConfig
     if name == "SwarmJob":
-        from .jobs.base import SwarmJob
+        from .jobs.api.base import SwarmJob
 
         return SwarmJob
+    if name == "run_job_unified":
+        from .jobs.execution.dispatch import run_job_unified
+
+        return run_job_unified
     raise AttributeError(name)
 
 
@@ -38,5 +42,5 @@ if TYPE_CHECKING:
     __version__: str
     from .config.swarm import DomynLLMSwarmConfig
     from .core.swarm import DomynLLMSwarm
-    from .jobs.base import SwarmJob
+    from .jobs.api.base import SwarmJob
     from .jobs.execution.dispatch import run_job_unified
