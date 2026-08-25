@@ -83,20 +83,51 @@ and disappears when that job ends, so `retention` (default `12h`) only caps a
 single run's history. If you need metrics to outlive a swarm, point an external
 Prometheus at the same `/prometheus` URL and let it federate.
 
-## Viewing a dashboard
+Being a plain Prometheus over HTTP, it is not tied to any particular viewer — see
+[Viewing the metrics](#viewing-the-metrics).
+
+## Viewing the metrics
+
+Prometheus is a plain Prometheus, so anything that speaks to Prometheus works.
+There are two paths, and neither is privileged over the other.
+
+### Your own Grafana
+
+Add the swarm's `/prometheus` URL as a Prometheus data source in an existing
+Grafana and build or import whatever dashboards you like. The dashboards
+domyn-swarm bundles are ordinary Grafana JSON, so you can import them directly:
+
+| Dashboard | Package path |
+| --- | --- |
+| vLLM and Nginx | `domyn_swarm/data/dashboards/vllm.json` |
+| GPU, nvidia_smi vocabulary | `domyn_swarm/data/dashboards/gpu_nvidia_smi.json` |
+| GPU, DCGM vocabulary | `domyn_swarm/data/dashboards/gpu_dcgm.json` |
+| Ray panels, appended to another dashboard | `domyn_swarm/data/dashboards/ray_panels.json` |
+
+This is the right choice if you already run Grafana, want dashboards to outlive a
+swarm, or want to watch several swarms side by side. Remember the endpoint is only
+reachable from inside the cluster, and that the swarm's Prometheus disappears with
+the job — so for anything long-lived, federate rather than pointing at it
+directly.
+
+### In the terminal
 
 ```bash
 domyn-swarm monitor my-swarm-name
 ```
 
 This resolves the swarm's Prometheus URL from its state record and hands it to
-`grafatui`, a terminal Grafana dashboard renderer, along with the bundled vLLM
-dashboard. It replaces the current process, so you get grafatui's UI directly.
-Install it with `cargo install grafatui` or from a GitHub release binary.
+[grafatui](https://github.com/fedexist/grafatui), a terminal UI for Prometheus
+that renders Grafana dashboards, along with the bundled vLLM dashboard. It
+replaces the current process, so you get grafatui's UI directly.
 
-grafatui is not a dependency of domyn-swarm and is not installed with it. Without
-it on `PATH` the command exits **127** and prints the Prometheus URL, so you can
-point a real Grafana at it instead.
+grafatui is a separate project and is not installed with domyn-swarm. See its
+[installation guide](https://fedexist.github.io/grafatui/installation.html) —
+briefly, `brew install fedexist/grafatui/grafatui`, its `install.sh`, or
+`cargo install grafatui`.
+
+Without it on `PATH` the command exits **127** and prints the Prometheus URL, so
+a missing install tells you exactly where to point Grafana instead.
 
 Other exits worth knowing, because they are configuration problems rather than
 failures:
@@ -111,7 +142,7 @@ Note that "enable it and redeploy" is the whole story for exit 1: monitoring is
 wired into the load-balancer job at submission time, so it cannot be switched on
 under a swarm that is already up.
 
-### Useful flags
+#### grafatui flags
 
 ```bash
 domyn-swarm monitor my-swarm --range 1h --step 15s
@@ -124,7 +155,7 @@ domyn-swarm monitor my-swarm --var replicas=8
 overrides the resolved URL, which is how you point at a swarm's Prometheus from
 outside the cluster or through a tunnel.
 
-### Dashboard variables
+#### Dashboard variables
 
 The bundled dashboard is parameterised, and `monitor` fills two variables from the
 swarm config: `vllm_job` (the Prometheus job name, `vllm`) and `replicas`, which
@@ -253,6 +284,8 @@ contents.
 - **It does not persist.** No metric outlives the load-balancer job unless
   something external is federating.
 - **It does not alert.** No Alertmanager is deployed and no rules are shipped.
+- **It does not need `domyn-swarm monitor`.** That command is a convenience for
+  reading a swarm from a terminal; the metrics are plain Prometheus either way.
 
 ## Full field reference
 

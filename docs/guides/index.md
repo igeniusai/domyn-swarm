@@ -21,6 +21,11 @@ Task-oriented, and mostly independent of one another — read the one you need.
 - [Metrics and dashboards](metrics.md) — Prometheus, GPU exporters and `domyn-swarm monitor`
 - [Swarm pools](swarm-pools.md) — incomplete; read before trying to use it
 
+## Extending
+
+- [Implementing a backend](implementing-a-backend.md) — adding a platform: the two
+  protocols, the config model, and which features are not backend-agnostic
+
 For *why* things are built this way rather than how to use them, see
 [Concepts](../concepts/index.md). For exhaustive flag and field lists, see
 [Reference](../reference/index.md).
@@ -38,4 +43,5 @@ swarm-pools
 swarm-state
 monitoring
 metrics
+implementing-a-backend
 ```

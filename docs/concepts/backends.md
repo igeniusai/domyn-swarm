@@ -88,9 +88,6 @@ actually stops things, and the config model plus its `type` discriminator. Look 
 `backends/serving/` and `backends/compute/` for either existing platform to
 gauge it honestly — the protocol is a day, the semantics are not.
 
-You would need:
-
-1. a config model with a `type` literal, added to the `BackendConfig` union
-2. a `ServingBackend` implementation
-3. a `ComputeBackend` implementation, likely using `DefaultComputeMixin`
-4. a `build()` on the config that assembles a `Deployment`
+For the step-by-step version — the method sets, the handle contract, the
+registration line, and which features are not backend-agnostic — see
+[Implementing a backend](../guides/implementing-a-backend.md).
