@@ -950,9 +950,18 @@ class DomynLLMSwarm(BaseModel):
             raise RuntimeError(f"Unsupported platform for compute backend: {self._plan.platform}")
 
     def status(self) -> ServingStatus:
-        """Get the current status of the swarm."""
-        if self._deployment:
-            s = self._deployment.status()
-            if s is not None:
-                return s
-        return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
+        """Get the current status of the swarm.
+
+        Safe to call at any point in the lifecycle: a swarm that has not been
+        deployed reports :attr:`ServingPhase.UNKNOWN` rather than raising.
+
+        Returns:
+            The backend-reported serving status, falling back to the endpoint
+            this swarm already knows about when the backend reports none.
+        """
+        if self._deployment is None:
+            return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
+        status = self._deployment.status()
+        if status.url is None:
+            status.url = self.endpoint
+        return status
