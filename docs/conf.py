@@ -98,9 +98,10 @@ html_title = "domyn-swarm"
 # keeps one copy of the asset rather than a copy per consumer.
 html_static_path = ["_static", "../static"]
 html_css_files = ["custom.css"]
-# The Pages custom domain, not the github.io URL: github.io 301-redirects to
-# it, so canonical links and the switcher must name the destination.
-html_baseurl = "https://domynswarm.domym.com/"
+# The Pages custom domain rather than the github.io URL, which redirects to it.
+# Canonical links and the switcher's json_url are absolute, so they have to name
+# the address readers actually land on.
+html_baseurl = "https://domynswarm.domyn.com/"
 
 html_theme_options = {
     "logo": {
@@ -116,14 +117,14 @@ html_theme_options = {
     "footer_end": ["sphinx-version"],
 }
 
-# Which version this build represents. The deploy workflow sets it to "latest" for
-# main and "vX.Y" for a release tag; it must match the "version" field the
-# switcher emits for the dropdown to highlight the right entry.
+# Which version this build represents. The deploy workflow builds the current ref
+# as "latest" and each released minor as "vX.Y"; this must match the "version"
+# field the switcher emits for the dropdown to highlight the right entry.
 DOCS_VERSION = os.environ.get("DOCS_VERSION", "latest")
 
-# switcher.json lives at the gh-pages root, not inside a version directory, because
+# switcher.json lives at the site root, not inside a version directory, because
 # every published version fetches the same file. It is written by
-# docs/update_switcher.py during deployment.
+# docs/update_switcher.py while the deploy assembles the site.
 html_theme_options["switcher"] = {
     "json_url": f"{html_baseurl}switcher.json",
     "version_match": DOCS_VERSION,

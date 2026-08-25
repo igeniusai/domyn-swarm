@@ -9,7 +9,7 @@
 > A simple, batteries‑included CLI and Python library for launching **LLM serving endpoints** and running **high‑throughput batch jobs** against them. First‑class support for **Slurm** (HPC) and **NVIDIA DGX Cloud Lepton**.
 
 <p align="center">
-<a href="https://domynswarm.domym.com/"><img src="https://img.shields.io/badge/docs-latest-blue" alt="Documentation"></a>
+<a href="https://domynswarm.domyn.com/"><img src="https://img.shields.io/badge/docs-latest-blue" alt="Documentation"></a>
 <img src="https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg" alt="CI">
 <img src="https://img.shields.io/badge/python-3.10%7C3.11%7C3.12%7C3.13-brightgreen?style=flat&logoColor=green" alt="Python">
 <img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License - Apache 2.0">
@@ -57,7 +57,7 @@ uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEA
 
 Full instructions, including `uv add`, editable installs and the Lepton
 `lep login` step, are in
-[Installation](https://domynswarm.domym.com/latest/getting-started/installation.html).
+[Installation](https://domynswarm.domyn.com/latest/getting-started/installation.html).
 
 ---
 
@@ -92,7 +92,7 @@ domyn-swarm status my-swarm-name
 domyn-swarm down my-swarm-name
 ```
 
-The [Quickstart](https://domynswarm.domym.com/latest/getting-started/quickstart.html)
+The [Quickstart](https://domynswarm.domyn.com/latest/getting-started/quickstart.html)
 walks through the same run with an explanation of each step.
 
 ---
@@ -100,21 +100,21 @@ walks through the same run with an explanation of each step.
 ## Documentation
 
 The full documentation lives at
-**[domynswarm.domym.com](https://domynswarm.domym.com/)**.
+**[domynswarm.domyn.com](https://domynswarm.domyn.com/)**.
 
-* [Getting started](https://domynswarm.domym.com/latest/getting-started/index.html)
+* [Getting started](https://domynswarm.domyn.com/latest/getting-started/index.html)
   — install, launch a swarm, write your first custom job
-* [Guides](https://domynswarm.domym.com/latest/guides/index.html)
+* [Guides](https://domynswarm.domyn.com/latest/guides/index.html)
   — Slurm and Lepton, submitting jobs, checkpointing, sharding, data backends,
   swarm state, monitoring
-* [Concepts](https://domynswarm.domym.com/latest/concepts/index.html)
+* [Concepts](https://domynswarm.domyn.com/latest/concepts/index.html)
   — architecture, the backend protocols, the `SwarmJob` lifecycle, configuration
   precedence
 * Reference, generated from the source on every build —
-  [CLI](https://domynswarm.domym.com/latest/reference/cli.html),
-  [Configuration](https://domynswarm.domym.com/latest/reference/configuration.html),
-  [Environment variables](https://domynswarm.domym.com/latest/reference/environment.html),
-  [Python API](https://domynswarm.domym.com/latest/reference/api/index.html)
+  [CLI](https://domynswarm.domyn.com/latest/reference/cli.html),
+  [Configuration](https://domynswarm.domyn.com/latest/reference/configuration.html),
+  [Environment variables](https://domynswarm.domyn.com/latest/reference/environment.html),
+  [Python API](https://domynswarm.domyn.com/latest/reference/api/index.html)
 
 ---
 

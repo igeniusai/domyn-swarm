@@ -7,17 +7,25 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Pages allows one deployment at a time, and cancelling a half-finished one can
+# leave the site partially replaced, so queue rather than cancel.
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  # How many released minors to publish alongside latest. Older ones stay
+  # reachable in git; the step below says which it dropped.
+  KEEP_MINORS: 5
 
 jobs:
-  docs:
+  build:
     runs-on: ubuntu-latest
     steps:
+      # Tags are needed to rebuild released versions, so no shallow clone.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -42,28 +50,11 @@ jobs:
       - name: Sync dependencies
         run: uv sync --all-extras --group docs --frozen
 
-      - name: Resolve target version
-        id: target
-        run: |
-          set -euo pipefail
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-            MINOR="v$(printf '%s' "${TAG#v}" | cut -d. -f1,2)"
-            echo "version=${MINOR}" >> "$GITHUB_OUTPUT"
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "version=latest" >> "$GITHUB_OUTPUT"
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=latest" >> "$GITHUB_OUTPUT"
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-          fi
-
       # --keep-going so a PR author sees every warning at once, not just the first.
-      - name: Build (warnings are errors)
+      - name: Build this ref as latest
         env:
-          DOCS_VERSION: ${{ steps.target.outputs.version }}
-        run: uv run sphinx-build -W --keep-going -b html docs site
+          DOCS_VERSION: latest
+        run: uv run sphinx-build -W --keep-going -b html docs site/latest
 
       - name: Check the docs tests
         run: uv run pytest tests/docs -v --no-cov
@@ -75,40 +66,85 @@ jobs:
         continue-on-error: true
         run: uv run sphinx-build -b linkcheck docs linkcheck
 
-      - name: Deploy to gh-pages
-        if: steps.target.outputs.deploy == 'true'
-        env:
-          DOCS_VERSION: ${{ steps.target.outputs.version }}
+      # Every deploy replaces the whole site, so released versions are rebuilt
+      # from their tags rather than accumulated. That makes what is published a
+      # function of the repository: nothing can drift, and nothing is lost if a
+      # deploy is re-run. Tags predating the docs tree have no conf.py and are
+      # skipped.
+      - name: Build released versions
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages
-            git worktree add gh-pages origin/gh-pages
-          else
-            git worktree add --orphan -b gh-pages gh-pages
+          declare -A newest_patch_for_minor=()
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            git cat-file -e "${tag}:docs/conf.py" 2>/dev/null || continue
+            minor="v$(printf '%s' "${tag#v}" | cut -d. -f1,2)"
+            current="${newest_patch_for_minor[$minor]:-}"
+            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$tag" | sort -V | tail -1)" = "$tag" ]; then
+              newest_patch_for_minor[$minor]="$tag"
+            fi
+          done < <(git tag --list 'v*')
+
+          if [ ${#newest_patch_for_minor[@]} -eq 0 ]; then
+            echo "No tag contains docs/conf.py yet; publishing latest only." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
 
-          rm -rf "gh-pages/${DOCS_VERSION}"
-          mkdir -p "gh-pages/${DOCS_VERSION}"
-          cp -r site/. "gh-pages/${DOCS_VERSION}/"
+          minors=$(printf '%s\n' "${!newest_patch_for_minor[@]}" | sort -Vr)
+          keep=$(printf '%s\n' "$minors" | head -n "${KEEP_MINORS}")
+          dropped=$(printf '%s\n' "$minors" | tail -n +$((KEEP_MINORS + 1)))
+          if [ -n "$dropped" ]; then
+            echo "Not published (older than the newest ${KEEP_MINORS} minors): $(echo $dropped)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
+          for minor in $keep; do
+            tag="${newest_patch_for_minor[$minor]}"
+            echo "::group::building ${minor} from ${tag}"
+            rm -rf "../docs-${minor}"
+            git worktree add --detach "../docs-${minor}" "$tag"
+            (
+              cd "../docs-${minor}"
+              uv sync --all-extras --group docs --frozen
+              DOCS_VERSION="$minor" uv run sphinx-build -b html docs "$GITHUB_WORKSPACE/site/${minor}"
+            )
+            git worktree remove --force "../docs-${minor}"
+            echo "::endgroup::"
+          done
+
+      # switcher.json must live at a URL that is stable across versions, because
+      # every published version fetches the same file to build its dropdown.
+      - name: Assemble the site root
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          uv run python docs/update_switcher.py site
           # Pages would otherwise run Jekyll, which ignores _static/ and _sources/.
-          touch gh-pages/.nojekyll
+          touch site/.nojekyll
+          cat site/switcher.json
 
-          # The custom domain lives in this file as well as in the repository
-          # settings; publishing a gh-pages tree without it clears the domain.
-          echo "domynswarm.domym.com" > gh-pages/CNAME
+      - name: Upload the Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
 
-          uv run python docs/update_switcher.py gh-pages
-
-          cd gh-pages
-          git add -A
-          if git diff --cached --quiet; then
-            echo "no documentation changes to publish"
-          else
-            git commit -m "docs: publish ${DOCS_VERSION} from ${GITHUB_SHA}"
-            git push origin gh-pages
-          fi
+  deploy:
+    # Released versions are rebuilt on every deploy, so this runs the same way
+    # whether main or a tag triggered it.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

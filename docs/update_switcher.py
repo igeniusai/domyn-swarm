@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2025-2026 Domyn
 # SPDX-License-Identifier: Apache-2.0
 
-"""Regenerate ``switcher.json`` and the root redirect on the gh-pages branch.
+"""Regenerate ``switcher.json`` and the root redirect for the assembled site.
 
 ``switcher.json`` must live at a URL that is stable across versions, because
 every published version fetches the same file to build its version dropdown. It
 is therefore owned by the deploy step rather than by any one version's Sphinx
-build. Run this against a gh-pages checkout after copying a freshly built
-version into place.
+build. Run this against the assembled site root, once every version directory
+has been built into it.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 import sys
 
-BASE_URL = "https://domynswarm.domym.com"
+BASE_URL = "https://domynswarm.domyn.com"
 VERSION_DIR = re.compile(r"^v(\d+)\.(\d+)$")
 
 
@@ -30,10 +30,10 @@ def _sort_key(path: Path) -> tuple[int, int]:
 
 
 def build_entries(root: Path) -> list[dict[str, object]]:
-    """Build the switcher entries for a gh-pages checkout, newest release first.
+    """Build the switcher entries for an assembled site, newest release first.
 
     Args:
-        root: The gh-pages checkout to scan for published versions.
+        root: The assembled site root to scan for published versions.
 
     Returns:
         One entry per published version. ``latest`` leads if it exists, then
@@ -98,7 +98,7 @@ def write_root_redirect(root: Path, entries: list[dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("root", type=Path, help="path to the gh-pages checkout")
+    parser.add_argument("root", type=Path, help="path to the assembled site root")
     args = parser.parse_args()
 
     entries = build_entries(args.root)
