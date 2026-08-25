@@ -1,16 +1,22 @@
 name: Docs
 
 on:
+  # A version becomes publishable when its tag exists, which is not when the bump
+  # commit is pushed: that fires the push event below while the tag is still
+  # minutes away, so the version scan finds nothing. Both release styles are
+  # covered -- publishing a release through the UI, which creates the tag, and
+  # pushing a tag from the CLI. Doing both fires two runs; the pages concurrency
+  # group serialises them and the second simply republishes the same site.
+  #
+  # Both need the github-pages environment to permit deploys from v* tags, since
+  # the ref of either event is the tag rather than a branch.
+  release:
+    types: [published]
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
-
-# Deliberately not triggered by v* tags. The github-pages environment only permits
-# deploys from the main branch, so a tag push would queue a deploy it is not
-# allowed to run. It does not need to: every deploy rebuilds each released minor
-# from its tag, so a new release is published by the next push to main, or
-# immediately by running this workflow by hand.
 
 # Pages allows one deployment at a time, and cancelling a half-finished one can
 # leave the site partially replaced, so queue rather than cancel.
@@ -35,6 +41,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # latest must track main whatever triggered the run. A release event checks
+      # out the tag, and building that as "latest" would publish a release's
+      # content under a name that is supposed to mean "current main". Moving the
+      # workspace before the dependency sync keeps every later step consistent.
+      # Skipped on pull requests, where the point is to build the PR's own ref.
+      - name: Build latest from main, not from the triggering ref
+        if: github.event_name != 'pull_request'
+        run: git switch --detach origin/main
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -56,7 +71,7 @@ jobs:
         run: uv sync --all-extras --group docs --frozen
 
       # --keep-going so a PR author sees every warning at once, not just the first.
-      - name: Build this ref as latest
+      - name: Build latest
         env:
           DOCS_VERSION: latest
         run: uv run sphinx-build -W --keep-going -b html docs site/latest
@@ -137,8 +152,8 @@ jobs:
           path: site
 
   deploy:
-    # Released versions are rebuilt on every deploy, so this runs the same way
-    # whether main or a tag triggered it.
+    # latest comes from main and released versions from their tags, so the output
+    # is identical whether a push, a release or a manual run triggered this.
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
