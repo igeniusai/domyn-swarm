@@ -1,0 +1,25 @@
+/* Keep generated reference tables readable: wrap prose, don't wrap types. */
+table.docutils td,
+table.docutils th {
+  vertical-align: top;
+}
+
+table.docutils td:first-child,
+table.docutils td:nth-child(2) {
+  white-space: nowrap;
+}
+
+/* The generated config tables are wide; let them scroll rather than squash. */
+.bd-content table.docutils {
+  display: table;
+  width: 100%;
+}
+
+/* The wordmark is a 1623x211 SVG -- 7.7:1. The theme sizes the navbar logo with
+   `height: 100%`, so at a 4rem header it renders about 23rem wide and runs under
+   the navigation links, which do not give way (.navbar-brand is flex-shrink: 0).
+   Capping the height fixes the width too, since the theme leaves width auto. */
+.navbar-brand img {
+  height: 1.75rem;
+  max-height: 1.75rem;
+}

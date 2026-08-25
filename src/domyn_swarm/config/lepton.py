@@ -1,16 +1,5 @@
-# Copyright 2025 iGenius S.p.A
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
 
 import secrets
 import string
@@ -56,14 +45,56 @@ _DEFAULT_RESOURCE_SHAPES = {
 
 
 class LeptonEndpointConfig(BaseModel):
-    image: str = "vllm/vllm-openai:latest"
-    allowed_dedicated_node_groups: list[str] | None = None
-    resource_shape: str = "gpu.8xh200"
-    allowed_nodes: list[str] = Field(default_factory=list)
-    mounts: list[MountLike] = Field(default_factory=_default_mounts)  # type: ignore
-    env: dict[str, str] = Field(default_factory=dict)
-    api_token_secret_name: str | None = None
-    image_pull_secrets: list[str] | None = Field(default=None)
+    image: str = Field(
+        default="vllm/vllm-openai:latest",
+        description=(
+            "Container image running the serving endpoint, i.e. a vLLM OpenAI-compatible server."
+        ),
+    )
+    allowed_dedicated_node_groups: list[str] | None = Field(
+        default=None,
+        description=(
+            "Restrict the endpoint to one or more Lepton dedicated node groups. "
+            "Unrestricted when unset."
+        ),
+    )
+    resource_shape: str = Field(
+        default="gpu.8xh200",
+        description=(
+            "Lepton resource shape for endpoint replicas, describing accelerator "
+            "type, count and memory, e.g. `gpu.4xh200`."
+        ),
+    )
+    allowed_nodes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Specific nodes within a node group on which the endpoint may run. "
+            "Empty means any node in the allowed groups."
+        ),
+    )
+    mounts: list[MountLike] = Field(  # type: ignore
+        default_factory=_default_mounts,
+        description=(
+            "Filesystem mounts injected into the endpoint container. Normalised to "
+            "Lepton `Mount` objects when the Lepton SDK is installed, otherwise "
+            "accepted as dicts."
+        ),
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Environment variables set on the endpoint container.",
+    )
+    api_token_secret_name: str | None = Field(
+        default=None,
+        description=(
+            "Name of the Lepton secret holding the API token exposed to jobs and "
+            "clients. The endpoint is unauthenticated when unset."
+        ),
+    )
+    image_pull_secrets: list[str] | None = Field(
+        default=None,
+        description=("Lepton secrets used to pull the endpoint image from a private registry."),
+    )
 
     @field_validator("mounts", mode="before")
     @classmethod
@@ -85,13 +116,44 @@ class LeptonEndpointConfig(BaseModel):
 
 
 class LeptonJobConfig(BaseModel):
-    allowed_dedicated_node_groups: list[str] | None = None
-    image: str = "igeniusai/domyn-swarm:latest"
-    resource_shape: str = "gpu.8xh200"
-    allowed_nodes: list[str] = Field(default_factory=list)
-    mounts: list[MountLike] = Field(default_factory=_default_mounts)  # type: ignore
-    env: dict[str, str] = Field(default_factory=dict)
-    image_pull_secrets: list[str] | None = Field(default=None)
+    allowed_dedicated_node_groups: list[str] | None = Field(
+        default=None,
+        description=(
+            "Restrict batch jobs to one or more Lepton dedicated node groups. "
+            "Unrestricted when unset."
+        ),
+    )
+    image: str = Field(
+        default="igeniusai/domyn-swarm:latest",
+        description="Container image used by domyn-swarm driver jobs on Lepton.",
+    )
+    resource_shape: str = Field(
+        default="gpu.8xh200",
+        description="Lepton resource shape for batch job execution.",
+    )
+    allowed_nodes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Specific nodes on which batch jobs may run. Empty means any node in "
+            "the allowed groups."
+        ),
+    )
+    mounts: list[MountLike] = Field(  # type: ignore
+        default_factory=_default_mounts,
+        description=(
+            "Filesystem mounts injected into the job container. Normalised to "
+            "Lepton `Mount` objects when the Lepton SDK is installed, otherwise "
+            "accepted as dicts."
+        ),
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Environment variables set on the job container.",
+    )
+    image_pull_secrets: list[str] | None = Field(
+        default=None,
+        description=("Lepton secrets used to pull the job image from a private registry."),
+    )
 
     @field_validator("mounts", mode="before")
     @classmethod
@@ -113,16 +175,32 @@ class LeptonJobConfig(BaseModel):
 
 
 class LeptonConfig(BaseModel):
-    type: Literal["lepton"]
+    type: Literal["lepton"] = Field(
+        description="Backend discriminator; always `lepton` for this model.",
+    )
     workspace_id: str = Field(
         default_factory=default_for("lepton.workspace_id", get_settings().lepton_workspace_id),
         description="Lepton workspace ID",
     )
     # default_factory (not a shared instance) so the Lepton SDK is imported only
     # when a LeptonConfig is actually built, not when this module is imported.
-    endpoint: LeptonEndpointConfig = Field(default_factory=LeptonEndpointConfig)
-    job: LeptonJobConfig = Field(default_factory=LeptonJobConfig)
-    env: dict[str, str] = Field(default_factory=dict)
+    endpoint: LeptonEndpointConfig = Field(
+        default_factory=LeptonEndpointConfig,
+        description=(
+            "Serving endpoint configuration: image, resource shape, mounts, "
+            "environment and token secret."
+        ),
+    )
+    job: LeptonJobConfig = Field(
+        default_factory=LeptonJobConfig,
+        description=("Batch job configuration: image, resource shape, mounts and environment."),
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Global environment variables applied to both the endpoint and jobs where relevant."
+        ),
+    )
 
     def build(self, cfg_ctx) -> DeploymentPlan:
         from domyn_swarm.backends.compute.lepton import LeptonComputeBackend

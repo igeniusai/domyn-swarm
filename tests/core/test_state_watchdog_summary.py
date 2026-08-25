@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 from sqlalchemy.orm import Session
 
 from domyn_swarm.core.state import watchdog as watchdog_state

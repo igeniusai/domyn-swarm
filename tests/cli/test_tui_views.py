@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 from rich.console import Console
 
 from domyn_swarm.cli.tui.describe_view import render_swarm_description

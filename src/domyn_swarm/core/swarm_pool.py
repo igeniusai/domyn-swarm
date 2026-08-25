@@ -1,16 +1,5 @@
-# Copyright 2025 iGenius S.p.A
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,20 +19,20 @@ def create_swarm_pool(
     """
     You can use this utility function like this:
 
-    ```
-    with create_swarm_pool(cfg1, cfg2, cfg3, max_workers=3) as (sw1, sw2, sw3):
-        sw1.submit_job()
-        sw2.submit_job()
-        sw3.submit_job()
-    ```
+    ::
+
+        with create_swarm_pool(cfg1, cfg2, cfg3, max_workers=3) as (sw1, sw2, sw3):
+            sw1.submit_job()
+            sw2.submit_job()
+            sw3.submit_job()
 
     or
 
-    ```
-    with create_swarm_pool(*my_cfg_list, max_workers=5) as swarms:
-        for swarm in swarms:
-            swarm.submit_job()
-    ```
+    ::
+
+        with create_swarm_pool(*my_cfg_list, max_workers=5) as swarms:
+            for swarm in swarms:
+                swarm.submit_job()
 
     """
 

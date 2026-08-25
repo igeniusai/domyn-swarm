@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 from importlib.metadata import PackageNotFoundError
 
 from domyn_swarm.utils.version import get_version

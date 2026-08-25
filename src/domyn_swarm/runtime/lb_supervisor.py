@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
+
 """Domyn-Swarm load-balancer supervisor.
 
 Keeps nginx's dynamic upstreams (and, when monitoring is enabled, the Prometheus

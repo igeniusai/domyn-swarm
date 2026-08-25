@@ -1,16 +1,5 @@
-# Copyright 2025 iGenius S.p.A
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
 
 """
 Light-weight framework for driver scripts that run **inside** a Domyn swarm.
@@ -90,22 +79,22 @@ class SwarmJob(abc.ABC):
         Processing flows through: DataFrame → batching → transform_items → results → checkpointing.
 
     Example:
-        ```python
-        class MyLLMJob(SwarmJob):
-            async def transform_items(self, items: list[Any]) -> list[Any]:
-                # Process items using self.client
-                results = []
-                for item in items:
-                    response = await self.client.chat.completions.create(
-                        model=self.model, messages=item, **self.kwargs
-                    )
-                    results.append(response.choices[0].message.content)
-                return results
+        ::
+
+            class MyLLMJob(SwarmJob):
+                async def transform_items(self, items: list[Any]) -> list[Any]:
+                    # Process items using self.client
+                    results = []
+                    for item in items:
+                        response = await self.client.chat.completions.create(
+                            model=self.model, messages=item, **self.kwargs
+                        )
+                        results.append(response.choices[0].message.content)
+                    return results
 
 
-        job = MyLLMJob(model="gpt-4", max_concurrency=5)
-        results_df = await job.run(input_df, tag="experiment_1")
-        ```
+            job = MyLLMJob(model="gpt-4", max_concurrency=5)
+            results_df = await job.run(input_df, tag="experiment_1")
 
     Attributes:
         api_version: API version for compatibility tracking (default: 2)

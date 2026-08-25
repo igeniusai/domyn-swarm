@@ -1,16 +1,5 @@
-# Copyright 2025 iGenius S.p.A
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
@@ -60,167 +49,95 @@ settings = get_settings()
 
 
 class DomynLLMSwarm(BaseModel):
-    """
-    A context manager for orchestrating distributed LLM serving swarms across compute platforms.
+    """Context manager orchestrating a distributed LLM serving swarm.
 
-    This class provides a unified interface for deploying, managing, and interacting with
-    large language model serving clusters on various compute backends (Slurm, cloud platforms).
-    It handles the complete lifecycle from resource allocation to cleanup, with built-in
-    state persistence and job submission capabilities.
+    Provides a unified interface for deploying, managing and interacting with a
+    large language model serving cluster on a compute backend such as Slurm or
+    Lepton. It handles the whole lifecycle from resource allocation to cleanup,
+    with state persistence and job submission built in.
 
-    Architecture Overview
-    ---------------------
-    The swarm consists of multiple components:
-    - Load balancer (nginx) for request distribution
-    - Multiple vLLM server instances for model serving
-    - Head node for job coordination and user script execution
-    - State management for persistence and recovery
+    A swarm consists of a load balancer (nginx) distributing requests, several
+    vLLM server instances serving the model, a head node coordinating jobs and
+    running user scripts, and persisted state enabling recovery and reconnection.
 
-    Platform Support
-    ----------------
-    - **Slurm**: Deploys as job arrays with SLURM_NODEID-based role assignment
-      - Node 0: Load balancer + user driver
-      - Nodes 1-N: vLLM servers
-    - **Cloud platforms**: Via deployment abstractions (Lepton, etc.)
+    On Slurm the swarm is deployed as a job array with roles assigned by
+    `SLURM_NODEID`: node 0 runs the load balancer and the user driver, nodes 1
+    to N run vLLM servers. Cloud platforms are reached through the deployment
+    abstractions instead.
 
-    Attributes
-    ----------
-    cfg : DomynLLMSwarmConfig
-        Configuration object containing deployment parameters, resource requirements,
-        and platform-specific settings.
-    endpoint : str, optional
-        The public URL endpoint of the deployed swarm load balancer. Set after
-        successful deployment via the context manager.
-    delete_on_exit : bool, default False
-        Whether to automatically clean up all allocated resources when exiting
-        the context manager. Useful for temporary deployments.
-    serving_handle : ServingHandle, optional
-        Platform-specific handle for the serving deployment, containing metadata
-        like job IDs, node assignments, and status information.
-    model : str
-        The name/path of the LLM being served. Can be set after initialization
-        for dynamic model switching scenarios.
+    State is persisted automatically - deployment metadata and resource handles,
+    configuration, platform identifiers such as job IDs and node assignments, and
+    endpoint URLs - which is what allows a swarm to be recovered after a failure
+    or reattached from another process via `from_state`.
 
-    Methods
-    -------
-    submit_job(job, input_path, output_path, **kwargs)
-        Execute a SwarmJob within the allocated cluster resources.
-    submit_script(script_path, detach=False, extra_args=None)
-        Run arbitrary Python scripts on the head node with swarm environment.
-    status()
-        Query current deployment status and health information.
-    cleanup() / down()
-        Manually terminate and clean up all allocated resources.
-    from_state(deployment_name)
-        Restore a swarm from previously persisted state.
-    delete_record(deployment_name)
-        Remove deployment records from state storage.
+    Attributes:
+        cfg: Deployment parameters, resource requirements and platform-specific
+            settings.
+        endpoint: Public URL of the deployed load balancer. Set once deployment
+            succeeds through the context manager.
+        delete_on_exit: Whether to clean up all allocated resources when leaving
+            the context manager. Useful for temporary deployments.
+        serving_handle: Platform-specific handle for the serving deployment,
+            carrying metadata such as job IDs, node assignments and status.
+        model: Name or path of the model being served. May be set after
+            initialization to switch models.
 
-    Usage Patterns
-    --------------
-    **Basic Deployment:**
-    ```python
-    cfg = DomynLLMSwarmConfig(...)
-    with DomynLLMSwarm(cfg=cfg) as swarm:
-        # Swarm is now running and accessible at swarm.endpoint
-        result = swarm.submit_job(my_job, input_path="data.parquet", output_path="results.parquet")
-    # Resources automatically cleaned up on exit
-    ```
+    Raises:
+        RuntimeError: If resource allocation fails; the message carries
+            diagnostic information.
+        subprocess.CalledProcessError: Propagated from a failed job submission.
 
-    **Persistent Deployment:**
-    ```python
-    swarm = DomynLLMSwarm(cfg=cfg, delete_on_exit=False)
-    with swarm:
-        # Do work...
-        pass
-    # Resources remain allocated
+    Note:
+        The swarm must be used as a context manager for resources to be managed
+        correctly. Startup waits up to `cfg.wait_endpoint_s` for the endpoint.
+        Paths passed to job submission resolve relative to the execution
+        environment, `ENDPOINT` and `MODEL` are set automatically for submitted
+        jobs, and checkpoint directories are created as needed. Cleanup failures
+        are logged but do not prevent the context from exiting.
 
-    # Later, reconnect to existing deployment
-    swarm = DomynLLMSwarm.from_state("my-deployment-abc123")
-    ```
+    Example:
+        Basic deployment, cleaned up on exit:
 
-    **Job Submission:**
-    ```python
-    with DomynLLMSwarm(cfg=cfg) as swarm:
-        # Synchronous execution
-        swarm.submit_job(
-            job=MyProcessingJob(),
-            input_path="batch.parquet",
-            output_path="predictions.parquet",
-            num_threads=8,
-            limit=1000,  # Process first 1000 rows only
-        )
+        ::
 
-        # Asynchronous execution
-        handle = swarm.submit_job(
-            job=LongRunningJob(),
-            input_path="large_dataset.parquet",
-            output_path="results.parquet",
-            detach=True,
-        )
-        print(handle.pid, handle.external_id)
-    ```
+            cfg = DomynLLMSwarmConfig.read("config.yaml")
+            with DomynLLMSwarm(cfg=cfg) as swarm:
+                # Reachable at swarm.endpoint
+                swarm.submit_job(my_job, input_path="data.parquet", output_path="results.parquet")
 
-    **Script Execution:**
-    ```python
-    with DomynLLMSwarm(cfg=cfg) as swarm:
-        # Run analysis script on head node
-        swarm.submit_script(Path("analysis.py"), extra_args=["--mode", "evaluation"], detach=False)
-    ```
+        Persistent deployment, reattached later from another process:
 
-    State Management
-    ----------------
-    The swarm automatically persists its state including:
-    - Deployment metadata and resource handles
-    - Configuration parameters
-    - Platform-specific identifiers (job IDs, node assignments)
-    - Endpoint URLs and connection information
+        ::
 
-    This enables recovery from failures and reconnection to existing deployments
-    across process boundaries.
+            swarm = DomynLLMSwarm(cfg=cfg, delete_on_exit=False)
+            with swarm:
+                pass
+            # Resources remain allocated
+            swarm = DomynLLMSwarm.from_state("my-deployment-abc123")
 
-    Error Handling
-    --------------
-    - **Resource allocation failures**: Raises RuntimeError with diagnostic info
-    - **Timeout during startup**: Controlled by cfg.wait_endpoint_s parameter
-    - **Job submission errors**: Propagates subprocess.CalledProcessError
-    - **Cleanup failures**: Logged but don't prevent context exit
+        Detached job submission:
 
-    Platform-Specific Behavior
-    ---------------------------
-    **Slurm:**
-    - Uses job arrays for multi-node allocation
-    - Leverages SLURM_NODEID for role assignment
-    - Supports srun-based job execution with resource isolation
-    - Integrates with Slurm job lifecycle (PENDING→RUNNING→COMPLETED)
+        ::
 
-    **Cloud Platforms:**
-    - Abstract deployment via platform-specific drivers
-    - Resource scaling based on platform capabilities
-    - Native load balancing and health monitoring
+            with DomynLLMSwarm(cfg=cfg) as swarm:
+                handle = swarm.submit_job(
+                    job=LongRunningJob(),
+                    input_path="large_dataset.parquet",
+                    output_path="results.parquet",
+                    detach=True,
+                )
+                print(handle.pid, handle.external_id)
 
-    Notes
-    -----
-    - The swarm must be used as a context manager for proper resource lifecycle
-    - All paths in job submission are resolved relative to the execution environment
-    - Environment variables (ENDPOINT, MODEL) are automatically set for submitted jobs
-    - Checkpoint directories are created automatically for job state persistence
+        Running a script on the head node:
 
-    See Also
-    --------
-    SwarmJob : Base class for jobs executable within the swarm
-    DomynLLMSwarmConfig : Configuration schema and validation
-    Deployment : Low-level deployment abstraction
-    SwarmStateManager : State persistence and recovery system
+        ::
 
-    Examples
-    --------
-    >>> from domyn_swarm.config.swarm import DomynLLMSwarmConfig
-    >>> cfg = DomynLLMSwarmConfig.from_yaml("config.yaml")
-    >>> with DomynLLMSwarm(cfg=cfg) as swarm:
-    ...     print(f"Swarm available at: {swarm.endpoint}")
-    ...     status = swarm.status()
-    ...     print(f"Status: {status.phase}")
+            with DomynLLMSwarm(cfg=cfg) as swarm:
+                swarm.submit_script(Path("analysis.py"), extra_args=["--mode", "evaluation"])
+
+    See Also:
+        SwarmJob: Base class for jobs executable within the swarm.
+        DomynLLMSwarmConfig: Configuration schema and validation.
     """
 
     cfg: DomynLLMSwarmConfig

@@ -1,16 +1,5 @@
-# Copyright 2025 iGenius S.p.A
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: 2025-2026 Domyn
+# SPDX-License-Identifier: Apache-2.0
 
 import io
 import math
@@ -41,16 +30,37 @@ logger = setup_logger(__name__)
 
 class DomynLLMSwarmConfig(BaseModel):
     # model / revision --------------------------------------------------------
-    model: str
+    model: str = Field(
+        description=(
+            "Hugging Face model ID or local path. Passed verbatim to `vllm serve`; "
+            "must resolve to a local directory or an offline Hugging Face model in "
+            "`HF_HOME`."
+        ),
+    )
     name: Annotated[
         str,
         StringConstraints(strip_whitespace=True, to_lower=True, max_length=38),
-    ]
-    revision: str | None = None
+    ] = Field(
+        description=(
+            "Name of the swarm. Stripped of surrounding whitespace, lower-cased and "
+            "limited to 38 characters so it fits backend resource-name limits. The "
+            "swarm's unique id is this name plus a short suffix."
+        ),
+    )
+    revision: str | None = Field(
+        default=None,
+        description="Git tag or commit for the model, when loading it from Hugging Face.",
+    )
 
     # resources ---------------------------------------------------------------
-    replicas: int = 1  # number of cluster replicas (vLLM servers)
-    gpus_per_replica: int = 4  # number of GPUs per replica (vLLM)
+    replicas: int = Field(
+        default=1,
+        description=("How many independent vLLM clusters to launch. Useful for A/B tests."),
+    )
+    gpus_per_replica: int = Field(
+        default=4,
+        description=("How many GPUs each replica uses. Also sets vLLM's `--tensor-parallel-size`."),
+    )
 
     gpus_per_node: int = Field(
         description="Number of GPUs per node (vLLM)",
@@ -69,13 +79,38 @@ class DomynLLMSwarmConfig(BaseModel):
         ge=1,
         default=None,
     )
-    mem_per_cpu: str | None = None
-    wait_endpoint_s: int = 1200  # seconds to wait for LB to be ready
+    mem_per_cpu: str | None = Field(
+        default=None,
+        description=(
+            "Memory to request per CPU, e.g. `4GB`. Reserved: no backend currently "
+            "reads this field."
+        ),
+    )
+    wait_endpoint_s: int = Field(
+        default=1200,
+        description=(
+            "Seconds the load-balancer script waits for the endpoint to come up before giving up."
+        ),
+    )
 
-    image: str | utils.EnvPath = Field(default_factory=default_for("image"))
+    image: str | utils.EnvPath = Field(
+        default_factory=default_for("image"),
+        description=(
+            "Container image for the vLLM replicas: a path to a Singularity image "
+            "on the Slurm backend, or a Docker image on Lepton."
+        ),
+    )
 
-    args: str = ""
-    port: int = 8000
+    args: str = Field(
+        default="",
+        description=(
+            "Extra CLI flags passed verbatim to `python -m vllm.entrypoints.openai.api_server`."
+        ),
+    )
+    port: int = Field(
+        default=8000,
+        description="Port on which each replica's OpenAI-compatible API listens.",
+    )
 
     home_directory: utils.EnvPath = Field(
         default_factory=lambda: utils.EnvPath(get_settings().home),
@@ -87,8 +122,18 @@ class DomynLLMSwarmConfig(BaseModel):
     )
     _plan: DeploymentPlan | None = PrivateAttr(default=None)
 
-    env: dict[str, str] | None = None
-    watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
+    env: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Environment variables to set on the replica processes, as a mapping of name to value."
+        ),
+    )
+    watchdog: WatchdogConfig = Field(
+        default_factory=WatchdogConfig,
+        description=(
+            "Watchdog settings governing how the spawned vLLM replicas are monitored and restarted."
+        ),
+    )
 
     # Convenience accessor
     def get_deployment_plan(self) -> DeploymentPlan | None:
