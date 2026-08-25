@@ -151,7 +151,7 @@ include = [
 target-version = "py310"
 line-length = 100
 src = ["src"]
-include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
+include = ["pyproject.toml", "src/**/*.py", "docs/**/*.py", "tests/**/*.py"]
 respect-gitignore = true
 extend-exclude = [
   ".venv", "venv", "build", "dist", "**/__pycache__",
@@ -196,7 +196,8 @@ max-complexity = 14
 [tool.ruff.lint.per-file-ignores]
 # Allow prints in exploratory or CLI-like code and in tests.
 "tests/**/*.py" = ["T201"]
-"scripts/**/*.py" = ["T201"]
+# conf.py and the deploy script report progress on stdout, which is the point.
+"docs/**/*.py" = ["T201"]
 "src/domyn_swarm/helpers/*.py" = ["T201"]
 "src/domyn_swarm/runtime/*.py" = ["T201"]
 "src/domyn_swarm/utils/version.py" = ["T201"]
@@ -206,14 +207,12 @@ max-complexity = 14
 include = ["src"]
 exclude = [
     "**/__pycache__",
-    "src/typestubs",
     # Unfixable at the moment
     "src/domyn_swarm/jobs/chat_completion.py",
     "src/domyn_swarm/utils/env_path.py",
 ]
 ignore = ["tests", "examples", "docs"]
 defineConstant = { DEBUG = true }
-stubPath = "src/stubs"
 
 reportMissingImports = "error"
 reportMissingTypeStubs = false

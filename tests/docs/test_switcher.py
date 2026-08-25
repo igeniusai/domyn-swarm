@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "update_switcher.py"
+_SCRIPT = Path(__file__).resolve().parents[2] / "docs" / "update_switcher.py"
 _spec = importlib.util.spec_from_file_location("update_switcher", _SCRIPT)
 assert _spec is not None and _spec.loader is not None
 update_switcher = importlib.util.module_from_spec(_spec)

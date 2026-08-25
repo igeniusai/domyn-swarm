@@ -8,6 +8,13 @@ from __future__ import annotations
 import pathlib
 from typing import Literal
 
+import pytest
+
+# The renderer imports Sphinx, which only the "docs" dependency group installs.
+# The main test workflow does not install it, and a collection error there would
+# fail CI on every Python version; the docs workflow runs these for real.
+pytest.importorskip("sphinx", reason="requires the docs dependency group")
+
 from gen_config_reference import (
     env_var_name,
     render_annotation,

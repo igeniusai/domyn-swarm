@@ -93,7 +93,10 @@ intersphinx_mapping = {
 
 html_theme = "pydata_sphinx_theme"
 html_title = "domyn-swarm"
-html_static_path = ["_static"]
+# The logo lives at the repository root because the README renders it on GitHub
+# too. Sphinx merges every entry here into a single _static/, so listing both
+# keeps one copy of the asset rather than a copy per consumer.
+html_static_path = ["_static", "../static"]
 html_css_files = ["custom.css"]
 html_baseurl = "https://igeniusai.github.io/domyn-swarm/"
 
@@ -118,7 +121,7 @@ DOCS_VERSION = os.environ.get("DOCS_VERSION", "latest")
 
 # switcher.json lives at the gh-pages root, not inside a version directory, because
 # every published version fetches the same file. It is written by
-# scripts/update_switcher.py during deployment.
+# docs/update_switcher.py during deployment.
 html_theme_options["switcher"] = {
     "json_url": f"{html_baseurl}switcher.json",
     "version_match": DOCS_VERSION,

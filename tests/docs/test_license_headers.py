@@ -1,14 +1,17 @@
 # SPDX-FileCopyrightText: 2025-2026 Domyn
 # SPDX-License-Identifier: Apache-2.0
 
-"""Every source file must carry the current SPDX licence header."""
+"""Every source file must carry the current SPDX licence header.
+
+The one-off rewriter that converted the legacy Apache boilerplate has been
+deleted -- it had one job and did it. This guard is what remains: it stops a new
+file landing with no header, and stops the old entity name coming back.
+"""
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 import re
-import sys
 
 import pytest
 
@@ -17,34 +20,18 @@ EXPECTED = (
     "# SPDX-FileCopyrightText: 2025-2026 Domyn",
     "# SPDX-License-Identifier: Apache-2.0",
 )
-ROOTS = ("src", "tests", "scripts", "examples", "docs/_ext")
+ROOTS = ("src", "tests", "examples", "docs")
 SKIP_DIRS = {".venv", "_build", "__pycache__", ".git", "migrations"}
 
-_SCRIPT = REPO / "scripts" / "update_license_headers.py"
-_spec = importlib.util.spec_from_file_location("update_license_headers", _SCRIPT)
-assert _spec is not None and _spec.loader is not None
-update_license_headers = importlib.util.module_from_spec(_spec)
-sys.modules["update_license_headers"] = update_license_headers
-_spec.loader.exec_module(update_license_headers)
-rewrite = update_license_headers.rewrite
-HEADER = update_license_headers.HEADER
-
-_LEGACY_SAMPLE = (
-    "# Copyright 2025 iGenius S.p.A\n"
-    "#\n"
-    '# Licensed under the Apache License, Version 2.0 (the "License");\n'
-    "# you may not use this file except in compliance with the License.\n"
-    "# limitations under the License.\n"
-    "\n"
-    '"""Docstring."""\n'
-)
+# This file must name the old entity in order to detect it.
+_MAY_NAME_THE_OLD_ENTITY = {Path("tests/docs/test_license_headers.py")}
 
 
 def _sources() -> list[Path]:
     """Every first-party Python file that should carry a header.
 
-    ``migrations`` is skipped: Alembic generates those from
-    ``script.py.mako``, so the template is the thing to keep current.
+    ``migrations`` is skipped: Alembic generates those from ``script.py.mako``,
+    so the template is the thing to keep current.
     """
     found: list[Path] = []
     for root in ROOTS:
@@ -77,18 +64,11 @@ def test_file_has_the_spdx_header(path: Path) -> None:
 
 
 def test_a_shebang_stays_on_the_first_line() -> None:
-    """Inserting a header above a shebang would stop the script executing."""
+    """A header above a shebang would stop the script executing."""
     scripts = [p for p in _sources() if p.read_text(encoding="utf-8").startswith("#!")]
     assert scripts, "expected at least one executable script to guard"
     for path in scripts:
         assert _header_lines(path.read_text(encoding="utf-8")) == EXPECTED
-
-
-# The rewriter and this test must both name the old entity in order to detect it.
-_MAY_NAME_THE_OLD_ENTITY = {
-    Path("scripts/update_license_headers.py"),
-    Path("tests/docs/test_license_headers.py"),
-}
 
 
 def test_no_file_still_names_the_old_entity() -> None:
@@ -101,54 +81,7 @@ def test_no_file_still_names_the_old_entity() -> None:
     assert not stale, f"files still naming the old entity: {stale}"
 
 
-def test_rewriter_inserts_a_header_below_a_shebang() -> None:
-    text = '#!/usr/bin/env python3\n"""Docstring."""\n'
-    out = rewrite(text)
-    assert out.startswith("#!/usr/bin/env python3\n")
-    assert _header_lines(out) == EXPECTED
-
-
-def test_rewriter_inserts_a_header_when_the_file_has_none() -> None:
-    out = rewrite("import typer\n")
-    assert _header_lines(out) == EXPECTED
-    assert out.endswith("import typer\n")
-
-
-def test_rewriter_leaves_an_empty_file_alone() -> None:
-    assert rewrite("") == ""
-    assert rewrite("\n") == "\n"
-
-
 def test_the_migration_template_is_current() -> None:
     """Alembic copies this template verbatim, so a stale header propagates."""
     template = REPO / "src" / "domyn_swarm" / "core" / "state" / "migrations" / "script.py.mako"
     assert template.read_text(encoding="utf-8").startswith(EXPECTED[0])
-
-
-def test_rewriter_replaces_the_legacy_block() -> None:
-    out = rewrite(_LEGACY_SAMPLE)
-    assert out.startswith("# SPDX-FileCopyrightText: 2025-2026 Domyn\n")
-    assert "iGenius" not in out
-    assert out.endswith('"""Docstring."""\n')
-
-
-def test_rewriter_keeps_exactly_one_blank_line_after_the_header() -> None:
-    out = rewrite(_LEGACY_SAMPLE)
-    assert out.split("\n")[:4] == [
-        "# SPDX-FileCopyrightText: 2025-2026 Domyn",
-        "# SPDX-License-Identifier: Apache-2.0",
-        "",
-        '"""Docstring."""',
-    ]
-
-
-def test_rewriter_is_idempotent() -> None:
-    once = rewrite(_LEGACY_SAMPLE)
-    assert rewrite(once) == once
-
-
-def test_rewriter_only_touches_a_header_at_the_top() -> None:
-    """A quoted copy of the boilerplate mid-file is data, not a header."""
-    text = 'HELP = """\n' + _LEGACY_SAMPLE + '"""\n'
-    out = rewrite(text)
-    assert out == HEADER + "\n" + text, "the quoted boilerplate must survive verbatim"

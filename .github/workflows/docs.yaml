@@ -98,7 +98,7 @@ jobs:
           # Pages would otherwise run Jekyll, which ignores _static/ and _sources/.
           touch gh-pages/.nojekyll
 
-          uv run python scripts/update_switcher.py gh-pages
+          uv run python docs/update_switcher.py gh-pages
 
           cd gh-pages
           git add -A
