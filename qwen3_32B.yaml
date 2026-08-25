@@ -1,0 +1,56 @@
+model: Qwen/Qwen3.6-27B
+name: qwen36_27b
+revision: main
+gpus_per_replica: 4
+replicas: 2
+image: "/leonardo_work/AIFAC_L13_018/fdambro1/images/vllm_0.21.0.sif"
+args: >-
+  --dtype bfloat16
+  --gpu-memory-utilization 0.92
+  --max-model-len 131072
+  --max-num-seqs 64
+  --pipeline-parallel-size 1
+  --tensor-parallel-size 4
+  --enable-auto-tool-choice
+  --tool-call-parser qwen3_coder
+  --disable-custom-all-reduce
+  --enable-chunked-prefill
+  --max-num-batched-tokens 24576
+  --enable-prefix-caching
+  --reasoning-parser qwen3
+  --language-model-only
+env:
+  HF_HOME: /leonardo_work/AIFAC_L13_018/shared-hf-home
+  PYTORCH_ALLOC_CONF: garbage_collection_threshold:0.8,max_split_size_mb:256,expandable_segments:True
+  # NCCL Settings — intra-node only (NVLink), IB settings removed
+  NCCL_ASYNC_ERROR_HANDLING: "1"
+  NCCL_P2P_LEVEL: NVL
+  NCCL_CUMEM_ENABLE: "1"
+
+  TORCH_NCCL_BLOCKING_WAIT: "1"
+
+  # CUDA Settings
+  CUDA_DEVICE_MAX_CONNECTIONS: "1"
+
+  TORCH_CUDA_ARCH_LIST: "8.0"
+  VLLM_USE_RAY_COMPILED_DAG: "0"
+  VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "1"
+wait_endpoint_s: 7200
+backend:
+  type: slurm
+  partition: boost_usr_prod
+  account: AIFAC_L13_018
+  qos: qos_llm_min
+  modules:
+    - cuda/12.6
+  time_limit: "48:00:00"
+  endpoint:
+    port: 9001
+    wall_time: "48:00:00"
+    nginx_timeout: "8h"
+    monitoring:
+      enabled: true
+      prometheus_image: "/leonardo_work/AIFAC_L13_018/fdambro1/images/prometheus.sif"
+      nginx_exporter_image: "/leonardo_work/AIFAC_L13_018/fdambro1/images/nginx_exporter.sif"
+watchdog:
+  readiness_timeout: 7200

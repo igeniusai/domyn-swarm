@@ -2,9 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import math
-import socket
-import subprocess
-import time
 
 import pandas as pd
 import pytest
@@ -15,127 +12,6 @@ from domyn_swarm.helpers.data import (
     get_device_slices,
     parquet_hash,
 )
-from domyn_swarm.helpers.reverse_proxy import (
-    get_login_node_suffix,
-    get_unused_port,
-    launch_nginx_singularity,
-    run_command,
-)
-from domyn_swarm.utils.env_path import EnvPath
-
-
-def test_get_unused_port_returns_valid_port():
-    port = get_unused_port(start=50000, end=51000)
-    assert isinstance(port, int)
-    assert 50000 <= port <= 51000
-
-    # Try binding to it — should succeed since it's truly unused
-    s = socket.socket()
-    try:
-        s.bind(("", port))
-    finally:
-        s.close()
-
-
-def test_get_unused_port_exhausted_range(monkeypatch):
-    # Monkeypatch socket to simulate no free ports
-    def always_fail_bind(*args, **kwargs):
-        raise OSError("Port in use")
-
-    monkeypatch.setattr(
-        socket,
-        "socket",
-        lambda: type(
-            "MockSocket",
-            (),
-            {
-                "bind": always_fail_bind,
-                "listen": lambda self, n=1: None,
-                "close": lambda self: None,
-            },
-        )(),
-    )
-
-    with pytest.raises(IOError, match="No free ports available"):
-        get_unused_port(start=60000, end=60001)
-
-
-def test_get_login_node_suffix_success(monkeypatch):
-    monkeypatch.setattr(
-        subprocess, "check_output", lambda *args, **kwargs: "lrdn1234.domain.local\n"
-    )
-
-    result = get_login_node_suffix()
-    assert result == "34"
-
-
-def test_get_login_node_suffix_error(monkeypatch, capsys):
-    def raise_error(*args, **kwargs):
-        raise subprocess.CalledProcessError(1, cmd="hostname")
-
-    monkeypatch.setattr(subprocess, "check_output", raise_error)
-
-    with pytest.raises(SystemExit) as exc:
-        get_login_node_suffix()
-
-    assert exc.value.code == 1
-
-    captured = capsys.readouterr()
-    assert "Error getting hostname" in captured.err
-
-
-def test_run_command_success():
-    output = run_command("echo 'hello world'")
-    assert output == "hello world"
-
-
-def test_run_command_failure():
-    # This will return a non-zero code and stderr
-    with pytest.raises(AssertionError, match="Command failed with error"):
-        run_command("ls non_existent_file")
-
-
-def test_launch_nginx_singularity(monkeypatch, tmp_path):
-    # Setup fake paths
-    sif_path = EnvPath(tmp_path / "nginx.sif")
-    conf_path = EnvPath(tmp_path / "nginx.conf")
-    html_path = EnvPath(tmp_path / "html")
-
-    for p in [sif_path, conf_path, html_path]:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("# dummy")
-
-    # Patch environment and methods
-    monkeypatch.setenv("TMPDIR", str(tmp_path))
-    monkeypatch.setattr(time, "sleep", lambda x: None)
-
-    launched_cmds = []
-
-    class FakePopen:
-        def __init__(self, cmd, stdout=None, stderr=None):
-            launched_cmds.append(cmd)
-            self.cmd = cmd
-            self.stdout = stdout
-            self.stderr = stderr
-
-    monkeypatch.setattr(subprocess, "Popen", FakePopen)
-
-    launch_nginx_singularity(sif_path, conf_path, html_path)
-
-    assert len(launched_cmds) == 2
-    stop_cmd, start_cmd = launched_cmds
-
-    assert stop_cmd[:3] == ["singularity", "instance", "stop"]
-    assert "nginx_instance" in stop_cmd
-
-    assert start_cmd[:3] == ["singularity", "instance", "start"]
-    assert any("nginx.conf" in str(arg) for arg in start_cmd)
-    assert any("html" in str(arg) for arg in start_cmd)
-    assert any("cache" in str(arg) for arg in start_cmd)
-    assert str(sif_path) in start_cmd
-
-    log_path = tmp_path / "nginx_singularity.log"
-    assert log_path.exists()
 
 
 def test_parquet_hash_blake2b(parquet_file):
