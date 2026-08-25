@@ -73,16 +73,22 @@ def parse_args(cli_args=None):
         help="Optional column name used for stable row ids.",
     )
     parser.add_argument(
+        "--num-shards",
         "--nthreads",
+        dest="num_shards",
         type=int,
         default=1,
-        help="How many threads should be used when executing this job",
+        help=(
+            "How many shards to split the input into. This is part of the checkpoint "
+            "layout: keep it fixed across resumes of the same job. `--nthreads` is a "
+            "deprecated alias."
+        ),
     )
     parser.add_argument(
         "--shard-mode",
         choices=["id", "index"],
         default="id",
-        help="How to split input when --nthreads > 1. "
+        help="How to split input when --num-shards > 1. "
         "'id' uses stable id hashing (resume-friendly), "
         "'index' uses legacy row order sharding.",
     )
@@ -138,7 +144,7 @@ def parse_args(cli_args=None):
     parser.add_argument(
         "--shard-output",
         action="store_true",
-        help="When output is a directory, write one parquet file per shard (based on --nthreads) "
+        help="When output is a directory, write one parquet file per shard (based on --num-shards) "
         "using checkpoint outputs as the source of truth. Only supported for the Polars runner.",
     )
 
@@ -211,8 +217,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         o = job_kwargs["output_cols"]
         output_cols = o if isinstance(o, list) else [o]
 
-    # Map legacy --nthreads to shards
-    nshards = getattr(args, "nthreads", 1)
+    nshards = getattr(args, "num_shards", 1)
 
     checkpointing = not args.no_checkpointing
     no_resume = args.no_resume

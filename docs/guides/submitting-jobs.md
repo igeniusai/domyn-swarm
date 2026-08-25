@@ -75,14 +75,14 @@ Details, and the resume semantics that go with sharding:
 
 ## Concurrency and sharding
 
-`--max-concurrency` bounds in-flight requests to the endpoint. `--num-threads`
+`--max-concurrency` bounds in-flight requests to the endpoint. `--num-shards`
 splits the input into shards. `--shard-mode` picks `id` for stable hashing or
 `index` for legacy row-order sharding. `--retries` and `--timeout` govern
 individual request failures.
 
 These interact with resume, so read
 [Sharding and concurrency](sharding-concurrency.md) before changing
-`--num-threads` on a run you intend to resume.
+`--num-shards` on a run you intend to resume.
 
 ## Choosing a data backend
 
@@ -97,7 +97,7 @@ Which to use, and why: [Choosing a data backend](data-backends.md).
 ## Output layout
 
 With a directory output and the Polars runner, `--shard-output` writes one
-Parquet file per shard, based on `--num-threads`, using the checkpoint outputs as
+Parquet file per shard, based on `--num-shards`, using the checkpoint outputs as
 the source of truth.
 
 ## Running detached
