@@ -85,30 +85,42 @@ class WatchdogRayConfig:
     expected_workers: int | None = None  # None => don't gate on worker count
     probe_timeout_s: float = 120.0
     status_grace_s: float = 10.0
-    probe_interval_s: float = 10.0  # how often to check Ray once child is running
+    probe_interval_s: float = 30.0  # how often to check Ray once child is running
 
 
 @dataclass
 class WatchdogConfig:
+    """Runtime mirror of `domyn_swarm.config.watchdog.WatchdogConfig`.
+
+    Kept as a separate stdlib dataclass because this module runs inside the vLLM
+    container, where neither pydantic nor `domyn_swarm` is importable. Field names
+    and defaults must stay identical to the YAML schema so an option that fails to
+    reach the process falls back to the documented value --
+    `tests/runtime/test_watchdog_config_parity.py` enforces that.
+
+    `host`, `port`, `agent_version` and `unhealthy_http_failures` have no YAML
+    counterpart: they are injected per replica at launch.
+    """
+
     # HTTP health
     host: str = "127.0.0.1"
     port: int = 8000
-    http_path: str = "/v1/health"
-    http_timeout_s: float = 2.0
-    probe_interval_s: float = 10.0
+    http_path: str = "/health"
+    http_timeout: float = 2.0
+    probe_interval: float = 30.0
     unhealthy_http_failures: int = 3
     # How long to allow UNHEALTHY before forcing a restart.
-    unhealthy_restart_after: float = 300.0
+    unhealthy_restart_after: float = 120.0
 
     kill_grace_seconds: float = 10.0
 
     # Restart
     restart_policy: str = "on-failure"  # "always" | "on-failure" | "never"
-    restart_backoff_s: float = 10.0
-    restart_backoff_max_s: float = 60.0  # ceiling for the exponential backoff
-    max_restarts: int | None = None  # None => unlimited
+    restart_backoff_initial: float = 5.0
+    restart_backoff_max: float = 60.0  # ceiling for the exponential backoff
+    max_restarts: int | None = 3
 
-    readiness_timeout: float = 60.0  # seconds to wait for initial readiness
+    readiness_timeout: float = 600.0  # seconds to wait for initial readiness
 
     # Metadata
     agent_version: str = "unknown"
@@ -503,8 +515,8 @@ def _spawn_child_and_mark_running(
 def _restart_backoff_delay(cfg: WatchdogConfig, attempt: int) -> float:
     """Return the seconds to wait before restart attempt ``attempt``.
 
-    Grows exponentially from ``restart_backoff_s`` and is capped at
-    ``restart_backoff_max_s`` so a replica that keeps dying does not hammer the
+    Grows exponentially from ``restart_backoff_initial`` and is capped at
+    ``restart_backoff_max`` so a replica that keeps dying does not hammer the
     scheduler at a fixed rate.
 
     Args:
@@ -512,10 +524,10 @@ def _restart_backoff_delay(cfg: WatchdogConfig, attempt: int) -> float:
         attempt: 1-based restart attempt number.
 
     Returns:
-        Delay in seconds, never above ``cfg.restart_backoff_max_s``.
+        Delay in seconds, never above ``cfg.restart_backoff_max``.
     """
-    delay = cfg.restart_backoff_s * (2 ** max(0, attempt - 1))
-    return min(delay, cfg.restart_backoff_max_s)
+    delay = cfg.restart_backoff_initial * (2 ** max(0, attempt - 1))
+    return min(delay, cfg.restart_backoff_max)
 
 
 def _should_restart(exit_code: int, cfg: WatchdogConfig, restart_count: int) -> bool:
@@ -544,7 +556,7 @@ def _probe_and_update(
     url = cfg.http_url()
 
     # HTTP probe
-    http_ok = _check_http(url, cfg.http_timeout_s)
+    http_ok = _check_http(url, cfg.http_timeout)
     if http_ok:
         http_failures = 0
         http_ok_since = http_ok_since or now
@@ -790,7 +802,7 @@ def _monitor_child_loop(
                     )
                     return ret, should_restart, fail_reason
 
-        time.sleep(cfg.probe_interval_s)
+        time.sleep(cfg.probe_interval)
 
 
 def run_watchdog(
@@ -1088,13 +1100,13 @@ def main(argv: list[str] | None = None) -> int:
         host="127.0.0.1",  # typically localhost inside the replica node
         port=args.port,
         http_path=_ensure_leading_slash(args.http_path),
-        http_timeout_s=args.http_timeout,
-        probe_interval_s=args.probe_interval,
+        http_timeout=args.http_timeout,
+        probe_interval=args.probe_interval,
         unhealthy_http_failures=args.unhealthy_http_failures,
         unhealthy_restart_after=args.unhealthy_restart_after,
         restart_policy=args.restart_policy,
-        restart_backoff_s=args.restart_backoff,
-        restart_backoff_max_s=args.restart_backoff_max,
+        restart_backoff_initial=args.restart_backoff,
+        restart_backoff_max=args.restart_backoff_max,
         kill_grace_seconds=args.kill_grace_seconds,
         max_restarts=args.max_restarts,
         agent_version=args.agent_version,
