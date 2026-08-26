@@ -21,19 +21,6 @@ STEP_ID_POLL_TIMEOUT_S = 10.0
 STEP_ID_POLL_INTERVAL_S = 0.5
 
 
-def _normalize_returncode(returncode: int) -> JobStatus:
-    """Normalize a `subprocess.Popen.returncode` to `JobStatus`."""
-    if returncode == 0:
-        return JobStatus.SUCCEEDED
-    # Negative returncodes represent termination by signal.
-    if returncode < 0:
-        sig = -returncode
-        if sig in (signal.SIGTERM, signal.SIGINT, signal.SIGKILL):
-            return JobStatus.CANCELLED
-        return JobStatus.FAILED
-    return JobStatus.FAILED
-
-
 def _pid_exists(pid: int) -> bool:
     """Return True if a PID appears to exist on this host."""
     try:
@@ -43,16 +30,6 @@ def _pid_exists(pid: int) -> bool:
     except PermissionError:
         return True
     return True
-
-
-def _stream_text_lines(src, dst) -> None:
-    """Stream text lines from a readable file-like to a writable file-like."""
-    try:
-        for line in src:
-            dst.write(line)
-            dst.flush()
-    except Exception:
-        pass
 
 
 def _terminate_process_group(pgid: int, *, grace_s: float = 10.0) -> None:

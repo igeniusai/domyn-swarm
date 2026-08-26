@@ -205,10 +205,6 @@ class SwarmStateManager:
         ]
 
     @classmethod
-    def iter_all(cls) -> Iterable[dict[str, Any]]:
-        yield from cls.list_all()
-
-    @classmethod
     def _get_slurm_backend(cls, handle, slurm_cfg) -> "SlurmComputeBackend":
         from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 
