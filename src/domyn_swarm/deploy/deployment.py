@@ -44,6 +44,17 @@ class Deployment:
         self.extras = merged_extras
         return handle
 
+    def adopt(self, handle: ServingHandle) -> None:
+        """Attach an existing serving handle to this deployment.
+
+        Used when rehydrating a deployment that is already running, so callers
+        do not have to write ``_handle`` directly.
+
+        Args:
+            handle: The handle recovered from persisted state.
+        """
+        self._handle = handle
+
     def wait_ready(self, timeout_s: int, *, extras: dict | None = None) -> ServingHandle:
         """Wait for the current serving endpoint to be ready."""
         if self._handle is None:

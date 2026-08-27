@@ -145,3 +145,74 @@ def test_serving_status_on_an_undeployed_swarm_is_unknown(
     undeployed = DomynLLMSwarm(name="never-up", cfg=slurm_cfg)
 
     assert undeployed.serving_status().phase is ServingPhase.UNKNOWN
+
+
+def test_from_record_builds_a_complete_swarm(swarm: DomynLLMSwarm) -> None:
+    """Rehydration produces a finished object, not one to be back-filled."""
+    swarm._state_mgr.save(deployment_name="swarm")
+
+    loaded = SwarmStateManager.load(deployment_name="swarm")
+
+    assert loaded.serving_handle is not None
+    assert loaded.serving_handle.id == "1234"
+    assert loaded.platform == "slurm"
+    # The compute backend was built from the handle, not left as a placeholder.
+    assert loaded._deployment.compute is not None
+    assert loaded._deployment.compute.lb_jobid == 1234
+    assert loaded._deployment.compute.lb_node == "lrdn4759"
+
+
+def test_state_manager_does_not_touch_swarm_internals() -> None:
+    """The persistence layer must not write private attributes of the swarm."""
+    import inspect
+
+    from domyn_swarm.core.state import state_manager
+
+    source = inspect.getsource(state_manager)
+
+    assert "swarm._deployment" not in source
+    assert "swarm._platform" not in source
+
+
+def test_adopt_attaches_a_handle_to_a_deployment(
+    db_path: Path, slurm_cfg: DomynLLMSwarmConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`adopt` is the public seam replacing a write to Deployment._handle.
+
+    Asserted through observable behaviour: a deployment with no handle reports
+    UNKNOWN, and one that has adopted a handle forwards it to the backend.
+    """
+    from domyn_swarm.platform.protocols import ServingPhase, ServingStatus
+
+    fresh = DomynLLMSwarm(name="adopter", cfg=slurm_cfg)
+    assert fresh._deployment.status().phase is ServingPhase.UNKNOWN
+
+    handle = ServingHandle(id="9999", url="http://other:9003", meta={"lb_jobid": 1})
+    seen: dict = {}
+
+    def fake_status(h):
+        seen["handle"] = h
+        return ServingStatus(phase=ServingPhase.RUNNING, url="http://other:9003")
+
+    monkeypatch.setattr(fresh._deployment.serving, "status", fake_status)
+
+    fresh._deployment.adopt(handle)
+
+    assert fresh._deployment.status().phase is ServingPhase.RUNNING
+    assert seen["handle"] is handle
+
+
+def test_from_record_rejects_an_incoherent_slurm_record(swarm: DomynLLMSwarm) -> None:
+    """A persisted Slurm handle without a jobid is rejected at rehydration.
+
+    The Slurm serving backend indexes ``handle.meta["jobid"]`` directly, so a
+    record missing it must fail loudly here rather than with a bare KeyError
+    from deep inside ``status()``. The check belongs to the plan, which owns
+    platform-specific knowledge; the swarm only asks it to run.
+    """
+    assert swarm.serving_handle is not None
+    swarm.serving_handle.meta["jobid"] = None
+    swarm._state_mgr.save(deployment_name="swarm")
+
+    with pytest.raises(ValueError, match="job IDs"):
+        SwarmStateManager.load(deployment_name="swarm")

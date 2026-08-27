@@ -12,7 +12,7 @@ from ulid import ULID
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.exceptions import JobNotFoundError
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.platform.protocols import JobStatus, ServingHandle
+from domyn_swarm.platform.protocols import JobStatus
 
 if TYPE_CHECKING:
     from ..swarm import DomynLLMSwarm
@@ -87,6 +87,17 @@ class SwarmStateManager:
 
     @classmethod
     def load(cls, deployment_name: str):
+        """Rehydrate a swarm from its persisted record.
+
+        Args:
+            deployment_name: The deployment name to look up.
+
+        Returns:
+            A fully-built :class:`DomynLLMSwarm`.
+
+        Raises:
+            JobNotFoundError: If no record exists for that name.
+        """
         from ... import DomynLLMSwarm  # avoid import cycles
 
         session_factory = make_session_factory(cls._get_db_path())
@@ -95,26 +106,7 @@ class SwarmStateManager:
         if rec is None:
             raise JobNotFoundError(deployment_name)
 
-        # Rehydrate
-        swarm_dict = rec.swarm
-        swarm_dict["cfg"] = rec.cfg
-        handle_dict = rec.serving_handle
-
-        swarm = DomynLLMSwarm.model_validate(swarm_dict)
-        serving_handle = ServingHandle(**handle_dict)
-
-        swarm.serving_handle = serving_handle
-        swarm._deployment._handle = serving_handle
-
-        assert swarm._plan is not None
-        if swarm.platform == "slurm" and serving_handle.meta.get("jobid") is None:
-            # The compute backend itself only needs lb_jobid/lb_node, but the
-            # Slurm serving backend later indexes handle.meta["jobid"]
-            # directly (see backends/serving/slurm.py). Fail loudly here,
-            # at load time, rather than with a bare KeyError deep in status().
-            raise ValueError("State file does not contain valid job IDs")
-        swarm._deployment.compute = swarm._plan.make_compute_backend(serving_handle)
-        return swarm
+        return DomynLLMSwarm.from_record(rec.swarm, rec.cfg, rec.serving_handle)
 
     @classmethod
     def load_monitor_view(cls, deployment_name: str):

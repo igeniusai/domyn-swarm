@@ -31,6 +31,9 @@ class DeploymentPlan:
         compute_factory: Builds the compute backend from a ready
             :class:`ServingHandle`. Takes precedence over ``compute``.
         platform: Platform identifier, matching ``cfg.backend.type``.
+        handle_validator: Checks that a handle carries everything this
+            platform's backends need. ``None`` means the platform imposes no
+            requirements beyond what the backends themselves check.
     """
 
     name_hint: str
@@ -44,6 +47,25 @@ class DeploymentPlan:
     timeout_s: int | None = None
     platform: str = "slurm"
     compute_factory: Callable[[ServingHandle], ComputeBackend] | None = None
+    handle_validator: Callable[[ServingHandle], None] | None = None
+
+    def validate_serving_handle(self, handle: ServingHandle) -> None:
+        """Check that a serving handle is usable by this platform's backends.
+
+        Called when adopting a handle that was not produced in this process --
+        typically one rehydrated from the state DB -- so an incomplete record
+        fails with a clear message instead of a stray ``KeyError`` from inside
+        a backend later on. Platforms without extra requirements supply no
+        validator and everything passes.
+
+        Args:
+            handle: The handle about to be adopted.
+
+        Raises:
+            ValueError: If the handle is missing metadata this platform needs.
+        """
+        if self.handle_validator is not None:
+            self.handle_validator(handle)
 
     def make_compute_backend(self, handle: ServingHandle) -> ComputeBackend:
         """Return the compute backend for a ready serving endpoint.

@@ -308,6 +308,39 @@ class DomynLLMSwarm(BaseModel):
         """
         return SwarmStateManager.load(deployment_name)
 
+    @classmethod
+    def from_record(
+        cls,
+        swarm_payload: dict,
+        cfg_payload: dict,
+        handle_payload: dict,
+    ) -> DomynLLMSwarm:
+        """Build a complete swarm from persisted state.
+
+        Args:
+            swarm_payload: The persisted ``swarm`` column, without ``cfg``.
+            cfg_payload: The persisted ``cfg`` column.
+            handle_payload: The persisted ``serving_handle`` column.
+
+        Returns:
+            A swarm with its handle adopted and its compute backend built.
+
+        Raises:
+            ValueError: If the record's serving handle is missing metadata the
+                platform needs; see
+                :meth:`~domyn_swarm.config.plan.DeploymentPlan.validate_serving_handle`.
+        """
+        swarm = cls.model_validate({**swarm_payload, "cfg": cfg_payload})
+        handle = ServingHandle(**handle_payload)
+
+        assert swarm._plan is not None, "Swarm was built without a deployment plan"
+        swarm._plan.validate_serving_handle(handle)
+
+        swarm.serving_handle = handle
+        swarm._deployment.adopt(handle)
+        swarm._deployment.compute = swarm._plan.make_compute_backend(handle)
+        return swarm
+
     def _delete_record(self) -> None:
         """Delete swarm from the DB
 

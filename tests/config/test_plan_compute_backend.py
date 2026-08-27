@@ -89,3 +89,25 @@ def test_plan_platform_is_an_open_string() -> None:
     hints = typing.get_type_hints(DeploymentPlan)
 
     assert hints["platform"] is str
+
+
+def test_slurm_plan_rejects_a_persisted_handle_without_a_jobid() -> None:
+    """Validating a rehydrated handle is the plan's job, not the swarm's.
+
+    ``SlurmServingBackend.status()`` subscripts ``meta["jobid"]``, so a record
+    without one has to be rejected before it is adopted.
+    """
+    plan = _slurm_cfg().build_plan()
+    no_jobid = ServingHandle(
+        id="1234", url="http://lb:9003", meta={"lb_jobid": 1234, "lb_node": "n1"}
+    )
+
+    with pytest.raises(ValueError, match="job IDs"):
+        plan.validate_serving_handle(no_jobid)
+
+
+def test_plan_validation_accepts_a_ready_slurm_handle() -> None:
+    """A complete handle passes validation without raising."""
+    plan = _slurm_cfg().build_plan()
+
+    plan.validate_serving_handle(_ready_slurm_handle())
