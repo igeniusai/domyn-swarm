@@ -8,6 +8,7 @@ import sqlite3
 
 import pytest
 
+from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.state.db import make_session_factory
@@ -112,6 +113,40 @@ class TestSwarmStateManager:
         # DomynLLMSwarm should attach its own SwarmStateManager as _state_mgr
         return swarm._state_mgr  # type: ignore[attr-defined]
 
+    @pytest.fixture
+    def lepton_swarm(self, db_path: Path) -> DomynLLMSwarm:
+        """Construct a Lepton-backed DomynLLMSwarm wired to the temporary DB.
+
+        Lepton serving handles carry no ``jobid``/``lb_jobid``/``lb_node`` keys
+        (those are Slurm-only concepts), so this fixture's ``serving_handle.meta``
+        deliberately omits them.
+        """
+        return DomynLLMSwarm(
+            name="lepton-swarm",
+            cfg=DomynLLMSwarmConfig(
+                name="fake-lepton",
+                image="image",
+                model="Qwen/Qwen3-32B",
+                revision=None,
+                replicas=1,
+                gpus_per_replica=1,
+                backend=LeptonConfig(
+                    type="lepton",
+                    workspace_id="ws-123",
+                ),
+            ),
+            serving_handle=ServingHandle(
+                id="lepton-endpoint",
+                url="https://lepton.example/v1",
+                meta=dict(
+                    name="lepton-swarm",
+                    workspace_id="ws-123",
+                ),
+            ),
+            endpoint="https://lepton.example/v1",
+            delete_on_exit=True,
+        )
+
     # --------------------------------------------------------------------- #
     # Basic path / save / load behaviour
     # --------------------------------------------------------------------- #
@@ -137,6 +172,28 @@ class TestSwarmStateManager:
         # Serving handle should be wired back
         assert swarm.serving_handle is not None
         # Compute backend should be attached
+        assert swarm._deployment.compute is not None  # type: ignore[attr-defined]
+
+    def test_load_lepton_without_jobid_does_not_raise(self, lepton_swarm: DomynLLMSwarm) -> None:
+        """Lepton handles have no jobid; load() must not apply the Slurm-only guard.
+
+        Regression test for the platform-specific guard in
+        ``SwarmStateManager.load()``: it must only reject missing job IDs for
+        Slurm swarms, and must pass Lepton swarms through unchanged even though
+        their serving handle has no ``jobid`` key at all.
+        """
+        state_mgr = lepton_swarm._state_mgr  # type: ignore[attr-defined]
+        assert "jobid" not in lepton_swarm.serving_handle.meta  # type: ignore[union-attr]
+        state_mgr.save(deployment_name="fake-lepton")
+
+        swarm = SwarmStateManager.load(deployment_name="fake-lepton")
+
+        assert isinstance(swarm, DomynLLMSwarm)
+        assert swarm._plan is not None  # type: ignore[attr-defined]
+        assert swarm._plan.platform == "lepton"  # type: ignore[attr-defined]
+        assert swarm.serving_handle is not None
+        assert swarm.serving_handle.url == "https://lepton.example/v1"
+        assert swarm.serving_handle.meta.get("workspace_id") == "ws-123"
         assert swarm._deployment.compute is not None  # type: ignore[attr-defined]
 
     # --------------------------------------------------------------------- #
