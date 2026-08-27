@@ -21,16 +21,15 @@ from pydantic import (
 from ulid import ULID
 
 from domyn_swarm import utils
-from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 from domyn_swarm.config.plan import DeploymentContext
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.platform.protocols import (
+    ComputeBackend,
     JobHandle,
     JobProbe,
     JobStatus,
@@ -205,7 +204,11 @@ class DomynLLMSwarm(BaseModel):
             extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
             self._plan = plan
             self._platform = plan.platform
-            self._deployment = Deployment(serving=plan.serving, compute=plan.compute, extras=extras)
+            self._deployment = Deployment(
+                serving=plan.serving,
+                compute=plan.compute,  # type: ignore[arg-type]
+                extras=extras,
+            )
             return
 
     def __enter__(self):
@@ -990,18 +993,10 @@ class DomynLLMSwarm(BaseModel):
         short_id = str(unique_id)[:8]
         return f"{self.cfg.name}-{short_id}"
 
-    def _make_compute_backend(self, handle: ServingHandle):
-        if self._plan and self._plan.platform == "slurm":
-            lb_jobid = handle.meta.get("lb_jobid")
-            lb_node = handle.meta.get("lb_node")
-            if not lb_jobid or not lb_node:
-                raise RuntimeError("LB Job ID/Node missing in Slurm handle.")
-            assert self.cfg.backend is not None and isinstance(self.cfg.backend, SlurmConfig)
-            return SlurmComputeBackend(cfg=self.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node)
-        elif self._plan and self._plan.platform == "lepton":
-            return self._plan.compute
-        else:
-            raise RuntimeError(f"Unsupported platform for compute backend: {self._plan.platform}")
+    def _make_compute_backend(self, handle: ServingHandle) -> ComputeBackend:
+        """Build the compute backend for a ready serving handle."""
+        assert self._plan is not None
+        return self._plan.make_compute_backend(handle)
 
     def status(self) -> ServingStatus:
         """Get the current status of the swarm.

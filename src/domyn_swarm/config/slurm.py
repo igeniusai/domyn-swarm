@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from domyn_swarm import utils
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
+from domyn_swarm.platform.protocols import ServingHandle
 
 _DCGM_DEFAULT_IMAGE = "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04"
 
@@ -440,7 +441,18 @@ class SlurmConfig(BaseModel):
 
         driver = SlurmDriver(cfg=cfg_ctx)
         serving = SlurmServingBackend(cfg=self, driver=driver)
-        compute = SlurmComputeBackend(cfg=self, lb_jobid=0, lb_node="")
+
+        def _make_compute(handle: ServingHandle) -> SlurmComputeBackend:
+            """Build the Slurm compute backend from a ready serving handle."""
+            lb_jobid = handle.meta.get("lb_jobid")
+            lb_node = handle.meta.get("lb_node")
+            if not lb_jobid or not lb_node:
+                raise RuntimeError(
+                    "Slurm serving handle is missing load-balancer metadata "
+                    f"(lb_jobid={lb_jobid!r}, lb_node={lb_node!r}); the endpoint "
+                    "is not ready."
+                )
+            return SlurmComputeBackend(cfg=self, lb_jobid=lb_jobid, lb_node=lb_node)
 
         serving_spec = self.model_dump(exclude_none=True) | cfg_ctx.model_dump(
             include={
@@ -456,7 +468,8 @@ class SlurmConfig(BaseModel):
         return DeploymentPlan(
             name_hint="slurm",
             serving=serving,
-            compute=compute,
+            compute=None,
+            compute_factory=_make_compute,
             serving_spec=serving_spec,
             job_resources={},
             extras={},

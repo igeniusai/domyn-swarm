@@ -131,10 +131,11 @@ class FakeComputeBackend:
 
 
 class FakePlan:
-    def __init__(self, platform="lepton"):
+    def __init__(self, platform="lepton", compute=None, compute_factory=None):
         self.platform = platform
         self.serving = SimpleNamespace()
-        self.compute = FakeComputeBackend()
+        self.compute = compute if compute is not None else FakeComputeBackend()
+        self.compute_factory = compute_factory
         self.serving_spec = {"replicas": 1, "resource_shape": "gpu.4xh200"}
         self.name_hint = platform
         self.extras = {}
@@ -142,6 +143,14 @@ class FakePlan:
         self.shared_env = {}
         self.image = None
         self.timeout_s = None
+
+    def make_compute_backend(self, handle):
+        """Mirror `DeploymentPlan.make_compute_backend` for delegation tests."""
+        if self.compute_factory is not None:
+            return self.compute_factory(handle)
+        if self.compute is not None:
+            return self.compute
+        raise RuntimeError(f"Platform {self.platform!r} supplies no compute backend")
 
 
 # ---------------------------
@@ -561,26 +570,26 @@ def test_from_state_forwards_to_state_manager(monkeypatch, patch_state_mgr):
     assert out.deployment_name == "name"
 
 
-def test_make_compute_backend_slurm_happy_path(monkeypatch, tmp_path):
-    # Patch SlurmConfig and SlurmComputeBackend in the module so isinstance checks pass
-    class _SlurmConfig:
-        pass
-
+def test_make_compute_backend_slurm_happy_path(tmp_path):
+    # `_make_compute_backend` now just delegates to `plan.make_compute_backend`;
+    # exercise that delegation through a fake plan with a Slurm-shaped factory.
     class _SlurmCompute:
-        def __init__(self, cfg, lb_jobid, lb_node):
-            self.cfg, self.lb_jobid, self.lb_node = cfg, lb_jobid, lb_node
+        def __init__(self, lb_jobid, lb_node):
+            self.lb_jobid, self.lb_node = lb_jobid, lb_node
 
-    monkeypatch.setattr(mod, "SlurmConfig", _SlurmConfig)
-    monkeypatch.setattr(mod, "SlurmComputeBackend", _SlurmCompute)
+    def _compute_factory(handle):
+        return _SlurmCompute(handle.meta["lb_jobid"], handle.meta["lb_node"])
 
     cfg = SimpleNamespace(
         name="n",
         model="m1",
         wait_endpoint_s=5,
-        backend=_SlurmConfig(),
+        backend=SimpleNamespace(),
         home_directory=tmp_path,
     )
-    cfg.get_deployment_plan = lambda: FakePlan(platform="slurm")
+    cfg.get_deployment_plan = lambda: FakePlan(
+        platform="slurm", compute=None, compute_factory=_compute_factory
+    )
     swarm = make_swarm(cfg)
 
     # Fake handle with required metadata:
@@ -592,24 +601,32 @@ def test_make_compute_backend_slurm_happy_path(monkeypatch, tmp_path):
     assert comp.lb_jobid == 777 and comp.lb_node == "nodeX"
 
 
-def test_make_compute_backend_slurm_missing_meta_raises(monkeypatch, tmp_path):
-    class _SlurmConfig:
-        pass
-
-    monkeypatch.setattr(mod, "SlurmConfig", _SlurmConfig)
+def test_make_compute_backend_slurm_missing_meta_raises(tmp_path):
+    def _compute_factory(handle):
+        lb_jobid = handle.meta.get("lb_jobid")
+        lb_node = handle.meta.get("lb_node")
+        if not lb_jobid or not lb_node:
+            raise RuntimeError(
+                "Slurm serving handle is missing load-balancer metadata "
+                f"(lb_jobid={lb_jobid!r}, lb_node={lb_node!r}); the endpoint "
+                "is not ready."
+            )
+        return lb_jobid, lb_node  # pragma: no cover - unreachable in this test
 
     cfg = SimpleNamespace(
         name="",
         model="m1",
         wait_endpoint_s=5,
-        backend=_SlurmConfig(),
+        backend=SimpleNamespace(),
         home_directory=tmp_path,
     )
-    cfg.get_deployment_plan = lambda: FakePlan(platform="slurm")
+    cfg.get_deployment_plan = lambda: FakePlan(
+        platform="slurm", compute=None, compute_factory=_compute_factory
+    )
     swarm = make_swarm(cfg)
 
     handle = SimpleNamespace(id="dep", url="", meta={})  # missing lb_* keys
-    with pytest.raises(RuntimeError, match="LB Job ID/Node missing"):
+    with pytest.raises(RuntimeError, match="lb_jobid"):
         swarm._make_compute_backend(handle)
 
 

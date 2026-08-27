@@ -9,16 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
-from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.exceptions import JobNotFoundError
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.platform.protocols import JobStatus, ServingHandle
 
 if TYPE_CHECKING:
-    from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
-
     from ..swarm import DomynLLMSwarm
 
 from .db import make_session_factory
@@ -110,22 +106,8 @@ class SwarmStateManager:
         swarm.serving_handle = serving_handle
         swarm._deployment._handle = serving_handle
 
-        platform = swarm._platform
-        if platform == "slurm":
-            backend = cls._get_slurm_backend(
-                handle=swarm.serving_handle, slurm_cfg=swarm.cfg.backend
-            )
-        elif platform == "lepton":
-            from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
-
-            assert isinstance(swarm.cfg.backend, LeptonConfig)
-            backend = LeptonComputeBackend(
-                workspace=swarm.cfg.backend.workspace_id
-            )  # adjust as needed
-        else:
-            raise ValueError(f"Unsupported platform: {platform}")
-
-        swarm._deployment.compute = backend
+        assert swarm._plan is not None
+        swarm._deployment.compute = swarm._plan.make_compute_backend(serving_handle)
         return swarm
 
     @classmethod
@@ -203,20 +185,6 @@ class SwarmStateManager:
             }
             for r in rows
         ]
-
-    @classmethod
-    def _get_slurm_backend(cls, handle, slurm_cfg) -> "SlurmComputeBackend":
-        from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
-
-        jobid = handle.meta.get("jobid")
-        lb_jobid = handle.meta.get("lb_jobid")
-        lb_node = handle.meta.get("lb_node")
-        if jobid is None:
-            raise ValueError("State file does not contain valid job IDs")
-        if lb_jobid is None or lb_node is None:
-            raise ValueError("State file does not contain valid LB job info")
-        assert isinstance(slurm_cfg, SlurmConfig)
-        return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)
 
     @classmethod
     def get_creation_dt(cls, deployment_name: str) -> datetime | None:

@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2025-2026 Domyn
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
-from domyn_swarm.platform.protocols import ComputeBackend, ServingBackend
+from domyn_swarm.platform.protocols import ComputeBackend, ServingBackend, ServingHandle
 
 
 @dataclass
@@ -21,21 +22,50 @@ class DeploymentContext:
 
 @dataclass
 class DeploymentPlan:
-    """
-    Fully constructed pair (serving, compute) plus per-backend specs
-    that the app will use when calling Deployment.up()/run().
+    """A fully constructed (serving, compute) pair plus per-backend specs.
+
+    Attributes:
+        compute: The compute backend, when it can be built without a live
+            serving endpoint. ``None`` for platforms whose compute backend
+            depends on the handle (Slurm needs ``lb_jobid``/``lb_node``).
+        compute_factory: Builds the compute backend from a ready
+            :class:`ServingHandle`. Takes precedence over ``compute``.
+        platform: Platform identifier, matching ``cfg.backend.type``.
     """
 
-    name_hint: str  # optional suffix/prefix for generated names
+    name_hint: str
     serving: ServingBackend
-    compute: ComputeBackend
-    serving_spec: dict  # pass to DeploymentContext for Deployment.up(...)
-    job_resources: dict  # optional: pass/merge when running jobs
-    extras: dict  # any useful extras (e.g., workspace id)
+    compute: ComputeBackend | None
+    serving_spec: dict
+    job_resources: dict
+    extras: dict
     shared_env: dict[str, str] = field(default_factory=dict)
     image: str | None = None
     timeout_s: int | None = None
-    platform: Literal["lepton", "slurm"] = "slurm"
+    platform: str = "slurm"
+    compute_factory: Callable[[ServingHandle], ComputeBackend] | None = None
+
+    def make_compute_backend(self, handle: ServingHandle) -> ComputeBackend:
+        """Return the compute backend for a ready serving endpoint.
+
+        Args:
+            handle: The handle returned once the serving endpoint is ready.
+
+        Returns:
+            The compute backend to submit jobs against this endpoint.
+
+        Raises:
+            RuntimeError: If the platform supplies neither a factory nor a
+                plan-time compute backend.
+        """
+        if self.compute_factory is not None:
+            return self.compute_factory(handle)
+        if self.compute is not None:
+            return self.compute
+        raise RuntimeError(
+            f"Platform {self.platform!r} supplies no compute backend: its build() "
+            "must set either `compute` or `compute_factory`."
+        )
 
 
 class PlanBuilder:
