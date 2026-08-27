@@ -216,3 +216,54 @@ def test_from_record_rejects_an_incoherent_slurm_record(swarm: DomynLLMSwarm) ->
 
     with pytest.raises(ValueError, match="job IDs"):
         SwarmStateManager.load(deployment_name="swarm")
+
+
+def test_construction_creates_no_directories(
+    db_path: Path, slurm_cfg: DomynLLMSwarmConfig, tmp_path: Path
+) -> None:
+    """Instantiating a swarm must not touch the filesystem."""
+    before = set(tmp_path.rglob("*"))
+
+    DomynLLMSwarm(name="inert", cfg=slurm_cfg)
+
+    assert set(tmp_path.rglob("*")) == before
+
+
+def test_ensure_directories_is_idempotent(db_path: Path, slurm_cfg: DomynLLMSwarmConfig) -> None:
+    """The directory layout is created on demand, and calling twice is safe."""
+    swarm = DomynLLMSwarm(name="dirs", cfg=slurm_cfg)
+
+    swarm.ensure_directories()
+    swarm.ensure_directories()
+
+    for sub in (
+        "serving",
+        "jobs",
+        "checkpoints",
+        "logs/endpoint",
+        "logs/replicas",
+        "logs/slurm",
+    ):
+        assert (swarm.swarm_dir / sub).is_dir(), f"missing {sub}"
+
+
+def test_construction_imports_no_serving_backend(
+    db_path: Path, slurm_cfg: DomynLLMSwarmConfig
+) -> None:
+    """A cheap constructor is what lets read-only consumers use the real swarm.
+
+    Guards the deletion of load_monitor_view, whose docstring justified itself
+    by the ~400 modules a constructor used to pull in.
+    """
+    import subprocess
+    import sys
+
+    script = (
+        "import sys;"
+        "import domyn_swarm.core.swarm as m;"
+        "assert 'domyn_swarm.backends.serving.slurm' not in sys.modules, "
+        "'serving backend imported at module load'"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr

@@ -199,8 +199,9 @@ def make_swarm(cfg):
     Create a DomynLLMSwarm instance using model_construct to avoid
     pydantic validations and then manually inject plan/deployment/state.
 
-    `platform` is a read-only property derived from `cfg.backend.type`, so it
-    needs no manual injection here.
+    `_plan` and `_deployment` are lazy read-only properties, so the fakes go
+    into the caches they memoize into. `platform` is a read-only property
+    derived from `cfg.backend.type`, so it needs no manual injection here.
     """
     # pydantic v2: model_construct
     swarm = DomynLLMSwarm.model_construct(
@@ -210,12 +211,12 @@ def make_swarm(cfg):
         delete_on_exit=False,
         serving_handle=None,
     )
-    # Inject state mgr and deployment based on plan (like model_post_init would)
+    # Inject state mgr and deployment based on plan, pre-empting the lazy build
     plan = cfg.get_deployment_plan()
-    swarm._plan = plan  # type: ignore[attr-defined]
-    swarm._deployment = FakeDeployment(
+    swarm._plan_cache = plan  # type: ignore[assignment]
+    swarm._deployment_cache = FakeDeployment(
         serving=plan.serving, compute=plan.compute, extras=plan.extras
-    )  # type: ignore[attr-defined]
+    )  # type: ignore[assignment]
     swarm._state_mgr = FakeStateMgr(swarm)  # type: ignore[attr-defined]
     return swarm
 
@@ -767,7 +768,7 @@ def test_refresh_job_status_probe_error_is_best_effort(cfg_stub, monkeypatch):
 def test_status_reports_unknown_before_deployment(cfg_stub, mocker):
     """A swarm that was never deployed reports UNKNOWN rather than raising."""
     swarm = make_swarm(cfg_stub)
-    swarm._deployment = Deployment(serving=mocker.Mock(), compute=mocker.Mock())
+    swarm._deployment_cache = Deployment(serving=mocker.Mock(), compute=mocker.Mock())
 
     status = swarm.status()
 
@@ -778,7 +779,7 @@ def test_status_keeps_known_endpoint_when_backend_reports_none(cfg_stub, mocker)
     """A recovered swarm still reports the endpoint it knows about."""
     swarm = make_swarm(cfg_stub)
     swarm.endpoint = "http://recovered:9000"
-    swarm._deployment = Deployment(serving=mocker.Mock(), compute=mocker.Mock())
+    swarm._deployment_cache = Deployment(serving=mocker.Mock(), compute=mocker.Mock())
 
     status = swarm.status()
 

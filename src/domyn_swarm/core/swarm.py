@@ -15,12 +15,13 @@ import warnings
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     computed_field,
 )
 from ulid import ULID
 
 from domyn_swarm import utils
-from domyn_swarm.config.plan import DeploymentContext
+from domyn_swarm.config.plan import DeploymentContext, DeploymentPlan
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
@@ -159,6 +160,9 @@ class DomynLLMSwarm(BaseModel):
         default_factory=lambda data: data["swarm_dir"] / "watchdog.db",
     )
 
+    _plan_cache: DeploymentPlan | None = PrivateAttr(default=None)
+    _deployment_cache: Deployment | None = PrivateAttr(default=None)
+
     @computed_field
     @property
     def model(self) -> str:
@@ -187,9 +191,19 @@ class DomynLLMSwarm(BaseModel):
         return self.cfg.backend.type
 
     def model_post_init(self, __context: Any) -> None:
-        """Post-init to set up the deployment backend."""
+        """Wire up in-memory collaborators. Performs no I/O."""
+        self._cleaned = False
+        self._state_mgr = SwarmStateManager(self)
 
-        swarm_dirs = [
+    def ensure_directories(self) -> None:
+        """Create this swarm's on-disk layout. Idempotent.
+
+        Called before deploying (the sbatch templates reference these paths and
+        Slurm rejects a submission whose output directory is missing) and before
+        writing checkpoints on a swarm reattached via :meth:`from_state`, which
+        does not pass through the context manager.
+        """
+        for directory in (
             self.swarm_dir,
             self.swarm_dir / "serving",
             self.swarm_dir / "jobs",
@@ -197,28 +211,47 @@ class DomynLLMSwarm(BaseModel):
             self.swarm_dir / "logs" / "endpoint",
             self.swarm_dir / "logs" / "replicas",
             self.swarm_dir / "logs" / "slurm",
-        ]
-        for d in swarm_dirs:
-            os.makedirs(d, exist_ok=True)
+        ):
+            os.makedirs(directory, exist_ok=True)
 
-        self._cleaned = False
-        self._state_mgr = SwarmStateManager(self)
+    @property
+    def _plan(self) -> DeploymentPlan:
+        """The deployment plan, built on first access.
 
-        plan = self.cfg.get_deployment_plan()
-        if plan is None and self.cfg.backend is not None:
-            plan = self.cfg.build_plan()
+        Returns:
+            The plan for this swarm's configured backend.
 
-        if plan is not None:
-            extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
-            self._plan = plan
-            self._deployment = Deployment(
+        Raises:
+            RuntimeError: If the config carries no backend, so no plan exists.
+        """
+        if self._plan_cache is None:
+            plan = self.cfg.get_deployment_plan()
+            if plan is None and self.cfg.backend is not None:
+                plan = self.cfg.build_plan()
+            if plan is None:
+                raise RuntimeError("Swarm config has no backend, so no plan can be built")
+            self._plan_cache = plan
+        return self._plan_cache
+
+    @property
+    def _deployment(self) -> Deployment:
+        """The deployment, built on first access from the plan.
+
+        Returns:
+            The (serving, compute) pair this swarm drives.
+        """
+        if self._deployment_cache is None:
+            plan = self._plan
+            self._deployment_cache = Deployment(
                 serving=plan.serving,
                 compute=plan.compute,  # type: ignore[arg-type]
-                extras=extras,
+                extras=plan.extras | {"swarm_directory": str(self.swarm_dir)},
             )
-            return
+        return self._deployment_cache
 
     def __enter__(self):
+        self.ensure_directories()
+
         # If instantiating from state, the swarm will be already deployed,
         # so just return self
         if self.serving_handle is not None:
@@ -594,6 +627,10 @@ class DomynLLMSwarm(BaseModel):
                 stacklevel=2,
             )
             num_shards = num_threads
+
+        # A swarm reattached via `from_state` never passed through the context
+        # manager, so its layout may not exist yet.
+        self.ensure_directories()
 
         if checkpoint_dir is None:
             checkpoint_dir = self.swarm_dir / "checkpoints"
@@ -1019,7 +1056,9 @@ class DomynLLMSwarm(BaseModel):
         """
         if self._cleaned:
             return
-        if self._deployment and self.serving_handle:
+        # Handle first: a swarm that never deployed needs no deployment built
+        # just to decide there is nothing to tear down.
+        if self.serving_handle and self._deployment:
             self._deployment.down(self.serving_handle)
         self._delete_record()
         self._cleaned = True
@@ -1066,6 +1105,8 @@ class DomynLLMSwarm(BaseModel):
         Returns:
             The backend-reported serving status.
         """
-        if self._deployment is None or self.serving_handle is None:
+        # Handle first, so a never-deployed swarm answers without building a
+        # deployment (and importing its serving backend) to do it.
+        if self.serving_handle is None or self._deployment is None:
             return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
         return self._deployment.serving.status(self.serving_handle)
