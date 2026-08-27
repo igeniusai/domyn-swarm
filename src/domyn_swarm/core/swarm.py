@@ -46,7 +46,6 @@ if TYPE_CHECKING:
     from domyn_swarm.jobs import SwarmJob
 
 logger = setup_logger(__name__, level=logging.INFO)
-settings = get_settings()
 
 
 class DomynLLMSwarm(BaseModel):
@@ -640,7 +639,7 @@ class DomynLLMSwarm(BaseModel):
                 "JOB_CLASS": job_class,
             }
         )
-        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
+        token = get_settings().resolved_api_token
         if token:
             env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
             env["VLLM_API_KEY"] = token.get_secret_value()

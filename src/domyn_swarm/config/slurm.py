@@ -8,10 +8,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from domyn_swarm import utils
 from domyn_swarm.config.defaults import default_for
 from domyn_swarm.config.plan import DeploymentPlan
-from domyn_swarm.config.settings import get_settings
-
-settings = get_settings()
-
 
 _DCGM_DEFAULT_IMAGE = "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04"
 

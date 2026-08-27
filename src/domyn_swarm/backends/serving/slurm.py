@@ -24,8 +24,6 @@ from domyn_swarm.platform.protocols import (
     ServingStatus,
 )
 
-settings = get_settings()
-
 
 @dataclass
 class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
@@ -47,6 +45,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
     readiness: SlurmReadiness | None = None
 
     def create_or_update(self, name: str, spec: dict, extras: dict) -> ServingHandle:
+        settings = get_settings()
         replicas = spec.get("replicas", 1)
         nodes = spec.get("nodes", 1)
         gpus_per_node = spec.get("gpus_per_node", 1)
@@ -141,9 +140,7 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             handle.meta["lb_jobid"]
         )
         base = f"http://{lb_node}:{self.cfg.endpoint.port}"
-        api_token = (
-            settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
-        )
+        api_token = get_settings().resolved_api_token
         try:
             if api_token:
                 headers = {"Authorization": f"Bearer {api_token.get_secret_value()}"}

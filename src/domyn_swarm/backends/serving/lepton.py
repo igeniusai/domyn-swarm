@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 
 logger = setup_logger(__name__, level=logging.INFO)
 
-settings = get_settings()
-
 
 @dataclass
 class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
@@ -65,9 +63,8 @@ class LeptonServingBackend(ServingBackend):  # type: ignore[misc]
     def _client(self) -> "APIClient":
         if self._client_cached is None:
             _require_lepton()  # quick availability check
-            token = (
-                settings.lepton_api_token.get_secret_value() if settings.lepton_api_token else None
-            )
+            lepton_api_token = get_settings().lepton_api_token
+            token = lepton_api_token.get_secret_value() if lepton_api_token else None
             self._client_cached = make_lepton_client(
                 token=token,
                 workspace=getattr(self, "workspace", None),

@@ -72,6 +72,7 @@ def test_wait_http_200_includes_token(monkeypatch):
         api_token = DummyToken()
         vllm_api_key = None
         singularityenv_vllm_api_key = None
+        resolved_api_token = DummyToken()
 
     monkeypatch.setattr("domyn_swarm.platform.http_probe.get_settings", lambda: DummySettings())
 
