@@ -55,7 +55,7 @@ def test_monitor_uses_custom_dashboard(monkeypatch, tmp_path):
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
     monkeypatch.setattr(
-        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+        SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm)
     )
     monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
     captured: dict = {}
@@ -73,7 +73,7 @@ def test_monitor_rejects_missing_custom_dashboard(monkeypatch, tmp_path):
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
     monkeypatch.setattr(
-        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+        SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm)
     )
     monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
 
@@ -100,7 +100,7 @@ def test_monitor_autofills_and_overrides_variables(monkeypatch):
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
     monkeypatch.setattr(
-        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+        SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm)
     )
     monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
     captured: dict = {}
@@ -127,7 +127,7 @@ def test_monitor_exits_cleanly_when_endpoint_has_no_monitoring(monkeypatch):
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
     monkeypatch.setattr(
-        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+        SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm)
     )
 
     with pytest.raises(typer.Exit) as ei:
@@ -198,7 +198,7 @@ def test_monitor_appends_ray_panels_when_ray_metrics_enabled(monkeypatch, tmp_pa
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
     monkeypatch.setattr(
-        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+        SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm)
     )
     monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
     captured: dict = {}
@@ -222,7 +222,7 @@ def test_monitor_skips_ray_panels_when_dashboard_overridden(monkeypatch, tmp_pat
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
     monkeypatch.setattr(
-        SwarmStateManager, "load_monitor_view", classmethod(lambda cls, deployment_name: swarm)
+        SwarmStateManager, "load", classmethod(lambda cls, deployment_name: swarm)
     )
     monkeypatch.setattr(monitor_mod.shutil, "which", lambda _: "/usr/bin/grafatui")
     captured: dict = {}

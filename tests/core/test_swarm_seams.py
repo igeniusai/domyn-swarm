@@ -267,3 +267,10 @@ def test_construction_imports_no_serving_backend(
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_monitor_reads_through_the_normal_load_path() -> None:
+    """There is one read path for persisted swarms, not two."""
+    from domyn_swarm.core.state import state_manager
+
+    assert not hasattr(state_manager.SwarmStateManager, "load_monitor_view")
