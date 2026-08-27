@@ -114,3 +114,34 @@ def test_saved_swarm_reports_its_platform_in_list_all(swarm: DomynLLMSwarm) -> N
     row = next(r for r in rows if r["deployment_name"] == "swarm")
 
     assert row["platform"] == "slurm"
+
+
+def test_serving_status_queries_the_backend(
+    swarm: DomynLLMSwarm, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller can ask for live serving status without touching privates."""
+    from domyn_swarm.platform.protocols import ServingPhase, ServingStatus
+
+    seen: dict = {}
+
+    def fake_status(handle):
+        seen["handle"] = handle
+        return ServingStatus(phase=ServingPhase.RUNNING, url="http://lb:9003")
+
+    monkeypatch.setattr(swarm._deployment.serving, "status", fake_status)
+
+    result = swarm.serving_status()
+
+    assert result.phase is ServingPhase.RUNNING
+    assert seen["handle"] is swarm.serving_handle
+
+
+def test_serving_status_on_an_undeployed_swarm_is_unknown(
+    db_path: Path, slurm_cfg: DomynLLMSwarmConfig
+) -> None:
+    """Asking a never-deployed swarm for status is a question, not an assertion."""
+    from domyn_swarm.platform.protocols import ServingPhase
+
+    undeployed = DomynLLMSwarm(name="never-up", cfg=slurm_cfg)
+
+    assert undeployed.serving_status().phase is ServingPhase.UNKNOWN

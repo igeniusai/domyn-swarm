@@ -91,8 +91,7 @@ def _iter_summaries(*, probe: bool) -> Iterable[SwarmSummary]:
             try:
                 # Load a live swarm and ask the serving backend for status
                 swarm = DomynLLMSwarm.from_state(deployment_name=deployment_name)
-                # Prefer serving.status(handle) if present
-                st = swarm._deployment.serving.status(swarm.serving_handle)  # type: ignore[attr-defined]
+                st = swarm.serving_status()
                 if st.phase in hidden_phases:
                     continue  # skip dirty swarms
                 phase = st.phase.value

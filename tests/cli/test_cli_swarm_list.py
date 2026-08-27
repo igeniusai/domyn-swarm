@@ -17,16 +17,9 @@ def _rec(name="alpha", platform="slurm", endpoint="http://alpha:9000"):
 
 
 def _fake_swarm_with_status(status: ServingStatus):
-    class _Serving:
-        def status(self, handle):
-            return status
-
-    class _Dep:
-        serving = _Serving()
-
     class _Swarm:
-        _deployment = _Dep()
-        serving_handle = object()
+        def serving_status(self):
+            return status
 
     return _Swarm()
 

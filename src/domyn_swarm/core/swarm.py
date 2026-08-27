@@ -1021,3 +1021,18 @@ class DomynLLMSwarm(BaseModel):
         if status.url is None:
             status.url = self.endpoint
         return status
+
+    def serving_status(self) -> ServingStatus:
+        """Ask the serving backend for this swarm's live status.
+
+        Unlike :meth:`status`, which reports what this object already knows,
+        this queries the backend directly. Safe at any point in the lifecycle:
+        a swarm that was never deployed reports
+        :attr:`~domyn_swarm.platform.protocols.ServingPhase.UNKNOWN`.
+
+        Returns:
+            The backend-reported serving status.
+        """
+        if self._deployment is None or self.serving_handle is None:
+            return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
+        return self._deployment.serving.status(self.serving_handle)
