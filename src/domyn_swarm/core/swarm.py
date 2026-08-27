@@ -15,7 +15,6 @@ import warnings
 from pydantic import (
     BaseModel,
     Field,
-    PrivateAttr,
     computed_field,
 )
 from ulid import ULID
@@ -151,7 +150,6 @@ class DomynLLMSwarm(BaseModel):
         False  # Delete the resources for this cluster at the end of the job
     )
     serving_handle: ServingHandle | None = None  # ServingHandle, set after deployment
-    _platform: str = PrivateAttr("")
     swarm_dir: utils.EnvPath = Field(
         description="Directory where swarm-related files are stored",
         default_factory=lambda data: data["cfg"].home_directory / "swarms" / data["name"],
@@ -178,6 +176,16 @@ class DomynLLMSwarm(BaseModel):
         """
         self.cfg.model = value
 
+    @property
+    def platform(self) -> str:
+        """The platform this swarm deploys to, e.g. ``"slurm"`` or ``"lepton"``.
+
+        Derived from ``cfg.backend.type``, which is the authoritative value and
+        is present in every persisted record.
+        """
+        assert self.cfg.backend is not None, "Swarm config has no backend"
+        return self.cfg.backend.type
+
     def model_post_init(self, __context: Any) -> None:
         """Post-init to set up the deployment backend."""
 
@@ -203,7 +211,6 @@ class DomynLLMSwarm(BaseModel):
         if plan is not None:
             extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
             self._plan = plan
-            self._platform = plan.platform
             self._deployment = Deployment(
                 serving=plan.serving,
                 compute=plan.compute,  # type: ignore[arg-type]
@@ -229,7 +236,7 @@ class DomynLLMSwarm(BaseModel):
             image=self._plan.image,
         )
 
-        logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}...")
+        logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self.platform}...")
 
         handle = self._deployment.up(self.name, ctx)
 
@@ -337,7 +344,7 @@ class DomynLLMSwarm(BaseModel):
         try:
             job_id = SwarmStateManager.create_job(
                 deployment_name=self.name,
-                provider=self._platform,
+                provider=self.platform,
                 kind=kind,
                 status=status,
                 external_id=external_id,
@@ -597,7 +604,7 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(
             f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "
-            f"to swarm {self.name} on {self._platform}"
+            f"to swarm {self.name} on {self.platform}"
         )
 
         return self._submit_with_tracking(
@@ -837,7 +844,7 @@ class DomynLLMSwarm(BaseModel):
         """
 
         # Basic validation
-        if self._platform == "slurm" and not script_path.is_file():
+        if self.platform == "slurm" and not script_path.is_file():
             raise FileNotFoundError(f"Script not found: {script_path}")
 
         # Compose runtime (interpreter/image/resources/env) once

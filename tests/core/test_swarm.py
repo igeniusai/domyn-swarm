@@ -186,7 +186,7 @@ def cfg_stub(tmp_path):
         name="name",
         model="m1",
         wait_endpoint_s=30,
-        backend=SimpleNamespace(env={"X": "Y"}),
+        backend=SimpleNamespace(env={"X": "Y"}, type="lepton"),
         home_directory=tmp_path,
     )
     stub.get_deployment_plan = lambda: FakePlan(platform="lepton")
@@ -197,7 +197,10 @@ def cfg_stub(tmp_path):
 def make_swarm(cfg):
     """
     Create a DomynLLMSwarm instance using model_construct to avoid
-    pydantic validations and then manually inject plan/deployment/platform/state.
+    pydantic validations and then manually inject plan/deployment/state.
+
+    `platform` is a read-only property derived from `cfg.backend.type`, so it
+    needs no manual injection here.
     """
     # pydantic v2: model_construct
     swarm = DomynLLMSwarm.model_construct(
@@ -210,7 +213,6 @@ def make_swarm(cfg):
     # Inject state mgr and deployment based on plan (like model_post_init would)
     plan = cfg.get_deployment_plan()
     swarm._plan = plan  # type: ignore[attr-defined]
-    swarm._platform = plan.platform  # type: ignore[attr-defined]
     swarm._deployment = FakeDeployment(
         serving=plan.serving, compute=plan.compute, extras=plan.extras
     )  # type: ignore[attr-defined]
@@ -252,7 +254,7 @@ def test_exit_with_delete_on_exit_calls_cleanup(cfg_stub):
 @pytest.mark.skip(reason="Validation not implemented yet")
 def test_deployment_name_sanitization_lepton(cfg_stub):
     swarm = make_swarm(cfg_stub)
-    swarm._platform = "lepton"  # type: ignore[attr-defined]
+    swarm.cfg.backend.type = "lepton"
     swarm.name = "Bad*Name/With Spaces & VeryVeryVeryVeryVeryLong0123456789"
     out = swarm._deployment_name()
     assert all(ch.isalnum() or ch in "-_" for ch in out)
@@ -263,7 +265,7 @@ def test_deployment_name_sanitization_lepton(cfg_stub):
 @pytest.mark.skip(reason="Validation not implemented yet")
 def test_deployment_name_sanitization_slurm(cfg_stub):
     swarm = make_swarm(cfg_stub)
-    swarm._platform = "slurm"  # type: ignore[attr-defined]
+    swarm.cfg.backend.type = "slurm"
     swarm.name = "Ok_Name-123$%^"
     out = swarm._deployment_name()
     assert all(ch.isalnum() or ch in "-_" for ch in out)

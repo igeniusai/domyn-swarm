@@ -334,7 +334,7 @@ def check_status(
     render_status(
         (
             name,
-            swarm._platform,
+            swarm.platform,
             serving_status or ServingStatus(phase=ServingPhase.UNKNOWN, url=swarm.endpoint),
         ),
         replica_summary=replica_summary,
@@ -418,7 +418,7 @@ def _build_status_json(
         )
         started_at_iso = started_at.isoformat()
 
-        if swarm._platform == "slurm":
+        if swarm.platform == "slurm":
             from ..helpers.slurm import parse_slurm_time_limit
 
             time_limit = getattr(swarm.cfg.backend, "time_limit", None)
@@ -427,7 +427,7 @@ def _build_status_json(
                 expires_at_iso = (started_at + delta).isoformat()
 
     slurm_jobs: list[dict] | None = None
-    if swarm._platform == "slurm" and swarm.serving_handle is not None:
+    if swarm.platform == "slurm" and swarm.serving_handle is not None:
         meta = swarm.serving_handle.meta or {}
         jobs: list[dict] = []
         if meta.get("jobid") is not None:
@@ -445,7 +445,7 @@ def _build_status_json(
     payload: dict = {
         "schema_version": 1,
         "name": name,
-        "backend": swarm._platform,
+        "backend": swarm.platform,
         "phase": phase,
         "state": phase,
         "ready": ready,

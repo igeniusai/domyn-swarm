@@ -154,7 +154,7 @@ def describe_swarm(
     # Load a single record from state
     swarm = SwarmStateManager.load(deployment_name=name)
 
-    backend = swarm._platform.lower()
+    backend = swarm.platform.lower()
     endpoint = swarm.endpoint or ""
     cfg = swarm.cfg
     data = cfg.model_dump(mode="json", by_alias=True, exclude_none=True)

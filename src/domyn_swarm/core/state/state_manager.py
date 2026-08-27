@@ -107,7 +107,7 @@ class SwarmStateManager:
         swarm._deployment._handle = serving_handle
 
         assert swarm._plan is not None
-        if swarm._plan.platform == "slurm" and serving_handle.meta.get("jobid") is None:
+        if swarm.platform == "slurm" and serving_handle.meta.get("jobid") is None:
             # The compute backend itself only needs lb_jobid/lb_node, but the
             # Slurm serving backend later indexes handle.meta["jobid"]
             # directly (see backends/serving/slurm.py). Fail loudly here,
@@ -186,7 +186,7 @@ class SwarmStateManager:
                 "creation_dt": r.creation_dt.isoformat(),
                 # Optional: convenience fan-out of commonly used fields:
                 "endpoint": (r.swarm or {}).get("endpoint", ""),
-                "platform": (r.swarm or {}).get("_platform", ""),
+                "platform": (r.cfg or {}).get("backend", {}).get("type", ""),
                 "name": (r.swarm or {}).get("name", r.deployment_name),
             }
             for r in rows
