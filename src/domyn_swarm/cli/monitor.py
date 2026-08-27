@@ -15,7 +15,7 @@ from importlib import resources
 import os
 from pathlib import Path
 import shutil
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
@@ -190,10 +190,10 @@ def monitor(
     """Launch grafatui pointed at the swarm's Prometheus endpoint."""
     from domyn_swarm.core.state.state_manager import SwarmStateManager
 
-    # Lightweight read: just endpoint + cfg, without building the deployment plan
-    # (which would import the whole serving backend that monitoring never uses).
-    swarm: Any = SwarmStateManager.load_monitor_view(deployment_name=name)
-    mon = getattr(swarm.cfg.backend.endpoint, "monitoring", None)
+    swarm = SwarmStateManager.load(deployment_name=name)
+    backend = swarm.cfg.backend
+    assert backend is not None, "Loaded swarm has no backend configuration"
+    mon = getattr(backend.endpoint, "monitoring", None)
     if not getattr(mon, "enabled", False):
         typer.echo(
             f"Monitoring is not enabled for swarm '{name}'. "

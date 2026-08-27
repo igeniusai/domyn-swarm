@@ -105,7 +105,7 @@ def db_prune(
             continue
         try:
             swarm = DomynLLMSwarm.from_state(deployment_name=deployment_name)
-            st = swarm._deployment.serving.status(swarm.serving_handle)  # type: ignore[attr-defined]
+            st = swarm.serving_status()
         except Exception as e:
             logger.debug(f"Status probe failed for {deployment_name}: {e}")
             to_be_deleted.append(deployment_name)

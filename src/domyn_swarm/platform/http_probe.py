@@ -24,8 +24,7 @@ def wait_http_200(
     on_tick: Callable[[], None] | None = None,
 ) -> None:
     deadline = now() + timeout_s
-    settings = get_settings()
-    token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
+    token = get_settings().resolved_api_token
     while now() < deadline:
         if on_tick:
             on_tick()

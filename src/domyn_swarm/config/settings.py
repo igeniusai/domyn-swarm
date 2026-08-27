@@ -56,6 +56,16 @@ class Settings(BaseSettings):
         description="Alternative env var for API token, used inside Singularity containers",
     )
 
+    @property
+    def resolved_api_token(self) -> SecretStr | None:
+        """Return the first configured LLM API token, in precedence order.
+
+        Returns:
+            ``api_token`` if set, else ``vllm_api_key``, else
+            ``singularityenv_vllm_api_key``, else ``None``.
+        """
+        return self.api_token or self.vllm_api_key or self.singularityenv_vllm_api_key
+
     # --- Slurm ---------------------------------------------------------------
     mail_user: str | None = Field(
         description="Email address for Slurm job notifications (if enabled)",

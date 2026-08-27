@@ -14,7 +14,7 @@ class DummyCfg(BaseModel):
 
 class FakeSwarm:
     def __init__(self, platform="slurm", endpoint="http://host:9000", cfg=None):
-        self._platform = platform
+        self.platform = platform
         self.endpoint = endpoint
         self.cfg = cfg or DummyCfg()
 

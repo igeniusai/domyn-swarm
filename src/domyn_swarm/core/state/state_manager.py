@@ -9,16 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
-from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.exceptions import JobNotFoundError
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.platform.protocols import JobStatus, ServingHandle
+from domyn_swarm.platform.protocols import JobStatus
 
 if TYPE_CHECKING:
-    from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
-
     from ..swarm import DomynLLMSwarm
 
 from .db import make_session_factory
@@ -91,6 +87,17 @@ class SwarmStateManager:
 
     @classmethod
     def load(cls, deployment_name: str):
+        """Rehydrate a swarm from its persisted record.
+
+        Args:
+            deployment_name: The deployment name to look up.
+
+        Returns:
+            A fully-built :class:`DomynLLMSwarm`.
+
+        Raises:
+            JobNotFoundError: If no record exists for that name.
+        """
         from ... import DomynLLMSwarm  # avoid import cycles
 
         session_factory = make_session_factory(cls._get_db_path())
@@ -99,59 +106,7 @@ class SwarmStateManager:
         if rec is None:
             raise JobNotFoundError(deployment_name)
 
-        # Rehydrate
-        swarm_dict = rec.swarm
-        swarm_dict["cfg"] = rec.cfg
-        handle_dict = rec.serving_handle
-
-        swarm = DomynLLMSwarm.model_validate(swarm_dict)
-        serving_handle = ServingHandle(**handle_dict)
-
-        swarm.serving_handle = serving_handle
-        swarm._deployment._handle = serving_handle
-
-        platform = swarm._platform
-        if platform == "slurm":
-            backend = cls._get_slurm_backend(
-                handle=swarm.serving_handle, slurm_cfg=swarm.cfg.backend
-            )
-        elif platform == "lepton":
-            from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
-
-            assert isinstance(swarm.cfg.backend, LeptonConfig)
-            backend = LeptonComputeBackend(
-                workspace=swarm.cfg.backend.workspace_id
-            )  # adjust as needed
-        else:
-            raise ValueError(f"Unsupported platform: {platform}")
-
-        swarm._deployment.compute = backend
-        return swarm
-
-    @classmethod
-    def load_monitor_view(cls, deployment_name: str):
-        """Lightweight read for read-only consumers (e.g. ``domyn-swarm monitor``).
-
-        Returns just the persisted endpoint and parsed config, WITHOUT constructing
-        a :class:`DomynLLMSwarm` — which would build the deployment plan and import
-        the whole serving backend (~400 modules) that monitoring never needs.
-
-        Returns:
-            An object exposing ``endpoint`` (str) and ``cfg`` (DomynLLMSwarmConfig).
-        """
-        from types import SimpleNamespace
-
-        from domyn_swarm.config.swarm import DomynLLMSwarmConfig
-
-        session_factory = make_session_factory(cls._get_db_path())
-        with session_factory() as s:
-            rec = s.get(SwarmRecord, deployment_name)
-        if rec is None:
-            raise JobNotFoundError(deployment_name)
-
-        cfg = DomynLLMSwarmConfig.model_validate(rec.cfg)
-        endpoint = (rec.swarm or {}).get("endpoint", "")
-        return SimpleNamespace(endpoint=endpoint, cfg=cfg)
+        return DomynLLMSwarm.from_record(rec.swarm, rec.cfg, rec.serving_handle)
 
     def delete_record(self, deployment_name: str) -> None:
         session_factory = make_session_factory(self._get_db_path())
@@ -198,25 +153,11 @@ class SwarmStateManager:
                 "creation_dt": r.creation_dt.isoformat(),
                 # Optional: convenience fan-out of commonly used fields:
                 "endpoint": (r.swarm or {}).get("endpoint", ""),
-                "platform": (r.swarm or {}).get("_platform", ""),
+                "platform": (r.cfg or {}).get("backend", {}).get("type", ""),
                 "name": (r.swarm or {}).get("name", r.deployment_name),
             }
             for r in rows
         ]
-
-    @classmethod
-    def _get_slurm_backend(cls, handle, slurm_cfg) -> "SlurmComputeBackend":
-        from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
-
-        jobid = handle.meta.get("jobid")
-        lb_jobid = handle.meta.get("lb_jobid")
-        lb_node = handle.meta.get("lb_node")
-        if jobid is None:
-            raise ValueError("State file does not contain valid job IDs")
-        if lb_jobid is None or lb_node is None:
-            raise ValueError("State file does not contain valid LB job info")
-        assert isinstance(slurm_cfg, SlurmConfig)
-        return SlurmComputeBackend(cfg=slurm_cfg, lb_jobid=lb_jobid, lb_node=lb_node)
 
     @classmethod
     def get_creation_dt(cls, deployment_name: str) -> datetime | None:

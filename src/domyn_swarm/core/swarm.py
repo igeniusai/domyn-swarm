@@ -21,16 +21,15 @@ from pydantic import (
 from ulid import ULID
 
 from domyn_swarm import utils
-from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
-from domyn_swarm.config.plan import DeploymentContext
+from domyn_swarm.config.plan import DeploymentContext, DeploymentPlan
 from domyn_swarm.config.settings import get_settings
-from domyn_swarm.config.slurm import SlurmConfig
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
 from domyn_swarm.helpers.swarm import generate_swarm_name
 from domyn_swarm.platform.protocols import (
+    ComputeBackend,
     JobHandle,
     JobProbe,
     JobStatus,
@@ -46,7 +45,6 @@ if TYPE_CHECKING:
     from domyn_swarm.jobs import SwarmJob
 
 logger = setup_logger(__name__, level=logging.INFO)
-settings = get_settings()
 
 
 class DomynLLMSwarm(BaseModel):
@@ -153,7 +151,6 @@ class DomynLLMSwarm(BaseModel):
         False  # Delete the resources for this cluster at the end of the job
     )
     serving_handle: ServingHandle | None = None  # ServingHandle, set after deployment
-    _platform: str = PrivateAttr("")
     swarm_dir: utils.EnvPath = Field(
         description="Directory where swarm-related files are stored",
         default_factory=lambda data: data["cfg"].home_directory / "swarms" / data["name"],
@@ -162,6 +159,9 @@ class DomynLLMSwarm(BaseModel):
         description="Path to the watchdog SQLite database file",
         default_factory=lambda data: data["swarm_dir"] / "watchdog.db",
     )
+
+    _plan_cache: DeploymentPlan | None = PrivateAttr(default=None)
+    _deployment_cache: Deployment | None = PrivateAttr(default=None)
 
     @computed_field
     @property
@@ -180,10 +180,30 @@ class DomynLLMSwarm(BaseModel):
         """
         self.cfg.model = value
 
-    def model_post_init(self, __context: Any) -> None:
-        """Post-init to set up the deployment backend."""
+    @property
+    def platform(self) -> str:
+        """The platform this swarm deploys to, e.g. ``"slurm"`` or ``"lepton"``.
 
-        swarm_dirs = [
+        Derived from ``cfg.backend.type``, which is the authoritative value and
+        is present in every persisted record.
+        """
+        assert self.cfg.backend is not None, "Swarm config has no backend"
+        return self.cfg.backend.type
+
+    def model_post_init(self, __context: Any) -> None:
+        """Wire up in-memory collaborators. Performs no I/O."""
+        self._cleaned = False
+        self._state_mgr = SwarmStateManager(self)
+
+    def ensure_directories(self) -> None:
+        """Create this swarm's on-disk layout. Idempotent.
+
+        Called before deploying (the sbatch templates reference these paths and
+        Slurm rejects a submission whose output directory is missing) and before
+        writing checkpoints on a swarm reattached via :meth:`from_state`, which
+        does not pass through the context manager.
+        """
+        for directory in (
             self.swarm_dir,
             self.swarm_dir / "serving",
             self.swarm_dir / "jobs",
@@ -191,25 +211,47 @@ class DomynLLMSwarm(BaseModel):
             self.swarm_dir / "logs" / "endpoint",
             self.swarm_dir / "logs" / "replicas",
             self.swarm_dir / "logs" / "slurm",
-        ]
-        for d in swarm_dirs:
-            os.makedirs(d, exist_ok=True)
+        ):
+            os.makedirs(directory, exist_ok=True)
 
-        self._cleaned = False
-        self._state_mgr = SwarmStateManager(self)
+    @property
+    def _plan(self) -> DeploymentPlan:
+        """The deployment plan, built on first access.
 
-        plan = self.cfg.get_deployment_plan()
-        if plan is None and self.cfg.backend is not None:
-            plan = self.cfg.build_plan()
+        Returns:
+            The plan for this swarm's configured backend.
 
-        if plan is not None:
-            extras = plan.extras | {"swarm_directory": str(self.swarm_dir)}
-            self._plan = plan
-            self._platform = plan.platform
-            self._deployment = Deployment(serving=plan.serving, compute=plan.compute, extras=extras)
-            return
+        Raises:
+            RuntimeError: If the config carries no backend, so no plan exists.
+        """
+        if self._plan_cache is None:
+            plan = self.cfg.get_deployment_plan()
+            if plan is None and self.cfg.backend is not None:
+                plan = self.cfg.build_plan()
+            if plan is None:
+                raise RuntimeError("Swarm config has no backend, so no plan can be built")
+            self._plan_cache = plan
+        return self._plan_cache
+
+    @property
+    def _deployment(self) -> Deployment:
+        """The deployment, built on first access from the plan.
+
+        Returns:
+            The (serving, compute) pair this swarm drives.
+        """
+        if self._deployment_cache is None:
+            plan = self._plan
+            self._deployment_cache = Deployment(
+                serving=plan.serving,
+                compute=plan.compute,  # type: ignore[arg-type]
+                extras=plan.extras | {"swarm_directory": str(self.swarm_dir)},
+            )
+        return self._deployment_cache
 
     def __enter__(self):
+        self.ensure_directories()
+
         # If instantiating from state, the swarm will be already deployed,
         # so just return self
         if self.serving_handle is not None:
@@ -227,7 +269,7 @@ class DomynLLMSwarm(BaseModel):
             image=self._plan.image,
         )
 
-        logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self._platform}...")
+        logger.info(f"Creating deployment [cyan]{self.name}[/cyan] on {self.platform}...")
 
         handle = self._deployment.up(self.name, ctx)
 
@@ -299,6 +341,39 @@ class DomynLLMSwarm(BaseModel):
         """
         return SwarmStateManager.load(deployment_name)
 
+    @classmethod
+    def from_record(
+        cls,
+        swarm_payload: dict,
+        cfg_payload: dict,
+        handle_payload: dict,
+    ) -> DomynLLMSwarm:
+        """Build a complete swarm from persisted state.
+
+        Args:
+            swarm_payload: The persisted ``swarm`` column, without ``cfg``.
+            cfg_payload: The persisted ``cfg`` column.
+            handle_payload: The persisted ``serving_handle`` column.
+
+        Returns:
+            A swarm with its handle adopted and its compute backend built.
+
+        Raises:
+            ValueError: If the record's serving handle is missing metadata the
+                platform needs; see
+                :meth:`~domyn_swarm.config.plan.DeploymentPlan.validate_serving_handle`.
+        """
+        swarm = cls.model_validate({**swarm_payload, "cfg": cfg_payload})
+        handle = ServingHandle(**handle_payload)
+
+        assert swarm._plan is not None, "Swarm was built without a deployment plan"
+        swarm._plan.validate_serving_handle(handle)
+
+        swarm.serving_handle = handle
+        swarm._deployment.adopt(handle)
+        swarm._deployment.compute = swarm._plan.make_compute_backend(handle)
+        return swarm
+
     def _delete_record(self) -> None:
         """Delete swarm from the DB
 
@@ -335,7 +410,7 @@ class DomynLLMSwarm(BaseModel):
         try:
             job_id = SwarmStateManager.create_job(
                 deployment_name=self.name,
-                provider=self._platform,
+                provider=self.platform,
                 kind=kind,
                 status=status,
                 external_id=external_id,
@@ -553,6 +628,10 @@ class DomynLLMSwarm(BaseModel):
             )
             num_shards = num_threads
 
+        # A swarm reattached via `from_state` never passed through the context
+        # manager, so its layout may not exist yet.
+        self.ensure_directories()
+
         if checkpoint_dir is None:
             checkpoint_dir = self.swarm_dir / "checkpoints"
 
@@ -595,7 +674,7 @@ class DomynLLMSwarm(BaseModel):
 
         logger.info(
             f"Submitting {job.__class__.__name__} [cyan]{job_name}[/cyan] job "
-            f"to swarm {self.name} on {self._platform}"
+            f"to swarm {self.name} on {self.platform}"
         )
 
         return self._submit_with_tracking(
@@ -640,7 +719,7 @@ class DomynLLMSwarm(BaseModel):
                 "JOB_CLASS": job_class,
             }
         )
-        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
+        token = get_settings().resolved_api_token
         if token:
             env["DOMYN_SWARM_API_TOKEN"] = token.get_secret_value()
             env["VLLM_API_KEY"] = token.get_secret_value()
@@ -835,7 +914,7 @@ class DomynLLMSwarm(BaseModel):
         """
 
         # Basic validation
-        if self._platform == "slurm" and not script_path.is_file():
+        if self.platform == "slurm" and not script_path.is_file():
             raise FileNotFoundError(f"Script not found: {script_path}")
 
         # Compose runtime (interpreter/image/resources/env) once
@@ -977,7 +1056,9 @@ class DomynLLMSwarm(BaseModel):
         """
         if self._cleaned:
             return
-        if self._deployment and self.serving_handle:
+        # Handle first: a swarm that never deployed needs no deployment built
+        # just to decide there is nothing to tear down.
+        if self.serving_handle and self._deployment:
             self._deployment.down(self.serving_handle)
         self._delete_record()
         self._cleaned = True
@@ -991,18 +1072,10 @@ class DomynLLMSwarm(BaseModel):
         short_id = str(unique_id)[:8]
         return f"{self.cfg.name}-{short_id}"
 
-    def _make_compute_backend(self, handle: ServingHandle):
-        if self._plan and self._plan.platform == "slurm":
-            lb_jobid = handle.meta.get("lb_jobid")
-            lb_node = handle.meta.get("lb_node")
-            if not lb_jobid or not lb_node:
-                raise RuntimeError("LB Job ID/Node missing in Slurm handle.")
-            assert self.cfg.backend is not None and isinstance(self.cfg.backend, SlurmConfig)
-            return SlurmComputeBackend(cfg=self.cfg.backend, lb_jobid=lb_jobid, lb_node=lb_node)
-        elif self._plan and self._plan.platform == "lepton":
-            return self._plan.compute
-        else:
-            raise RuntimeError(f"Unsupported platform for compute backend: {self._plan.platform}")
+    def _make_compute_backend(self, handle: ServingHandle) -> ComputeBackend:
+        """Build the compute backend for a ready serving handle."""
+        assert self._plan is not None
+        return self._plan.make_compute_backend(handle)
 
     def status(self) -> ServingStatus:
         """Get the current status of the swarm.
@@ -1020,3 +1093,20 @@ class DomynLLMSwarm(BaseModel):
         if status.url is None:
             status.url = self.endpoint
         return status
+
+    def serving_status(self) -> ServingStatus:
+        """Ask the serving backend for this swarm's live status.
+
+        Unlike :meth:`status`, which reports what this object already knows,
+        this queries the backend directly. Safe at any point in the lifecycle:
+        a swarm that was never deployed reports
+        :attr:`~domyn_swarm.platform.protocols.ServingPhase.UNKNOWN`.
+
+        Returns:
+            The backend-reported serving status.
+        """
+        # Handle first, so a never-deployed swarm answers without building a
+        # deployment (and importing its serving backend) to do it.
+        if self.serving_handle is None or self._deployment is None:
+            return ServingStatus(phase=ServingPhase.UNKNOWN, url=self.endpoint)
+        return self._deployment.serving.status(self.serving_handle)

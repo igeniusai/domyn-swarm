@@ -47,8 +47,6 @@ from .batching import BatchExecutor
 
 logger = setup_logger(__name__, level=logging.INFO)
 
-settings = get_settings()
-
 
 class OutputJoinMode(str, Enum):
     APPEND = "append"
@@ -299,7 +297,7 @@ class SwarmJob(abc.ABC):
         self.native_batch_size = native_batch_size
 
         headers = {}
-        token = settings.api_token or settings.vllm_api_key or settings.singularityenv_vllm_api_key
+        token = get_settings().resolved_api_token
         if token:
             logger.info("Using API_TOKEN from environment for authentication")
             headers["Authorization"] = f"Bearer {token.get_secret_value()}"
