@@ -94,7 +94,7 @@ def test_probe_and_update_marks_running(monkeypatch):
 
 def test_restart_backoff_grows_exponentially():
     """Repeated restarts back off instead of hammering the scheduler at a fixed rate."""
-    cfg = watchdog_mod.WatchdogConfig(restart_backoff_s=5.0, restart_backoff_max_s=60.0)
+    cfg = watchdog_mod.WatchdogConfig(restart_backoff_initial=5.0, restart_backoff_max=60.0)
 
     delays = [watchdog_mod._restart_backoff_delay(cfg, attempt) for attempt in range(1, 5)]
 
@@ -103,7 +103,7 @@ def test_restart_backoff_grows_exponentially():
 
 def test_restart_backoff_is_capped_by_the_configured_ceiling():
     """`restart_backoff_max` is the documented upper bound, so it must bind."""
-    cfg = watchdog_mod.WatchdogConfig(restart_backoff_s=5.0, restart_backoff_max_s=30.0)
+    cfg = watchdog_mod.WatchdogConfig(restart_backoff_initial=5.0, restart_backoff_max=30.0)
 
     delays = [watchdog_mod._restart_backoff_delay(cfg, attempt) for attempt in range(1, 6)]
 
