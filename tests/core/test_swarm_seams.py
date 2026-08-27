@@ -29,9 +29,7 @@ def _init_schema(db_path: Path) -> None:
 def db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point SwarmStateManager at a temporary SQLite DB with the schema created."""
     path = tmp_path / SwarmStateManager.DB_NAME
-    monkeypatch.setattr(
-        SwarmStateManager, "_get_db_path", classmethod(lambda cls: path)
-    )
+    monkeypatch.setattr(SwarmStateManager, "_get_db_path", classmethod(lambda cls: path))
     _init_schema(path)
     return path
 
