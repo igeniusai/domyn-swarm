@@ -107,6 +107,12 @@ class SwarmStateManager:
         swarm._deployment._handle = serving_handle
 
         assert swarm._plan is not None
+        if swarm._plan.platform == "slurm" and serving_handle.meta.get("jobid") is None:
+            # The compute backend itself only needs lb_jobid/lb_node, but the
+            # Slurm serving backend later indexes handle.meta["jobid"]
+            # directly (see backends/serving/slurm.py). Fail loudly here,
+            # at load time, rather than with a bare KeyError deep in status().
+            raise ValueError("State file does not contain valid job IDs")
         swarm._deployment.compute = swarm._plan.make_compute_backend(serving_handle)
         return swarm
 

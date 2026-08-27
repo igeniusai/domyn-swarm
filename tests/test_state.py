@@ -143,15 +143,13 @@ class TestSwarmStateManager:
     # Error cases around missing job metadata
     # --------------------------------------------------------------------- #
 
-    def test_load_null_jobid_does_not_raise(self, state_manager: SwarmStateManager) -> None:
-        """The plain (non-LB) job ID is irrelevant to the compute backend, so a
-        null value must not block loading as long as lb_jobid/lb_node are present.
-        """
+    def test_load_null_jobid(self, state_manager: SwarmStateManager) -> None:
+        """Null Job ID in serving_handle.meta should raise."""
         state_manager.swarm.serving_handle.meta["jobid"] = None  # type: ignore[union-attr]
         state_manager.save(deployment_name="fake")
 
-        swarm = SwarmStateManager.load(deployment_name="fake")
-        assert swarm._deployment.compute is not None  # type: ignore[attr-defined]
+        with pytest.raises(ValueError, match="job IDs"):
+            SwarmStateManager.load(deployment_name="fake")
 
     def test_load_null_lb_jobid(self, state_manager: SwarmStateManager) -> None:
         """Null LB Job ID in serving_handle.meta should raise."""
