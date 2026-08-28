@@ -88,7 +88,7 @@ docs = [
 ]
 bench = [
     "datasets>=4.8.5",
-    "vllm==0.22.0",
+    "vllm>=0.26.0",
 ]
 
 [project.urls]
@@ -122,6 +122,17 @@ all = [
     "leptonai>=0.26.2",
     "polars>=1.31.0",
     "ray[data]>=2.53.0",
+]
+
+[tool.uv]
+# leptonai's prometheus-fastapi-instrumentator==7.0.0 pin drags in
+# starlette <1.0, which carries five open advisories (GHSA request.form
+# limits, StaticFiles UNC SSRF, Host header poisoning, HTTPEndpoint method
+# dispatch). We only ever use leptonai as an API client
+# (leptonai.api.v1/v2), never its photon server, so the pin buys us nothing
+# and the override lifts starlette to a patched release.
+override-dependencies = [
+    "prometheus-fastapi-instrumentator>=8.0.0",
 ]
 
 [tool.commitizen]
