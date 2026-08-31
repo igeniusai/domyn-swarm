@@ -12,8 +12,9 @@ config's `backend` section changes, as described in
 ```yaml
 # config.yaml
 model: "HuggingFaceTB/SmolLM3-3B-Base"
-gpus_per_replica: 16
-replicas: 2
+name: smollm3
+gpus_per_replica: 4
+replicas: 4
 backend:
   type: slurm
   partition: partition_name    # your HPC partition

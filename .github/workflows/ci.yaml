@@ -51,7 +51,66 @@ jobs:
           extra_args: --all-files
 
       - name: Run tests
-        run: uv run pytest -v
+        run: uv run pytest -v --cov-report=xml
+
+      # Only one version needs to feed the badge; 3.12 is the version the docs
+      # and the recommended install line use.
+      - name: Upload the coverage report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7
+
+  # The coverage badge is a JSON file on the `badges` branch, read by
+  # shields.io. Keeping it in this repository avoids depending on a third-party
+  # coverage service, and needs no secret beyond the built-in GITHUB_TOKEN.
+  coverage-badge:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository_owner == 'igeniusai'
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+
+      - name: Render the badge payload
+        run: python3 .github/scripts/coverage_badge.py coverage.xml -o badge.json && cat badge.json
+
+      # A dedicated orphan branch: it shares no history with main, so the badge
+      # commits never appear in the source history and cannot collide with it.
+      - name: Publish it to the badges branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          cp badge.json "$work/coverage.json"
+          cd "$work"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # A mixed reset seeds the index from the existing branch, so anything
+          # else already published there survives a commit that only stages
+          # coverage.json.
+          if git fetch -q --depth 1 origin badges 2>/dev/null; then
+            git reset -q FETCH_HEAD
+          fi
+          git add coverage.json
+          # Nothing to do when the percentage has not moved.
+          if git diff --cached --quiet; then
+            echo "coverage unchanged; leaving the badges branch alone"
+            exit 0
+          fi
+          pct=$(python3 -c 'import json;print(json.load(open("coverage.json"))["message"])')
+          git commit -qm "coverage: ${pct} at ${GITHUB_SHA:0:7}"
+          git push -q origin HEAD:badges
 
   build-dev-image:
     # Build/push dev images only for branch pushes from the main repo (not PRs from forks)
