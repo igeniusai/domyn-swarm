@@ -1,0 +1,31 @@
+# NVIDIA Nemotron-3-Super-120B-A12B (BF16) — a ~120B latent-MoE with ~12B active
+# parameters. Serving flags follow https://recipes.vllm.ai/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
+# The recipe's `--served-model-name` is deliberately omitted: jobs address the
+# endpoint by the `model` value below, so renaming the served model breaks them.
+model: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
+name: nemotron-3-super-120b
+revision: main
+gpus_per_replica: 4       # tensor-parallel size 4, one node on most clusters
+replicas: 2               # two independent replicas behind the load balancer
+image: "/path/to/vllm.sif"   # needs vLLM >= 0.17.1
+args: >-
+  --tensor-parallel-size 4
+  --kv-cache-dtype fp8
+  --max-model-len 262144
+  --trust-remote-code
+  --enable-auto-tool-choice
+  --tool-call-parser qwen3_xml
+  --reasoning-parser nemotron_v3
+env:
+  HF_HOME: /path/to/shared_hf_cache
+wait_endpoint_s: 3600
+backend:
+  type: slurm
+  partition: partition_name
+  account: account_name
+  qos: qos_name
+  endpoint:
+    port: 9001
+    cpus_per_task: 4
+    wall_time: "36:00:00"
+    nginx_image: "/path/to/nginx.sif"
