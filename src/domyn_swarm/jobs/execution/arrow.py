@@ -9,10 +9,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
-import numpy as np
-import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from domyn_swarm.checkpoint.arrow_store import (
     ArrowShardStore,
@@ -23,13 +20,11 @@ from domyn_swarm.checkpoint.arrow_store import (
 from domyn_swarm.checkpoint.store import FlushBatch
 from domyn_swarm.jobs.api.base import OutputJoinMode, SwarmJob
 from domyn_swarm.jobs.api.runner import normalize_batch_outputs
+from domyn_swarm.jobs.execution.frame_ops import ArrowFrameOps, ShardSpec
+from domyn_swarm.jobs.execution.pipeline import run_sharded_pipeline
 from domyn_swarm.jobs.io.checkpointing import (
     _shard_store_uri,
-    _validate_checkpoint_store,
-    _validate_sharded_execution,
-    load_global_done_ids,
 )
-from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +214,27 @@ def _join_arrow_outputs(
     return pa.Table.from_pydict(columns)
 
 
+def _ensure_arrow_id(table: pa.Table, id_col: str) -> pa.Table:
+    """Ensure an Arrow table contains the id column.
+
+    Args:
+        table: Input Arrow table.
+        id_col: Column name for row ids.
+
+    Returns:
+        Arrow table with the id column present.
+    """
+    if id_col in table.column_names:
+        return table
+    for candidate in ("__index_level_0__", "index", "level_0"):
+        if candidate in table.column_names:
+            return table.rename_columns(
+                [id_col if c == candidate else c for c in table.column_names]
+            )
+    ids = pa.array(range(len(table)))
+    return table.append_column(id_col, ids)
+
+
 def _merge_shard_outputs(*, store_uri: str, nshards: int, id_col: str) -> pa.Table:
     """Merge all shard checkpoint outputs into a single Arrow table.
 
@@ -244,158 +260,6 @@ def _merge_shard_outputs(*, store_uri: str, nshards: int, id_col: str) -> pa.Tab
     last_indices = {value: idx for idx, value in enumerate(ids)}
     keep_indices = sorted(last_indices.values())
     return _take_with_offset_overflow_fallback(merged, keep_indices)
-
-
-def _ensure_arrow_id(table: pa.Table, id_col: str) -> pa.Table:
-    """Ensure an Arrow table contains the id column.
-
-    Args:
-        table: Input Arrow table.
-        id_col: Column name for row ids.
-
-    Returns:
-        Arrow table with the id column present.
-    """
-    if id_col in table.column_names:
-        return table
-    for candidate in ("__index_level_0__", "index", "level_0"):
-        if candidate in table.column_names:
-            return table.rename_columns(
-                [id_col if c == candidate else c for c in table.column_names]
-            )
-    ids = pa.array(range(len(table)))
-    return table.append_column(id_col, ids)
-
-
-def _coerce_arrow_table(data: Any, backend: Any, id_col: str) -> pa.Table:
-    """Convert backend-native data into an Arrow table.
-
-    Args:
-        data: Backend-native data or Arrow table.
-        backend: Data backend used for Arrow conversion.
-        id_col: Column name used for stable row ids.
-
-    Returns:
-        Arrow table containing the input data.
-    """
-    if isinstance(data, pa.Table):
-        return data
-    if isinstance(data, pd.DataFrame):
-        df = data
-        if id_col not in df.columns:
-            df = df.copy(deep=False)
-            df[id_col] = df.index
-        return backend.to_arrow(df)
-    return backend.to_arrow(data)
-
-
-def _filter_arrow_for_global_resume(
-    *,
-    table: pa.Table,
-    id_col: str,
-    global_resume: bool,
-    checkpointing: bool,
-    store_uri: str | None,
-    nshards: int,
-) -> pa.Table:
-    """Filter an Arrow table using global done ids for resume.
-
-    Args:
-        table: Input Arrow table.
-        id_col: Column name containing stable ids.
-        global_resume: Whether to filter using global done ids.
-        checkpointing: Whether checkpointing is enabled.
-        store_uri: Base checkpoint store URI.
-        nshards: Number of shards.
-
-    Returns:
-        Filtered Arrow table (or the original table when no filtering is applied).
-    """
-    if not (global_resume and checkpointing):
-        return table
-    if store_uri is None:
-        raise ValueError("store_uri is required when global_resume is enabled.")
-    done_ids = load_global_done_ids(
-        store_uri=store_uri,
-        id_col=id_col,
-        nshards=nshards,
-        store_factory=ArrowShardStore,
-        empty_data_factory=lambda: pa.Table.from_pydict({id_col: []}),
-    )
-    if not done_ids:
-        return table
-    mask = pc.invert(pc.is_in(table[id_col], value_set=pa.array(list(done_ids))))  # type: ignore[arg-type]
-    return table.filter(mask)
-
-
-def _build_arrow_shard_indices(
-    *,
-    table: pa.Table,
-    id_col: str,
-    shard_mode: str,
-    nshards: int,
-) -> list[np.ndarray]:
-    """Build shard index arrays for an Arrow table.
-
-    Args:
-        table: Input Arrow table.
-        id_col: Column name containing stable ids.
-        shard_mode: Sharding strategy ("id" or "index").
-        nshards: Number of shards.
-
-    Returns:
-        List of index arrays for each shard.
-    """
-    if shard_mode == "index":
-        return list(np.array_split(np.arange(table.num_rows), nshards))
-    ids = table[id_col].to_pylist()
-    return shard_indices_by_id(ids, nshards)
-
-
-async def _run_arrow_shards(
-    *,
-    job_factory: Callable[[], Any],
-    table: pa.Table,
-    input_col: str,
-    output_cols: list[str] | None,
-    store_uri: str,
-    checkpoint_every: int,
-    checkpointing: bool,
-    id_col: str,
-    indices: list[np.ndarray],
-) -> list[pa.Table]:
-    """Run all shards for the Arrow runner.
-
-    Args:
-        job_factory: Callable producing a SwarmJob instance.
-        table: Input Arrow table.
-        input_col: Input column name in the dataset.
-        output_cols: Output columns to produce (None for dict outputs).
-        store_uri: Base checkpoint store URI.
-        checkpoint_every: Flush interval in items.
-        checkpointing: Whether checkpointing is enabled.
-        id_col: Column name used for stable row ids.
-        indices: Per-shard index arrays.
-
-    Returns:
-        List of Arrow tables, one per shard.
-    """
-
-    async def _one(i: int, idx: np.ndarray) -> pa.Table:
-        sub = table.take(pa.array(idx, type=pa.int64()))
-        su = _shard_store_uri(store_uri, i)
-        return await run_arrow_job(
-            job_factory,
-            sub,
-            input_col=input_col,
-            output_cols=output_cols,
-            store_uri=su,
-            checkpoint_every=checkpoint_every,
-            checkpointing=checkpointing,
-            id_col=id_col,
-        )
-
-    return await asyncio.gather(*[_one(i, idx) for i, idx in enumerate(indices)])
 
 
 def _finalize_arrow_global_resume(
@@ -466,70 +330,35 @@ async def _run_arrow(
     Returns:
         Arrow table containing job outputs (and inputs depending on output mode).
     """
-    table = _coerce_arrow_table(data, backend, id_col)
-    if require_id and id_col not in table.column_names:
-        raise ValueError(f"Input table missing required id column '{id_col}'.")
-    _validate_checkpoint_store(checkpointing, store_uri)
-    if nshards <= 1:
-        return await run_arrow_job(
-            job_factory,
-            table,
-            input_col=input_col,
-            output_cols=output_cols,
-            store_uri=store_uri,
-            checkpoint_every=checkpoint_every,
-            checkpointing=checkpointing,
-            id_col=id_col,
-        )
-    _validate_sharded_execution(checkpointing)
-    if shard_mode not in {"id", "index"}:
-        raise ValueError(f"Unsupported shard_mode: {shard_mode}")
-
-    if id_col not in table.column_names:
-        table = _ensure_arrow_id(table, id_col)
-    table_full = table
-
-    table = _filter_arrow_for_global_resume(
-        table=table,
-        id_col=id_col,
-        global_resume=global_resume,
-        checkpointing=checkpointing,
-        store_uri=store_uri,
-        nshards=nshards,
-    )
-    indices = _build_arrow_shard_indices(
-        table=table,
-        id_col=id_col,
-        shard_mode=shard_mode,
-        nshards=nshards,
-    )
-    if store_uri is None:
-        raise ValueError("store_uri is required when running sharded jobs.")
-    parts = await _run_arrow_shards(
-        job_factory=job_factory,
-        table=table,
+    ops = ArrowFrameOps(backend)
+    spec = ShardSpec(
         input_col=input_col,
         output_cols=output_cols,
-        store_uri=store_uri,
+        id_col=id_col,
         checkpoint_every=checkpoint_every,
         checkpointing=checkpointing,
-        id_col=id_col,
-        indices=indices,
+        output_mode=getattr(job_factory(), "output_mode", OutputJoinMode.APPEND),
     )
-    if not (global_resume and checkpointing):
-        # A shard assigned zero rows (e.g. an unlucky id-hash bucket) produces a
-        # result table built from empty Python lists, whose columns come back
-        # null-typed and missing the output column(s). A bare `pa.concat_tables`
-        # rejects that schema mismatch outright; `promote_options="default"`
-        # reconciles null-typed columns with their real type from other shards
-        # and null-fills any columns an empty shard's table is missing.
-        return _concat_tables_with_variable_width_fallback(parts)
-    output_mode = getattr(job_factory(), "output_mode", OutputJoinMode.APPEND)
-    return _finalize_arrow_global_resume(
-        table_full=table_full,
-        store_uri=store_uri,
+
+    def _finalize(*, frame_full, store_uri, nshards, spec) -> pa.Table:
+        return _finalize_arrow_global_resume(
+            table_full=frame_full,
+            store_uri=store_uri,
+            nshards=nshards,
+            id_col=spec.id_col,
+            input_col=spec.input_col,
+            output_mode=spec.output_mode,
+        )
+
+    return await run_sharded_pipeline(
+        ops=ops,
+        job_factory=job_factory,
+        data=data,
+        spec=spec,
+        require_id=require_id,
         nshards=nshards,
-        id_col=id_col,
-        input_col=input_col,
-        output_mode=output_mode,
+        shard_mode=shard_mode,
+        global_resume=global_resume,
+        store_uri=store_uri,
+        finalize=_finalize,
     )

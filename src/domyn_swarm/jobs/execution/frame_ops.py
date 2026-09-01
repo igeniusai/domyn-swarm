@@ -245,14 +245,9 @@ class ArrowFrameOps:
         conventional names. Recovering it keeps ids stable across a
         pandas-to-Arrow round trip, which positional ids would not.
         """
-        if id_col in frame.column_names:
-            return frame
-        for candidate in ("__index_level_0__", "index", "level_0"):
-            if candidate in frame.column_names:
-                return frame.rename_columns(
-                    [id_col if c == candidate else c for c in frame.column_names]
-                )
-        return frame.append_column(id_col, pa.array(range(len(frame))))
+        from domyn_swarm.jobs.execution.arrow import _ensure_arrow_id
+
+        return _ensure_arrow_id(frame, id_col)
 
     def filter_out_ids(self, frame: pa.Table, id_col: str, done: set[Any]) -> pa.Table:
         """Drop rows whose id is already done."""
