@@ -161,6 +161,12 @@ def _configure_slurm_defaults(existing: dict[str, Any]) -> dict[str, Any]:
         "Does this cluster allow requeueing jobs (#SBATCH --requeue)?",
         default=bool(_get(existing, f"{base}.requeue", True)),
     )
+    system_mounts = _prompt_str(
+        "Site-specific bind mounts for the containers, comma-separated "
+        "(e.g. /leonardo/prod/opt); leave empty for none",
+        default=",".join(_get(existing, f"{base}.system_mounts", []) or []),
+        allow_empty=True,
+    )
     nginx_image = _prompt_str(
         "Path to Nginx image (Singularity/Container)",
         default=_get(existing, f"{base}.nginx_image", ""),
@@ -208,6 +214,9 @@ def _configure_slurm_defaults(existing: dict[str, Any]) -> dict[str, Any]:
         _set(out, f"{base}.qos", qos)
     _set(out, f"{base}.account", account)
     _set(out, f"{base}.requeue", requeue)
+    mount_list = [m.strip() for m in system_mounts.split(",") if m.strip()]
+    if mount_list:
+        _set(out, f"{base}.system_mounts", mount_list)
     _set(out, f"{base_endpoint}.nginx_image", nginx_image)
     _set(out, f"{base_endpoint}.port", port)
     _set(out, f"{base_endpoint}.poll_interval", poll)
