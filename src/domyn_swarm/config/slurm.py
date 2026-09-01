@@ -411,14 +411,29 @@ class SlurmConfig(BaseModel):
         ),
     )
 
-    @field_validator("mounts")
+    system_mounts: list[str] = Field(
+        default_factory=default_for("slurm.system_mounts", []),
+        description=(
+            "Site-specific host paths the containers need, such as the cluster's "
+            "software stack or its interconnect devices (e.g. '/leonardo/prod/opt' "
+            "on CINECA Leonardo). Same syntax as `mounts`, but each entry is bound "
+            "only when its host path exists on the node, so a path belonging to "
+            "another site is skipped with a warning instead of failing the job. "
+            "Belongs in the site `defaults.yaml` under `slurm.system_mounts` rather "
+            "than in a per-deployment config."
+        ),
+    )
+
+    @field_validator("mounts", "system_mounts")
     @classmethod
     def _validate_mounts(cls, value: list[str]) -> list[str]:
         """Validate the format of each bind mount specification.
 
         Checks that every entry is non-empty, has at most three colon-separated
         segments (source[:dest[:opts]]), and uses an absolute source path. Host
-        path existence is intentionally not checked here.
+        path existence is intentionally not checked here: for `mounts` the
+        container runtime reports it, and `system_mounts` are checked on the node
+        at launch time.
 
         Args:
             value: The list of mount specifications.

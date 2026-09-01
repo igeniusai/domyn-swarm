@@ -77,6 +77,36 @@ instance a missing host path or an invalid option. For the full bind syntax see
 [Apptainer](https://apptainer.org/docs/user/main/bind_paths_and_mounts.html) or
 [SingularityCE](https://docs.sylabs.io/guides/latest/user-guide/bind_paths_and_mounts.html).
 
+## Site mounts
+
+Some clusters need host paths bound into every container for the software stack
+they provide through `module load` — on CINECA Leonardo, for instance,
+`/leonardo/prod/opt`. Those paths belong to the site, not to a deployment, so
+they go in `backend.system_mounts`, ideally in the site
+[defaults file](../reference/configuration.md) rather than in each config:
+
+```yaml
+# defaults.yaml
+slurm:
+  system_mounts:
+    - /leonardo/prod/opt
+```
+
+```yaml
+# or per deployment
+backend:
+  type: slurm
+  system_mounts:
+    - /leonardo/prod/opt
+```
+
+The syntax is the same as `backend.mounts`, with one difference: an entry is
+bound only when its host path exists on the node, and otherwise skipped with a
+warning in the job log. That way a config carried from one cluster to another
+does not fail every replica on a bind that only makes sense at the original
+site. The interconnect device directory `/dev/infiniband` is treated the same
+way, with no configuration needed.
+
 ## Modules and sbatch preamble
 
 Two fields inject site-specific setup into the generated cluster script:

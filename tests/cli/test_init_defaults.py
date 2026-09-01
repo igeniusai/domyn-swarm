@@ -116,14 +116,16 @@ def test_yesno_passthrough(monkeypatch):
 
 def test_configure_slurm_defaults_sets_expected_fields(monkeypatch):
     # Order of prompts in _configure_slurm_defaults:
-    # image, partition, account, qos, requeue(confirm), nginx_image,
-    # port, poll, cpus, mem, tpc, wall, proxy_buf(confirm), nginx_timeout
+    # image, partition, account, qos, requeue(confirm), system_mounts,
+    # nginx_image, port, poll, cpus, mem, tpc, wall, proxy_buf(confirm),
+    # nginx_timeout
     prompt_answers = iter(
         [
             "img.sif",  # image
             "p",  # partition
             "acc",  # account
             "",  # qos (optional -> omitted)
+            "/site/prod/opt, /site/scratch",  # system_mounts
             "nginx.sif",  # nginx_image
             "9001",  # port
             "7",  # poll
@@ -151,6 +153,7 @@ def test_configure_slurm_defaults_sets_expected_fields(monkeypatch):
     assert out["slurm"]["account"] == "acc"
     assert "qos" not in out.get("slurm", {})
     assert out["slurm"]["requeue"] is True
+    assert out["slurm"]["system_mounts"] == ["/site/prod/opt", "/site/scratch"]
 
     ep = out["slurm"]["endpoint"]
     assert ep["nginx_image"] == "nginx.sif"

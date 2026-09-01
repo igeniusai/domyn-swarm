@@ -91,7 +91,26 @@ echo "🟢 Allocation: $SLURM_JOB_NUM_NODES nodes → head=$HEAD_NODE workers=${
 
 # Mount configuration
 LOCAL_RAY_LOGS="$TMPDIR/ray_tmp"
-export MOUNTS="$HF_HOME,/sys,/dev/infiniband,/leonardo/prod/opt/,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
+export MOUNTS="$HF_HOME,/sys,$HOME,$SWARM_DIR,{{ watchdog_script_path }}:/opt/watchdog.py"
+
+# Site-specific binds (interconnect devices, the cluster software stack, ...) are
+# added only when the host path exists on this node, so a path configured for a
+# different site is skipped instead of failing the whole job.
+add_optional_mount() {
+  local spec="$1"
+  local src="${spec%%:*}"
+  if [ -e "$src" ]; then
+    MOUNTS="$MOUNTS,$spec"
+  else
+    echo "⚠️  skipping bind mount '$spec': '$src' does not exist on $(hostname)"
+  fi
+}
+
+add_optional_mount /dev/infiniband
+# System mounts (from backend.system_mounts in the YAML config or defaults.yaml)
+{% for mount in cfg.backend.system_mounts | default([], true) %}
+add_optional_mount "{{ mount }}"
+{% endfor %}
 {% if is_folder(cfg.model) and path_exists(cfg.model) %}
 MOUNTS=$MOUNTS,{{ cfg.model }}
 {% endif %}
