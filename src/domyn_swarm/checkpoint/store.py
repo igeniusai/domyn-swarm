@@ -236,7 +236,11 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
                 table = self._normalize_id_column(table)
                 df = table.to_pandas(ignore_metadata=True).set_index(self.id_col, drop=True)
                 return df
-            return pd.DataFrame().set_index(self.id_col)
+            # Nothing was ever flushed for this shard (e.g. an id-hash shard that
+            # received zero rows). An empty `pd.DataFrame()` has no columns, so
+            # `set_index(self.id_col)` would raise KeyError; build the id column
+            # explicitly instead so callers see a well-formed empty result.
+            return pd.DataFrame(columns=[self.id_col]).set_index(self.id_col)
 
         tables: list[pa.Table] = []
         if self.fs.exists(self.base_path):

@@ -124,7 +124,16 @@ async def _run_pandas(
         return None
 
     parts = await asyncio.gather(*[_run_shard(i, idx) for i, idx in enumerate(indices)])
-    out = pd.concat(parts).sort_index()
+    # A shard assigned zero rows (e.g. an unlucky id-hash bucket) still runs
+    # through JobRunner.run(), which returns a well-formed but object-dtyped
+    # empty frame for its id column (ParquetShardStore.finalize() cannot infer
+    # a real dtype with nothing to read). Concatenating that in would upcast
+    # the merged id column to object even though every non-empty shard is
+    # correctly typed. Drop empty parts before concatenating instead, mirroring
+    # `_merge_shard_outputs`'s `if shard_table.num_rows: ...` on the Arrow side;
+    # an empty shard contributes zero rows either way, so this is lossless.
+    non_empty_parts = [part for part in parts if not part.empty]
+    out = pd.concat(non_empty_parts if non_empty_parts else parts).sort_index()
     if not global_resume:
         return out if backend.name == "pandas" else backend.from_pandas(out)
     return _finalize_global_resume(

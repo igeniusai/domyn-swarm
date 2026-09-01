@@ -517,7 +517,13 @@ async def _run_arrow(
         indices=indices,
     )
     if not (global_resume and checkpointing):
-        return pa.concat_tables(parts)
+        # A shard assigned zero rows (e.g. an unlucky id-hash bucket) produces a
+        # result table built from empty Python lists, whose columns come back
+        # null-typed and missing the output column(s). A bare `pa.concat_tables`
+        # rejects that schema mismatch outright; `promote_options="default"`
+        # reconciles null-typed columns with their real type from other shards
+        # and null-fills any columns an empty shard's table is missing.
+        return _concat_tables_with_variable_width_fallback(parts)
     output_mode = getattr(job_factory(), "output_mode", OutputJoinMode.APPEND)
     return _finalize_arrow_global_resume(
         table_full=table_full,
