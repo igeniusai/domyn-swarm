@@ -350,6 +350,62 @@ async def test_run_job_unified_global_resume_arrow_runner(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_global_resume_with_custom_id_column_pandas(tmp_path):
+    """Regression: global resume must not lose a custom id column when finalizing.
+
+    `_finalize_global_resume` used to construct a fresh `ParquetShardStore` and call
+    `finalize()` on it without ever calling `prepare()`, so the store's id column
+    stayed at its default (`_row_id`) instead of the job's real id column. `finalize()`
+    then looked for `_row_id` in a parquet shard that only had the custom id column
+    (`doc_id`) and raised `ValueError: Merged parquet is missing id column '_row_id'`.
+
+    `shard_mode="index"` (not "id") keeps every shard non-empty so this isolates the
+    id-column bug from the separate empty-shard bug.
+    """
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [1, 2, 3, 4], "messages": [1, 2, 3, 4]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        global_resume=True,
+    )
+    assert sorted(out_df["doc_id"].tolist()) == [1, 2, 3, 4]
+    assert sorted(out_df["output"].tolist()) == [f"test_shard_{i}" for i in [1, 2, 3, 4]]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_global_resume_with_custom_id_column_arrow(tmp_path):
+    """Arrow-engine counterpart of the pandas custom-id-column global resume bug.
+
+    `_finalize_arrow_global_resume` -> `_merge_shard_outputs` had the same defect:
+    a fresh `ArrowShardStore` was finalized without ever calling `prepare()`, so it
+    looked for the default `_row_id` instead of the job's real id column.
+    """
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [1, 2, 3, 4], "messages": [1, 2, 3, 4]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        runner="arrow",
+        global_resume=True,
+    )
+    assert sorted(out_df["doc_id"].tolist()) == [1, 2, 3, 4]
+    assert sorted(out_df["output"].tolist()) == [f"test_shard_{i}" for i in [1, 2, 3, 4]]
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_global_resume_polars_runner(tmp_path):
     pytest.importorskip("polars")
 

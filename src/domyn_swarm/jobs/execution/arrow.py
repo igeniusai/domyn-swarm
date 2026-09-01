@@ -232,7 +232,7 @@ def _merge_shard_outputs(*, store_uri: str, nshards: int, id_col: str) -> pa.Tab
     """
     tables: list[pa.Table] = []
     for shard_id in range(nshards):
-        shard_store = ArrowShardStore(_shard_store_uri(store_uri, shard_id))
+        shard_store = ArrowShardStore(_shard_store_uri(store_uri, shard_id), id_col=id_col)
         shard_table = shard_store.finalize()
         if shard_table.num_rows:
             tables.append(shard_table)

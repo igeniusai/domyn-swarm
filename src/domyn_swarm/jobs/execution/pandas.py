@@ -269,7 +269,7 @@ def _finalize_global_resume(
     merged_parts: list[pd.DataFrame] = []
     for shard_id in range(nshards):
         shard_uri = _shard_store_uri(store_uri, shard_id)
-        shard_store = ParquetShardStore(shard_uri)
+        shard_store = ParquetShardStore(shard_uri, id_col=cfg.id_col)
         merged_parts.append(shard_store.finalize())
     if merged_parts:
         out_df = pd.concat(merged_parts)
