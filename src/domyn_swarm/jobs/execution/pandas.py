@@ -19,7 +19,6 @@ from domyn_swarm.jobs.io.checkpointing import (
     _shard_filename,
     _shard_store_uri,
     _validate_sharded_execution,
-    load_global_done_ids,
 )
 
 
@@ -88,7 +87,6 @@ async def _run_pandas(
             require_id=require_id,
             nshards=nshards,
             shard_mode=shard_mode,
-            global_resume=global_resume,
             store_uri=store_uri,
             checkpointing=checkpointing,
             output_path=output_path,
@@ -134,7 +132,6 @@ async def _run_pandas_to_directory(
     require_id: bool,
     nshards: int,
     shard_mode: str,
-    global_resume: bool,
     store_uri: str | None,
     checkpointing: bool,
     output_path: Path,
@@ -147,7 +144,31 @@ async def _run_pandas_to_directory(
     The validation order mirrors `_run_pandas`: the id column is checked
     right after coercion (before `ensure_id` would paper over a missing one),
     then sharded-execution prerequisites, then the frame is prepared for
-    sharding (id backfill, global-resume filtering, shard partitioning).
+    sharding (id backfill, shard partitioning).
+
+    Unlike `_run_pandas`, this path does not apply a global-resume filter
+    before sharding. `_write_sharded_outputs` writes each shard's parquet
+    file directly from that shard's own result and never holds every shard
+    in memory at once, which is the point of `shard_output`; there is no
+    full in-memory frame here to reconcile the way `_finalize_global_resume`
+    reconciles one for the non-directory path. Filtering globally-done ids
+    out of `frame` before sharding would therefore make each rerun overwrite
+    its shard file with only the rows processed *this* run, silently
+    dropping (or, on a second resume, destructively erasing) previously
+    checkpointed rows from the output directory -- the data-loss bug this
+    function used to have.
+
+    Resume still works correctly without the filter: each shard's own
+    checkpoint store (via `ops.run_shard` / `JobRunner.run`) already skips
+    ids that shard previously finished, and `shard_mode="id"` (the default)
+    assigns an id to a shard via a stable hash, so as long as `nshards` is
+    unchanged across resumes -- already a documented requirement, since
+    `nshards` is part of the checkpoint layout -- an id keeps landing in the
+    same shard and per-shard resume alone is equivalent to global resume.
+    They diverge only when `nshards` changes between runs, in which case an
+    id may reprocess in its new shard instead of being skipped; that is a
+    strict improvement over the previous behavior, which destroyed the
+    output directory in that same case.
 
     Args:
         ops: Pandas frame adapter.
@@ -157,7 +178,6 @@ async def _run_pandas_to_directory(
         require_id: Whether the id column must already exist.
         nshards: Number of shards.
         shard_mode: Sharding strategy.
-        global_resume: Whether to skip globally-done ids.
         store_uri: Base checkpoint store URI.
         checkpointing: Whether checkpointing is enabled.
         output_path: Directory to write shard parquet files into.
@@ -173,16 +193,6 @@ async def _run_pandas_to_directory(
         raise ValueError("store_uri is required when running sharded jobs.")
 
     frame = ops.ensure_id(frame, spec.id_col)
-
-    if global_resume and checkpointing:
-        done = load_global_done_ids(
-            store_uri=store_uri,
-            id_col=spec.id_col,
-            nshards=nshards,
-            store_factory=ops.store_factory,
-            empty_data_factory=lambda: ops.empty_with_id(spec.id_col),
-        )
-        frame = ops.filter_out_ids(frame, spec.id_col, done)
 
     indices = ops.shard_indices(frame, spec.id_col, shard_mode, nshards)
     take = ops.take if shard_mode == "index" else ops.take_positional

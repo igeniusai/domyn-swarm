@@ -228,7 +228,9 @@ def submit_job(
         help="When output is a directory, write shards directly from checkpoint outputs instead "
         "of assembling the merged result in memory first. Supported by the pandas and polars "
         "runners; ignored by the arrow runner. Either way the directory is written as one "
-        "parquet file per shard (based on --num-shards).",
+        "parquet file per shard (based on --num-shards). On the pandas runner, this also makes "
+        "--global-resume a no-op: per-shard checkpoint resume alone already covers it, as long "
+        "as --num-shards stays fixed across resumes.",
     ),
     limit: int | None = typer.Option(
         None,

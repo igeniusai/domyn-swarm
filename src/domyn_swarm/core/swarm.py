@@ -577,7 +577,10 @@ class DomynLLMSwarm(BaseModel):
             This controls how the result is produced, not the file layout: a directory
             output is written as one parquet file per shard whenever `num_shards` > 1
             either way. Applies to the pandas and polars engines; ignored by the Arrow
-            and Ray engines.
+            and Ray engines. On the pandas engine, this also makes `global_resume` a
+            no-op: each shard's own checkpoint store already supplies resume, which is
+            equivalent to global resume as long as `num_shards` stays fixed across
+            resumes of the same job.
         shard_mode : str, default "id"
             Sharding strategy for `num_shards` > 1 ("id" for stable id hashing, "index" for
             legacy row order sharding).
@@ -589,7 +592,9 @@ class DomynLLMSwarm(BaseModel):
             precedence over the deprecated `runner`/data-backend pair. Defaults to
             the value resolved from that pair when not given.
         global_resume : bool, default False
-            When resuming a sharded job, filter inputs using global done ids across shards.
+            When resuming a sharded job, filter inputs using global done ids across
+            shards. Ignored on the pandas engine when `shard_output` is True (see
+            `shard_output`).
         detach : bool, default False
             If *True*, start the job in a new process group and return immediately;
             if *False* (default), the call blocks until completion.
