@@ -175,3 +175,4 @@ logs/
 # Documentation
 docs/_generated/
 docs/superpowers/
+.superpowers/

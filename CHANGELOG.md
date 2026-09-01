@@ -1,3 +1,9 @@
+## v0.31.1 (2026-09-01)
+
+### Feat
+
+- **slurm**: add support for site-specific bind mounts in configuration
+
 ## v0.31.0 (2026-09-01)
 
 ### Feat
