@@ -66,7 +66,7 @@ class DomynLLMSwarmConfig(BaseModel):
         description="Number of GPUs per node (vLLM)",
         default=4,
         ge=1,
-        le=4,
+        le=8,
     )
     replicas_per_node: int | None = Field(
         description="Number of model replicas per node (vLLM)", default=None
