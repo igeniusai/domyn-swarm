@@ -307,7 +307,11 @@ class InMemoryStore(CheckpointStore[pd.DataFrame]):
 
     def finalize(self) -> pd.DataFrame:
         if not self._rows_by_id:
-            return pd.DataFrame().set_index(self.id_col)
+            # Nothing was ever flushed (e.g. an empty input). An empty
+            # `pd.DataFrame()` has no columns, so `set_index(self.id_col)`
+            # would raise KeyError; build the id column explicitly instead so
+            # callers see a well-formed empty result.
+            return pd.DataFrame(columns=[self.id_col]).set_index(self.id_col)
 
         rows = [{self.id_col: item_id, **payload} for item_id, payload in self._rows_by_id.items()]
         return pd.DataFrame(rows).set_index(self.id_col, drop=True)
