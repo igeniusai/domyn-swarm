@@ -362,6 +362,37 @@ class PolarsJobRunner:
 
         return _on_flush
 
+    def _align_id_dtype(
+        self, data: pl.DataFrame | pl.LazyFrame, out_df: pl.DataFrame
+    ) -> pl.DataFrame:
+        """Cast `out_df`'s id column to match the input's id column dtype.
+
+        A shard assigned zero rows (e.g. an unlucky id-hash bucket) never flushes
+        anything, so `ArrowShardStore.finalize()` returns a table built from an
+        empty Python list for the id column. Arrow (and polars, converting from
+        it) can only type that column `Null`, since there is nothing to infer a
+        real dtype from. Joining that against the input's correctly-typed id
+        column in `_finalize_output` would otherwise raise
+        `SchemaError: datatypes of join keys don't match`.
+
+        Args:
+            data: Input polars DataFrame or LazyFrame (already has the id column).
+            out_df: Output DataFrame built from the checkpoint store's `finalize()`.
+
+        Returns:
+            `out_df` with its id column cast to the input's id column dtype when
+            they differ; unchanged otherwise.
+        """
+        import polars as pl
+
+        if self.cfg.id_col not in out_df.columns:
+            return out_df
+        schema = data.collect_schema() if isinstance(data, pl.LazyFrame) else data.schema
+        expected = schema.get(self.cfg.id_col)
+        if expected is not None and out_df.schema[self.cfg.id_col] != expected:
+            out_df = out_df.with_columns(pl.col(self.cfg.id_col).cast(expected))
+        return out_df
+
     def _finalize_output(
         self,
         data: pl.DataFrame | pl.LazyFrame,
@@ -479,6 +510,7 @@ class PolarsJobRunner:
 
         out_table = await asyncio.to_thread(self.store.finalize)
         out_df = cast(pl.DataFrame, pl.from_arrow(out_table))
+        out_df = self._align_id_dtype(data, out_df)
         return self._finalize_output(
             data,
             out_df=out_df,
@@ -969,4 +1001,13 @@ async def _run_polars_sharded(
     parts = await asyncio.gather(*tasks)
     if shard_output:
         return None
-    return pl.concat(parts, how="vertical")
+    # A shard assigned zero rows (e.g. an unlucky id-hash bucket) never flushes
+    # anything, so its checkpoint store's finalize() has only the id column to
+    # join back against the input -- the resulting per-shard frame is missing
+    # the output column(s) entirely, unlike every non-empty shard's frame.
+    # `pl.concat(..., how="vertical")` requires matching schemas and rejects
+    # that width mismatch outright. Drop empty parts before concatenating
+    # instead, mirroring the same fix already applied to the pandas engine's
+    # equivalent concat; an empty shard contributes zero rows either way.
+    non_empty_parts = [part for part in parts if part.height > 0]
+    return pl.concat(non_empty_parts if non_empty_parts else parts, how="vertical")
