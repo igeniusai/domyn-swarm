@@ -35,6 +35,7 @@ def _cfg(requires_ray: bool):
         qos="q",
         partition="p",
         time_limit="1:00:00",
+        requeue=True,
         preamble=[],
         modules=[],
         exclude_nodes=None,

@@ -137,6 +137,22 @@ the deployment needs it.
 END and FAIL notifications. The load-balancer job is configured separately under
 `backend.endpoint`, including its own optional `qos` override.
 
+`backend.requeue` (default `true`) emits `#SBATCH --requeue`, so replica jobs
+come back after a node failure or preemption, and lets the Ray head ask Slurm
+for a requeue when the cluster dies. Some sites forbid requeueing outright — set
+it to `false` there:
+
+```yaml
+backend:
+  type: slurm
+  requeue: false
+```
+
+The directive is then omitted and a Ray head that loses its cluster exits
+non-zero instead of calling `scontrol requeue`, so the replica stays down rather
+than restarting. Since this is a property of the site rather than of one
+deployment, it also belongs in `defaults.yaml` as `slurm.requeue`.
+
 Full field list: [Configuration](../reference/configuration.md).
 
 ## Shutting down

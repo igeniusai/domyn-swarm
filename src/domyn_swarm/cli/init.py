@@ -157,6 +157,10 @@ def _configure_slurm_defaults(existing: dict[str, Any]) -> dict[str, Any]:
         default=_get(existing, f"{base}.qos", ""),
         allow_empty=True,
     )
+    requeue = _yesno(
+        "Does this cluster allow requeueing jobs (#SBATCH --requeue)?",
+        default=bool(_get(existing, f"{base}.requeue", True)),
+    )
     nginx_image = _prompt_str(
         "Path to Nginx image (Singularity/Container)",
         default=_get(existing, f"{base}.nginx_image", ""),
@@ -203,6 +207,7 @@ def _configure_slurm_defaults(existing: dict[str, Any]) -> dict[str, Any]:
     if qos.strip():
         _set(out, f"{base}.qos", qos)
     _set(out, f"{base}.account", account)
+    _set(out, f"{base}.requeue", requeue)
     _set(out, f"{base_endpoint}.nginx_image", nginx_image)
     _set(out, f"{base_endpoint}.port", port)
     _set(out, f"{base_endpoint}.poll_interval", poll)

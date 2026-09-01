@@ -116,7 +116,7 @@ def test_yesno_passthrough(monkeypatch):
 
 def test_configure_slurm_defaults_sets_expected_fields(monkeypatch):
     # Order of prompts in _configure_slurm_defaults:
-    # image, partition, account, qos, nginx_image,
+    # image, partition, account, qos, requeue(confirm), nginx_image,
     # port, poll, cpus, mem, tpc, wall, proxy_buf(confirm), nginx_timeout
     prompt_answers = iter(
         [
@@ -139,7 +139,7 @@ def test_configure_slurm_defaults_sets_expected_fields(monkeypatch):
         # default is sometimes str(int) or string; we ignore it here
         return next(prompt_answers)
 
-    # confirm only used for proxy buffering in this flow
+    # confirm is used for requeue and proxy buffering in this flow
     monkeypatch.setattr(mod.typer, "prompt", fake_prompt)
     monkeypatch.setattr(mod.typer, "confirm", lambda label, default=True: True)
 
@@ -150,6 +150,7 @@ def test_configure_slurm_defaults_sets_expected_fields(monkeypatch):
     assert out["slurm"]["partition"] == "p"
     assert out["slurm"]["account"] == "acc"
     assert "qos" not in out.get("slurm", {})
+    assert out["slurm"]["requeue"] is True
 
     ep = out["slurm"]["endpoint"]
     assert ep["nginx_image"] == "nginx.sif"

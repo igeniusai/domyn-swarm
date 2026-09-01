@@ -173,3 +173,19 @@ def test_ray_metrics_explicit_true_respected_on_non_ray():
     )
     assert cfg.backend.requires_ray is False
     assert cfg.backend.endpoint.monitoring.ray_metrics.enabled is True
+
+
+def test_requeue_defaults_to_enabled():
+    cfg = _cfg(gpus_per_replica=1, gpus_per_node=4, replicas=2)
+    assert cfg.backend.requeue is True
+
+
+def test_requeue_can_be_disabled():
+    """Sites that forbid `--requeue` opt out in YAML."""
+    cfg = _cfg(
+        gpus_per_replica=1,
+        gpus_per_node=4,
+        replicas=2,
+        backend_extra={"requeue": False},
+    )
+    assert cfg.backend.requeue is False

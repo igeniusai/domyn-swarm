@@ -363,6 +363,15 @@ class SlurmConfig(BaseModel):
         default="36:00:00",
         description="Overall Slurm wall-clock limit for the allocation.",
     )
+    requeue: bool = Field(
+        default_factory=default_for("slurm.requeue", True),
+        description=(
+            "Emit `#SBATCH --requeue` so replica jobs may be requeued after a "
+            "node failure or preemption, and let the Ray head ask for a requeue "
+            "when the cluster dies. Turn it off on sites that forbid requeueing; "
+            "a failed replica then stays down instead of coming back."
+        ),
+    )
     exclude_nodes: str | None = Field(
         default=None,
         description=("Nodes to exclude, passed through to Slurm, e.g. `node[001-004]`."),

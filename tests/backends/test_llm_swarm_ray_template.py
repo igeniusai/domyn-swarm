@@ -11,7 +11,7 @@ from domyn_swarm.config.slurm import GpuExporterConfig
 TPL_DIR = Path("src/domyn_swarm/templates")
 
 
-def _cfg(mon_enabled, gpu_enabled, ray_metrics=None):
+def _cfg(mon_enabled, gpu_enabled, ray_metrics=None, requeue=True):
     """Build a minimal config-like object for rendering llm_swarm_ray.sh.j2."""
     gx = GpuExporterConfig(enabled=gpu_enabled)
     mon = SimpleNamespace(
@@ -27,6 +27,7 @@ def _cfg(mon_enabled, gpu_enabled, ray_metrics=None):
         qos="q",
         partition="p",
         time_limit="1:00:00",
+        requeue=requeue,
         preamble=[],
         modules=[],
         exclude_nodes=None,
@@ -119,3 +120,21 @@ def test_ray_metrics_absent_when_disabled():
     out = _render(cfg)
     assert "--metrics-export-port" not in out
     assert "ray-$(hostname).target" not in out
+
+
+def test_ray_requeue_enabled_asks_slurm_to_requeue():
+    out = _render(_cfg(mon_enabled=False, gpu_enabled=False, requeue=True))
+
+    assert "#SBATCH --requeue" in out
+    assert "scontrol requeue" in out
+    assert "requeue='on'" in out
+
+
+def test_ray_requeue_disabled_fails_instead_of_requeueing():
+    """With requeueing off, the head must never shell out to `scontrol requeue`."""
+    out = _render(_cfg(mon_enabled=False, gpu_enabled=False, requeue=False))
+
+    assert "#SBATCH --requeue" not in out
+    assert "scontrol requeue" not in out
+    assert "requeue disabled (backend.requeue=false)" in out
+    assert "requeue='off'" in out

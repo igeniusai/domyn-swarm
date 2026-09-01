@@ -11,7 +11,7 @@ from domyn_swarm.config.slurm import GpuExporterConfig
 TPL_DIR = Path("src/domyn_swarm/templates")
 
 
-def _cfg(gpu_enabled, kind="nvidia_smi"):
+def _cfg(gpu_enabled, kind="nvidia_smi", requeue=True):
     """Build a minimal config-like object exposing the real GpuExporterConfig methods."""
     gx = GpuExporterConfig(enabled=gpu_enabled, kind=kind)
     mon = SimpleNamespace(enabled=True, mode="binary", gpu_exporter=gx)
@@ -23,6 +23,7 @@ def _cfg(gpu_enabled, kind="nvidia_smi"):
         qos="q",
         partition="p",
         time_limit="1:00:00",
+        requeue=requeue,
         preamble=[],
         modules=[],
         exclude_nodes=None,
@@ -101,3 +102,12 @@ def test_watchdog_is_not_launched_when_disabled():
     # The script stays bind-mounted (harmless); what matters is that it is not invoked.
     assert "python3 /opt/watchdog.py" not in out
     assert "vllm serve" in out, "the server itself must still start"
+
+
+def test_requeue_directive_present_when_enabled():
+    assert "#SBATCH --requeue" in _render(_cfg(False, requeue=True))
+
+
+def test_requeue_directive_absent_when_disabled():
+    """Sites that forbid requeueing must not get the directive at all."""
+    assert "#SBATCH --requeue" not in _render(_cfg(False, requeue=False))
