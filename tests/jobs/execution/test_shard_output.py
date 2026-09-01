@@ -232,3 +232,69 @@ async def test_shard_output_true_missing_store_uri_raises(tmp_path):
             shard_output=True,
             runner="pandas",
         )
+
+
+@pytest.mark.asyncio
+async def test_polars_shard_output_true_with_global_resume_keeps_completed_ids(tmp_path):
+    """The polars engine must not drop completed ids from its shard output either.
+
+    The same defect as
+    `test_shard_output_true_with_global_resume_keeps_completed_ids`, in a
+    quieter shape: `PolarsJobRunner._stream_output_to_path` left-joins a
+    shard's checkpoint outputs onto that shard's slice of the input, so a row
+    filtered out by global resume was absent from the join's left side and
+    therefore missing from the file that overwrote the previous run's. The
+    directory was left looking complete while silently holding only the rows
+    processed on the last run.
+
+    Note the shape this needs: re-running the *identical* full frame does not
+    reproduce it, because filtering out every id sends `_run_polars_sharded`
+    down its zero-row early return, which never touches the directory. A
+    partial first pass followed by a wider second pass is required.
+    """
+    pl = pytest.importorskip("polars")
+
+    store_uri = f"file://{tmp_path / 'ckpt.parquet'}"
+    out_dir = tmp_path / "outdir"
+    out_dir.mkdir()
+    common = {
+        "input_col": "messages",
+        "output_cols": ["output"],
+        "store_uri": store_uri,
+        "nshards": 2,
+        "shard_mode": "id",
+        "checkpointing": True,
+        "global_resume": True,
+        "output_path": out_dir,
+        "shard_output": True,
+        "engine": "polars",
+        "data_backend": "polars",
+    }
+
+    # First pass: only ids 1 and 2 exist, establishing partial per-shard
+    # checkpoint state and partial shard output files to resume from.
+    await run_job_unified(
+        lambda: ShardOutputJob(id_column_name="doc_id"),
+        pl.DataFrame({"doc_id": [1, 2], "messages": [1, 2]}),
+        **common,
+    )
+
+    class ExplodingResumeJob(ShardOutputJob):
+        async def transform_items(self, items: list):
+            for item in items:
+                if item in (1, 2):
+                    raise AssertionError(f"re-processed already-done item: {item}")
+            return [f"out-{i}" for i in items]
+
+    # Second pass: the full dataset. Ids 1 and 2 must not be reprocessed, and
+    # must still be present in the output directory afterwards.
+    await run_job_unified(
+        lambda: ExplodingResumeJob(id_column_name="doc_id"),
+        pl.DataFrame({"doc_id": [1, 2, 3, 4], "messages": [1, 2, 3, 4]}),
+        **common,
+    )
+
+    parts = [pl.read_parquet(f) for f in sorted(out_dir.glob("*.parquet"))]
+    written = pl.concat([p for p in parts if p.height], how="diagonal")
+    assert sorted(written["doc_id"].to_list()) == [1, 2, 3, 4]
+    assert sorted(written["output"].to_list()) == ["out-1", "out-2", "out-3", "out-4"]

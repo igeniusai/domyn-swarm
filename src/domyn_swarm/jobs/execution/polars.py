@@ -705,7 +705,8 @@ async def _run_polars(
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
-        global_resume: Whether to resume using global done ids across shards.
+        global_resume: Whether to resume using global done ids across shards. Ignored
+            when `shard_output` is True; see the comment on the filter below.
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -763,7 +764,24 @@ async def _run_polars(
     data = _collect_polars_data(data)
     data_full = data
 
-    if global_resume and checkpointing:
+    # The global-resume filter is deliberately skipped when `shard_output` is on.
+    # Each shard streams its own parquet file by left-joining that shard's
+    # checkpoint outputs onto the shard's slice of `data`
+    # (`PolarsJobRunner._stream_output_to_path`), so a row filtered out of `data`
+    # here is absent from the join's left side and therefore missing from the
+    # file that overwrites the previous run's -- silently dropping rows that were
+    # already complete. Unlike the non-sharded path there is no
+    # `_finalize_polars_global_resume` pass afterwards to reconcile them, because
+    # `shard_output` returns early by design: streaming per shard is the whole
+    # reason to use it, and rebuilding one merged frame would defeat that.
+    #
+    # Resume is still correct without the filter: each shard's own checkpoint
+    # store already skips ids that shard finished, and `shard_mode="id"` hashes an
+    # id to a stable shard, so per-shard resume equals global resume whenever
+    # `nshards` is unchanged -- already required, since `nshards` is part of the
+    # checkpoint layout. They diverge only when `nshards` changed, where a moved
+    # id is reprocessed in its new shard rather than dropped from the output.
+    if global_resume and checkpointing and not shard_output:
         if store_uri is None:
             raise ValueError("store_uri is required when global_resume is enabled.")
         done_ids = load_global_done_ids(

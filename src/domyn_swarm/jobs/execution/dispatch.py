@@ -240,13 +240,13 @@ async def run_job_unified(
         shard_output: If True and output_path is a directory, write one parquet file per
             shard directly from checkpoint outputs and return None, rather than assembling
             the merged result in memory and returning it. Read by the pandas and polars
-            engines; ignored by the Arrow and Ray engines. On the pandas engine, this also
-            makes `global_resume` a no-op: shards are sharded from the full input and each
-            shard's own checkpoint store already supplies resume, which is equivalent to
-            global resume as long as `nshards` stays fixed across resumes of the same job.
+            engines; ignored by the Arrow and Ray engines. On the pandas and polars engines
+            this also makes `global_resume` a no-op: shards are cut from the full input and
+            each shard's own checkpoint store already supplies resume, which is equivalent
+            to global resume as long as `nshards` stays fixed across resumes of the same job.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
         global_resume: Resume by filtering inputs with global done ids across shards. Ignored
-            on the pandas engine when `shard_output` is True (see `shard_output`).
+            on the pandas and polars engines when `shard_output` is True (see `shard_output`).
 
     Returns:
         Backend-native result for non-ray runs, or the Ray runner result.
