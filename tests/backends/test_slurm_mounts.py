@@ -138,17 +138,27 @@ def test_base_mounts_have_no_system_mounts_by_default():
 
 
 def test_optional_mount_helper_skips_missing_paths(tmp_path):
-    """The rendered helper must skip absent host paths instead of failing."""
-    cfg = _make_cfg([], system_mounts=[tmp_path.as_posix(), "/definitely/not/here"])
-    rendered = _render_template(cfg)
+    """The rendered helper must skip absent host paths instead of failing.
+
+    Runs only the helper definition, with calls of its own, so the result does
+    not depend on which of the template's own optional paths happen to exist on
+    the machine running the tests.
+    """
+    rendered = _render_template(_make_cfg([]))
     start = rendered.index("add_optional_mount() {")
-    end = rendered.index('add_optional_mount "/definitely/not/here"') + len(
-        'add_optional_mount "/definitely/not/here"'
+    helper = rendered[start : rendered.index("\n}\n", start) + 3]
+    script = "\n".join(
+        [
+            'MOUNTS="base"',
+            helper,
+            f'add_optional_mount "{tmp_path.as_posix()}"',
+            'add_optional_mount "/definitely/not/here"',
+            'echo "$MOUNTS"',
+        ]
     )
-    script = 'MOUNTS="base"\n' + rendered[start:end] + '\necho "$MOUNTS"'
-    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True).stdout
-    assert f"base,{tmp_path.as_posix()}" in out
-    assert "/definitely/not/here" not in out.splitlines()[-1]
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+    assert proc.stdout.splitlines()[-1] == f"base,{tmp_path.as_posix()}"
+    assert "skipping bind mount '/definitely/not/here'" in proc.stdout
 
 
 def test_system_mounts_field_defaults_to_empty_list():
