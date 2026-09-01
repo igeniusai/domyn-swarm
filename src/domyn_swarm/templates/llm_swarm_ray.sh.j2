@@ -5,6 +5,12 @@
 ###############################################################################
 
 requeue_this_job() {
+{% if not cfg.backend.requeue %}
+  # Requeueing is disabled for this deployment (backend.requeue=false), e.g.
+  # because the site forbids it. Fail the job instead of asking for a requeue.
+  echo "[head] requeue disabled (backend.requeue=false), failing the job instead" >&2
+  exit 1
+{% else %}
   # Requeue *this* Slurm job or array element.
   #
   # - For arrays: requeues <array_job_id>_<task_id>
@@ -34,6 +40,7 @@ requeue_this_job() {
     echo "[head] scontrol requeue failed for ${jid}, exiting 1" >&2
     exit 1
   fi
+{% endif %}
 }
 
 echo "[multi-node] Running $REPLICAS replicas on $SLURM_JOB_NUM_NODES nodes with $GPUS_PER_REPLICA GPU(s) each..."
@@ -295,7 +302,7 @@ consec_fail=0
 
 trap 'echo "[batch] caught SIGTERM → shutting down"; exit 0' SIGTERM
 
-echo "[head] entering Ray + vLLM health loop (requeue='on')"
+echo "[head] entering Ray + vLLM health loop (requeue='{{ 'on' if cfg.backend.requeue else 'off' }}')"
 
 while true; do
   # 0) Check if watchdog died with a special exit code

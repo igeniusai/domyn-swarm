@@ -16,7 +16,9 @@
 #SBATCH --cpus-per-task={{ cfg.cpus_per_task }}
 #SBATCH --mem=0
 #SBATCH --time={{ cfg.backend.time_limit }}
+{% if cfg.backend.requeue %}
 #SBATCH --requeue
+{% endif %}
 {% if cfg.backend.exclude_nodes %}
 #SBATCH --exclude={{ cfg.backend.exclude_nodes }}
 {% endif %}
