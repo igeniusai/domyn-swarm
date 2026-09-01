@@ -1,3 +1,37 @@
+## v0.31.0 (2026-09-01)
+
+### Feat
+
+- **slurm**: add support for job requeueing configuration and handling
+
+### Fix
+
+- **deps**: resolve 39 of 40 open Dependabot advisories
+- **tests**: fix pre-commit hooks
+- **cli**: report the backend in `swarm list` instead of a blank column
+- **state**: restore jobid validation lost in compute-backend extraction
+- **config**: read settings at the point of use
+- **watchdog**: make the inert watchdog config fields do something
+- **jobs**: rename --num-threads to --num-shards
+- **jobs**: reject misspelled SwarmJob parameters at construction
+- **core**: release the allocation when startup fails
+- **core**: report UNKNOWN from status() instead of raising
+- **api**: export run_job_unified from the package root
+- **docs**: publish a release's docs when its tag exists
+
+### Refactor
+
+- **state**: delete load_monitor_view workaround
+- **core**: stop the constructor writing to disk
+- **state**: build swarms from records instead of back-filling them
+- **core**: expose serving_status() instead of reaching through privates
+- **plan**: let the deployment plan build its own compute backend
+- **watchdog**: align the runtime config with the YAML schema
+- make jobs/runner.py re-export instead of reimplementing
+- remove unreachable functions
+- remove the superseded raw SQL query files
+- remove the unused reverse_proxy helper
+
 ## v0.30.0 (2026-08-25)
 
 ### Feat
