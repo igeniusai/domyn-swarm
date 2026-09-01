@@ -73,6 +73,63 @@ def test_arrow_concat_preserves_part_order(arrow_ops: ArrowFrameOps) -> None:
     assert out.column("v").to_pylist() == ["b", "a"]
 
 
+def test_pandas_concat_drops_empty_shards_to_avoid_dtype_upcast(
+    pandas_ops: PandasFrameOps,
+) -> None:
+    """An empty shard's object-dtyped id column must not upcast the merged one.
+
+    A shard assigned zero rows (an unlucky id-hash bucket) still runs through
+    `JobRunner.run()`, which returns a well-formed but object-dtyped empty
+    frame for its id column. Concatenating it in naively upcasts the merged
+    id column to object even though every non-empty shard is correctly
+    typed -- a `.tolist()` comparison would not catch this, since the values
+    are unchanged. The dtype must be asserted directly.
+    """
+    full = pd.DataFrame({"doc_id": [1, 2, 3], "output": ["a", "b", "c"]})
+    empty = pd.DataFrame(
+        {"doc_id": pd.Series([], dtype=object), "output": pd.Series([], dtype=object)}
+    )
+
+    out = pandas_ops.concat([full, empty])
+
+    assert out["doc_id"].dtype == np.int64
+    assert out["doc_id"].tolist() == [1, 2, 3]
+
+
+def test_pandas_concat_all_empty_shards_returns_a_well_formed_empty_frame(
+    pandas_ops: PandasFrameOps,
+) -> None:
+    """If every shard is empty, concat must not raise -- it returns an empty frame."""
+    empty = pd.DataFrame(
+        {"doc_id": pd.Series([], dtype=object), "output": pd.Series([], dtype=object)}
+    )
+
+    out = pandas_ops.concat([empty, empty])
+
+    assert out.empty
+    assert list(out.columns) == ["doc_id", "output"]
+
+
+def test_arrow_concat_reconciles_a_null_typed_empty_shard(arrow_ops: ArrowFrameOps) -> None:
+    """An empty shard's null-typed columns must not break the schema merge.
+
+    A shard assigned zero rows produces a result table built from empty
+    Python lists, whose columns come back null-typed. A bare
+    `pa.concat_tables` rejects that schema mismatch outright; the adapter
+    must use the same promotion fallback `_run_arrow` uses.
+    """
+    full = pa.table({"doc_id": pa.array([1, 2, 3], type=pa.int64()), "output": ["a", "b", "c"]})
+    empty = pa.table(
+        {"doc_id": pa.array([], type=pa.null()), "output": pa.array([], type=pa.null())}
+    )
+
+    out = arrow_ops.concat([full, empty])
+
+    assert out.column("doc_id").to_pylist() == [1, 2, 3]
+    assert out.column("output").to_pylist() == ["a", "b", "c"]
+    assert out.schema.field("doc_id").type == pa.int64()
+
+
 @pytest.mark.parametrize("ops_name", ["pandas_ops", "arrow_ops"])
 def test_filter_out_ids_removes_done_rows(ops_name, request) -> None:
     """Both adapters drop rows whose id is already done."""

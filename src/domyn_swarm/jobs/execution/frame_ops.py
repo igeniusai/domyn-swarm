@@ -19,7 +19,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from domyn_swarm.checkpoint.arrow_store import ArrowShardStore
+from domyn_swarm.checkpoint.arrow_store import (
+    ArrowShardStore,
+    _concat_tables_with_variable_width_fallback,
+)
 from domyn_swarm.checkpoint.store import CheckpointStore, ParquetShardStore
 from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.api.base import OutputJoinMode
@@ -162,8 +165,20 @@ class PandasFrameOps:
         return frame.iloc[indices].copy(deep=False)
 
     def concat(self, parts: list[pd.DataFrame]) -> pd.DataFrame:
-        """Combine shard outputs, restoring original row order."""
-        return pd.concat(parts).sort_index()
+        """Combine shard outputs, restoring original row order.
+
+        A shard assigned zero rows (e.g. an unlucky id-hash bucket) still runs
+        through `JobRunner.run()`, which returns a well-formed but
+        object-dtyped empty frame for its id column (the checkpoint store's
+        `finalize()` cannot infer a real dtype with nothing to read).
+        Concatenating that in would upcast the merged id column to object
+        even though every non-empty shard is correctly typed. Drop empty
+        parts before concatenating instead, mirroring `_run_pandas`; an empty
+        shard contributes zero rows either way, so this is lossless. If every
+        part is empty, concatenate them as-is rather than raising.
+        """
+        non_empty = [part for part in parts if not part.empty]
+        return pd.concat(non_empty if non_empty else parts).sort_index()
 
     async def run_shard(
         self,
@@ -261,8 +276,17 @@ class ArrowFrameOps:
         return self.take(frame, indices)
 
     def concat(self, parts: list[pa.Table]) -> pa.Table:
-        """Combine shard outputs positionally."""
-        return pa.concat_tables(parts)
+        """Combine shard outputs positionally.
+
+        A shard assigned zero rows (e.g. an unlucky id-hash bucket) produces
+        a result table built from empty Python lists, whose columns come
+        back null-typed and missing the output column(s). A bare
+        `pa.concat_tables` rejects that schema mismatch outright, so this
+        uses the same fallback as `_run_arrow`: `promote_options="default"`
+        reconciles null-typed columns with their real type from other
+        shards, retrying with variable-width promotion if that still fails.
+        """
+        return _concat_tables_with_variable_width_fallback(parts)
 
     async def run_shard(
         self,
