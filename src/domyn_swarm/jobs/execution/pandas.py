@@ -4,7 +4,7 @@
 import asyncio
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -12,16 +12,15 @@ import pandas as pd
 from domyn_swarm.checkpoint.store import ParquetShardStore
 from domyn_swarm.data.backends.base import DataBackend
 from domyn_swarm.jobs.api.base import OutputJoinMode, SwarmJob
-from domyn_swarm.jobs.api.runner import JobRunner, RunnerConfig
+from domyn_swarm.jobs.api.runner import RunnerConfig
+from domyn_swarm.jobs.execution.frame_ops import PandasFrameOps, ShardSpec
+from domyn_swarm.jobs.execution.pipeline import run_sharded_pipeline
 from domyn_swarm.jobs.io.checkpointing import (
-    _build_checkpoint_store,
     _shard_filename,
     _shard_store_uri,
     _validate_sharded_execution,
     load_global_done_ids,
 )
-from domyn_swarm.jobs.io.columns import _validate_required_id
-from domyn_swarm.jobs.io.sharding import shard_indices_by_id
 
 
 async def _run_pandas(
@@ -64,164 +63,138 @@ async def _run_pandas(
     Returns:
         Job results in backend-native output form.
     """
-    df = data if isinstance(data, pd.DataFrame) else backend.to_pandas(data)
-    if require_id:
-        _validate_required_id(df, id_col)
-
-    cfg = RunnerConfig(id_col=id_col, checkpoint_every=checkpoint_every)
+    ops = PandasFrameOps(backend)
     resolved_output_cols = output_cols or job_probe.default_output_cols
+    spec = ShardSpec(
+        input_col=input_col,
+        output_cols=resolved_output_cols,
+        id_col=id_col,
+        checkpoint_every=checkpoint_every,
+        checkpointing=checkpointing,
+        output_mode=job_probe.output_mode,
+    )
     is_dir_output = output_path is not None and (output_path.is_dir() or output_path.suffix == "")
 
-    if nshards <= 1:
-        store = _build_checkpoint_store(checkpointing=checkpointing, store_uri=store_uri)
-        out = await JobRunner(store, cfg).run(
-            job_probe,
-            df,
-            input_col=input_col,
-            output_cols=resolved_output_cols,
-            output_mode=job_probe.output_mode,
+    if backend.name == "pandas" and is_dir_output and nshards > 1:
+        assert output_path is not None
+        return await _run_pandas_to_directory(
+            ops=ops,
+            job_factory=job_factory,
+            data=data,
+            spec=spec,
+            require_id=require_id,
+            nshards=nshards,
+            shard_mode=shard_mode,
+            global_resume=global_resume,
+            store_uri=store_uri,
+            checkpointing=checkpointing,
+            output_path=output_path,
         )
-        return out if backend.name == "pandas" else backend.from_pandas(out)
+
+    def _finalize(
+        *, frame_full: pd.DataFrame, store_uri: str | None, nshards: int, spec: ShardSpec
+    ) -> pd.DataFrame:
+        return _finalize_global_resume(
+            df_full=frame_full,
+            store_uri=store_uri,
+            nshards=nshards,
+            cfg=RunnerConfig(id_col=spec.id_col, checkpoint_every=spec.checkpoint_every),
+            input_col=spec.input_col,
+            # `spec.output_cols` is typed `list[str] | None`, but the closure over the
+            # already-resolved local avoids re-deriving (or asserting) that it isn't
+            # None here: it's the same value `spec` was built from.
+            resolved_output_cols=resolved_output_cols,
+            output_mode=spec.output_mode,
+        )
+
+    out = await run_sharded_pipeline(
+        ops=ops,
+        job_factory=job_factory,
+        data=data,
+        spec=spec,
+        require_id=require_id,
+        nshards=nshards,
+        shard_mode=shard_mode,
+        global_resume=global_resume,
+        store_uri=store_uri,
+        finalize=_finalize,
+    )
+    return out if backend.name == "pandas" else backend.from_pandas(out)
+
+
+async def _run_pandas_to_directory(
+    *,
+    ops: PandasFrameOps,
+    job_factory: Callable[[], Any],
+    data: Any,
+    spec: ShardSpec,
+    require_id: bool,
+    nshards: int,
+    shard_mode: str,
+    global_resume: bool,
+    store_uri: str | None,
+    checkpointing: bool,
+    output_path: Path,
+) -> None:
+    """Write one parquet file per shard into a directory.
+
+    Retained from the pre-consolidation pandas engine, where directory output
+    was triggered implicitly by `output_path` being a directory.
+
+    The validation order mirrors `_run_pandas`: the id column is checked
+    right after coercion (before `ensure_id` would paper over a missing one),
+    then sharded-execution prerequisites, then the frame is prepared for
+    sharding (id backfill, global-resume filtering, shard partitioning).
+
+    Args:
+        ops: Pandas frame adapter.
+        job_factory: Callable producing a fresh job per shard.
+        data: Backend-native input data.
+        spec: Settings shared by every shard.
+        require_id: Whether the id column must already exist.
+        nshards: Number of shards.
+        shard_mode: Sharding strategy.
+        global_resume: Whether to skip globally-done ids.
+        store_uri: Base checkpoint store URI.
+        checkpointing: Whether checkpointing is enabled.
+        output_path: Directory to write shard parquet files into.
+    """
+    frame = ops.coerce(data, spec.id_col)
+    if require_id and spec.id_col not in ops.column_names(frame):
+        raise ValueError(f"Input is missing required id column {spec.id_col!r}.")
 
     _validate_sharded_execution(checkpointing)
     if shard_mode not in {"id", "index"}:
         raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+    if store_uri is None:
+        raise ValueError("store_uri is required when running sharded jobs.")
 
-    df_full, df = _prepare_sharded_inputs(
-        df=df,
-        id_col=id_col,
-        nshards=nshards,
-        global_resume=global_resume,
-        checkpointing=checkpointing,
-        store_uri=store_uri,
-    )
-    indices, _slice = _build_shard_slices(
-        df=df, id_col=id_col, shard_mode=shard_mode, nshards=nshards
-    )
+    frame = ops.ensure_id(frame, spec.id_col)
 
-    async def _run_shard(i: int, idx):
-        sub = _slice(idx)
-        assert store_uri is not None
-        su = _shard_store_uri(store_uri, i)
-        store = ParquetShardStore(su)
-        return await JobRunner(store, cfg).run(
-            job_factory(),
-            sub,
-            input_col=input_col,
-            output_cols=resolved_output_cols,
-            output_mode=job_probe.output_mode,
-        )
-
-    if backend.name == "pandas" and is_dir_output:
-        assert output_path is not None
-        output_path.mkdir(parents=True, exist_ok=True)
-        await _write_sharded_outputs(
-            indices=indices,
-            nshards=nshards,
-            output_path=output_path,
-            run_shard=_run_shard,
-        )
-        return None
-
-    parts = await asyncio.gather(*[_run_shard(i, idx) for i, idx in enumerate(indices)])
-    # A shard assigned zero rows (e.g. an unlucky id-hash bucket) still runs
-    # through JobRunner.run(), which returns a well-formed but object-dtyped
-    # empty frame for its id column (ParquetShardStore.finalize() cannot infer
-    # a real dtype with nothing to read). Concatenating that in would upcast
-    # the merged id column to object even though every non-empty shard is
-    # correctly typed. Drop empty parts before concatenating instead, mirroring
-    # `_merge_shard_outputs`'s `if shard_table.num_rows: ...` on the Arrow side;
-    # an empty shard contributes zero rows either way, so this is lossless.
-    non_empty_parts = [part for part in parts if not part.empty]
-    out = pd.concat(non_empty_parts if non_empty_parts else parts).sort_index()
-    if not global_resume:
-        return out if backend.name == "pandas" else backend.from_pandas(out)
-    return _finalize_global_resume(
-        df_full=df_full,
-        store_uri=store_uri,
-        nshards=nshards,
-        cfg=cfg,
-        input_col=input_col,
-        resolved_output_cols=resolved_output_cols,
-        output_mode=job_probe.output_mode,
-        backend=backend,
-    )
-
-
-def _prepare_sharded_inputs(
-    *,
-    df: pd.DataFrame,
-    id_col: str,
-    nshards: int,
-    global_resume: bool,
-    checkpointing: bool,
-    store_uri: str | None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Prepare inputs for sharded execution with optional global resume.
-
-    Args:
-        df: Input DataFrame.
-        id_col: Column name used for stable row ids.
-        nshards: Number of shards.
-        global_resume: Whether to filter by global done ids.
-        checkpointing: Whether checkpointing is enabled.
-        store_uri: Checkpoint store URI.
-
-    Returns:
-        Tuple of (full_df, filtered_df) where filtered_df excludes done ids if requested.
-    """
-    if id_col not in df.columns:
-        df = df.copy(deep=False)
-        df[id_col] = df.index
-    df_full = df
     if global_resume and checkpointing:
-        if store_uri is None:
-            raise ValueError("store_uri is required when global_resume is enabled.")
-        done_ids = load_global_done_ids(
+        done = load_global_done_ids(
             store_uri=store_uri,
-            id_col=id_col,
+            id_col=spec.id_col,
             nshards=nshards,
-            store_factory=ParquetShardStore,
-            empty_data_factory=lambda: pd.DataFrame({id_col: []}),
+            store_factory=ops.store_factory,
+            empty_data_factory=lambda: ops.empty_with_id(spec.id_col),
         )
-        if done_ids:
-            df = df.loc[~df[id_col].isin(list(done_ids))]
-    return df_full, df
+        frame = ops.filter_out_ids(frame, spec.id_col, done)
 
+    indices = ops.shard_indices(frame, spec.id_col, shard_mode, nshards)
+    take = ops.take if shard_mode == "index" else ops.take_positional
+    output_path.mkdir(parents=True, exist_ok=True)
 
-def _build_shard_slices(
-    *,
-    df: pd.DataFrame,
-    id_col: str,
-    shard_mode: str,
-    nshards: int,
-) -> tuple[list[np.ndarray], Callable[[np.ndarray], pd.DataFrame]]:
-    """Build shard indices and a slice function for the DataFrame.
+    async def _run_shard(i: int, idx: np.ndarray) -> pd.DataFrame:
+        assert store_uri is not None
+        return await ops.run_shard(
+            job_factory, take(frame, idx), _shard_store_uri(store_uri, i), spec
+        )
 
-    Args:
-        df: Input DataFrame.
-        id_col: Column name used for stable row ids.
-        shard_mode: Sharding strategy ("id" or "index").
-        nshards: Number of shards.
-
-    Returns:
-        List of index arrays and a callable that slices the DataFrame by index array.
-    """
-    if shard_mode == "index":
-        indices = np.array_split(df.index, nshards)
-
-        def _slice(idx: np.ndarray) -> pd.DataFrame:
-            return df.loc[idx].copy(deep=False)
-
-        return indices, _slice
-
-    ids = cast(pd.Series, df[id_col])
-    indices = shard_indices_by_id(ids, nshards)
-
-    def _slice(idx: np.ndarray) -> pd.DataFrame:
-        return df.iloc[idx].copy(deep=False)
-
-    return indices, _slice
+    await _write_sharded_outputs(
+        indices=indices, nshards=nshards, output_path=output_path, run_shard=_run_shard
+    )
+    return None
 
 
 async def _write_sharded_outputs(
@@ -256,8 +229,7 @@ def _finalize_global_resume(
     input_col: str,
     resolved_output_cols: list[str],
     output_mode: OutputJoinMode,
-    backend: DataBackend,
-) -> Any:
+) -> pd.DataFrame:
     """Rebuild outputs from all shards and join against the full input.
 
     Args:
@@ -268,10 +240,10 @@ def _finalize_global_resume(
         input_col: Input column name.
         resolved_output_cols: Output columns.
         output_mode: Output join mode.
-        backend: Data backend used for conversions.
 
     Returns:
-        Final output DataFrame (backend-native).
+        Final output DataFrame, in pandas form. The caller (`_run_pandas`)
+        is responsible for converting to the target backend exactly once.
     """
     if store_uri is None:
         raise ValueError("store_uri is required when global_resume is enabled.")
@@ -297,7 +269,7 @@ def _finalize_global_resume(
         base[cfg.id_col] = base.index
     if output_mode == OutputJoinMode.APPEND:
         merged = base.merge(out_df, on=cfg.id_col, how="left")
-        return merged if backend.name == "pandas" else backend.from_pandas(merged)
+        return merged
     if output_mode == OutputJoinMode.IO_ONLY:
         merged = base.merge(out_df, on=cfg.id_col, how="left")
         if resolved_output_cols:
@@ -306,11 +278,11 @@ def _finalize_global_resume(
             output_columns = [c for c in merged.columns if c not in (cfg.id_col, input_col)]
             keep = [cfg.id_col, input_col, *output_columns]
         merged = merged.loc[:, keep]
-        return merged if backend.name == "pandas" else backend.from_pandas(merged)
+        return merged
     if resolved_output_cols:
         keep = [cfg.id_col, *resolved_output_cols]
     else:
         output_columns = [c for c in out_df.columns if c != cfg.id_col]
         keep = [cfg.id_col, *output_columns]
     merged = out_df.loc[:, keep]
-    return merged if backend.name == "pandas" else backend.from_pandas(merged)
+    return merged
