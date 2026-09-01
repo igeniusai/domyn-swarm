@@ -571,8 +571,12 @@ class DomynLLMSwarm(BaseModel):
             checkpoint layout, so keep it fixed across resumes of the same job
             or previously-completed rows will be reprocessed.
         shard_output : bool, default False
-            If True and `output_path` is a directory, emit one parquet file per shard using
-            checkpoint outputs as the source of truth (supported by the polars runner).
+            If True and `output_path` is a directory, shards are written directly from
+            checkpoint outputs rather than assembling the merged result in memory first.
+            This controls how the result is produced, not the file layout: a directory
+            output is written as one parquet file per shard whenever `num_shards` > 1
+            either way. Applies to the pandas and polars engines; ignored by the Arrow
+            and Ray engines.
         shard_mode : str, default "id"
             Sharding strategy for `num_shards` > 1 ("id" for stable id hashing, "index" for
             legacy row order sharding).

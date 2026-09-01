@@ -40,6 +40,7 @@ async def _run_pandas(
     checkpoint_every: int,
     checkpointing: bool,
     output_path: Path | None,
+    shard_output: bool = False,
 ) -> Any:
     """Run the pandas-backed execution path for non-ray backends.
 
@@ -59,6 +60,8 @@ async def _run_pandas(
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
         output_path: Optional output path used for direct shard writes.
+        shard_output: Whether to write one parquet file per shard when `output_path`
+            is a directory.
 
     Returns:
         Job results in backend-native output form.
@@ -75,7 +78,7 @@ async def _run_pandas(
     )
     is_dir_output = output_path is not None and (output_path.is_dir() or output_path.suffix == "")
 
-    if backend.name == "pandas" and is_dir_output and nshards > 1:
+    if backend.name == "pandas" and is_dir_output and nshards > 1 and shard_output:
         assert output_path is not None
         return await _run_pandas_to_directory(
             ops=ops,

@@ -144,8 +144,10 @@ def parse_args(cli_args=None):
     parser.add_argument(
         "--shard-output",
         action="store_true",
-        help="When output is a directory, write one parquet file per shard (based on --num-shards) "
-        "using checkpoint outputs as the source of truth. Only supported for the Polars runner.",
+        help="When output is a directory, write shards directly from checkpoint outputs instead "
+        "of assembling the merged result in memory first. Supported by the pandas and polars "
+        "runners; ignored by the arrow runner. Either way the directory is written as one "
+        "parquet file per shard (based on --num-shards).",
     )
 
     if not cli_args:

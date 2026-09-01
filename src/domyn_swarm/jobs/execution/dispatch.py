@@ -169,9 +169,10 @@ async def run_job_unified(
         ray_address: Optional Ray cluster address (only used for ray backend).
         output_path: Optional output path used to enable direct shard writes when using
             the pandas runner and directory outputs.
-        shard_output: If True and output_path is a directory, write one parquet file per shard
-            (based on `nshards`) using checkpoint outputs as the source of truth when supported
-            by the runner/backend (currently Polars).
+        shard_output: If True and output_path is a directory, write one parquet file per
+            shard directly from checkpoint outputs and return None, rather than assembling
+            the merged result in memory and returning it. Read by the pandas and polars
+            engines; ignored by the Arrow and Ray engines.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
         global_resume: Resume by filtering inputs with global done ids across shards.
 
@@ -262,4 +263,5 @@ async def run_job_unified(
         checkpoint_every=checkpoint_every,
         checkpointing=checkpointing,
         output_path=output_path,
+        shard_output=shard_output,
     )
