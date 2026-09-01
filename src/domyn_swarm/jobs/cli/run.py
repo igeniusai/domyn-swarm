@@ -126,7 +126,14 @@ def parse_args(cli_args=None):
         "--runner",
         choices=["pandas", "arrow"],
         default="pandas",
-        help="Runner implementation to use for non-ray backends.",
+        help="Deprecated; use --engine instead. Runner implementation to use for non-ray backends.",
+    )
+    parser.add_argument(
+        "--engine",
+        choices=["pandas", "arrow", "polars", "ray"],
+        default=None,
+        help="Execution engine to use. Takes precedence over the deprecated "
+        "--runner/--data-backend pair.",
     )
     parser.add_argument(
         "--checkpoint-tag",
@@ -179,6 +186,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
     backend_write_kwargs = job_kwargs.get("backend_write_kwargs") or {}
     native_backend = job_kwargs.get("native_backend")
     runner_choice = getattr(args, "runner", "pandas")
+    engine_choice = getattr(args, "engine", None)
 
     if not isinstance(backend_read_kwargs, dict):
         raise ValueError("backend_read_kwargs must be a dict if provided")
@@ -263,6 +271,7 @@ async def _amain(cli_args: list[str] | argparse.Namespace | None = None):
         native_backend=native_backend,
         checkpointing=checkpointing,
         runner=runner_choice,
+        engine=engine_choice,
         ray_address=args.ray_address,
         output_path=out_path,
         shard_output=bool(getattr(args, "shard_output", False)),

@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+import warnings
 
 from domyn_swarm.jobs.api.base import SwarmJob
 from domyn_swarm.jobs.execution.arrow import _run_arrow
@@ -133,6 +134,65 @@ def resolve_job_api(job: SwarmJob) -> str:
     return "old"
 
 
+_VALID_ENGINES = ("pandas", "arrow", "polars", "ray")
+
+
+def resolve_engine(
+    *,
+    engine: str | None,
+    data_backend: str | None,
+    runner: str,
+    warn: bool = False,
+) -> str:
+    """Resolve the execution engine from the new or deprecated selectors.
+
+    Args:
+        engine: The engine name, when given explicitly. Takes precedence.
+        data_backend: Resolved backend name (the value that already accounts for
+            the job's own `data_backend` default), used only as part of the
+            deprecated `runner`/`data_backend` pair when `engine` is not given.
+        runner: Deprecated runner selector.
+        warn: Whether to emit a DeprecationWarning when falling back to the pair.
+
+    Returns:
+        One of "pandas", "arrow", "polars" or "ray".
+
+    Raises:
+        ValueError: If `engine` is not a supported name.
+    """
+    if engine is not None:
+        if engine not in _VALID_ENGINES:
+            raise ValueError(f"Unknown engine {engine!r}; choose one of {_VALID_ENGINES}.")
+        return engine
+
+    if warn:
+        warnings.warn(
+            "`runner` is deprecated; pass `engine=` instead (one of "
+            f"{_VALID_ENGINES}). `data_backend` is not deprecated and keeps "
+            "choosing the IO/conversion backend, but no longer affects routing. "
+            "`runner` will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+
+    if data_backend == "ray":
+        return "ray"
+    if data_backend == "polars" and runner == "arrow":
+        return "polars"
+    if runner == "arrow":
+        return "arrow"
+    return "pandas"
+
+
+# Engines whose implementation assumes a specific resolved data backend and
+# cannot be handed anything else: `run_ray_job` takes `data` directly and
+# expects a Ray Dataset, and `_run_polars` expects a Polars DataFrame/LazyFrame.
+# `engine` decouples routing from `data_backend`, so this is the guard that
+# stops a caller from naming a combination that would fail deep inside Ray
+# Data or Polars instead of at the call site.
+_ENGINE_REQUIRED_BACKEND = {"ray": "ray", "polars": "polars"}
+
+
 async def run_job_unified(
     job_factory: Callable[[], Any],
     data: Any,
@@ -146,6 +206,7 @@ async def run_job_unified(
     native_backend: bool | None = None,
     checkpointing: bool = True,
     runner: str = "pandas",
+    engine: str | None = None,
     ray_address: str | None = None,
     output_path: Path | None = None,
     shard_output: bool = False,
@@ -163,9 +224,16 @@ async def run_job_unified(
         store_uri: Base checkpoint store URI (required when checkpointing is enabled).
         checkpoint_every: Flush interval in items.
         data_backend: Backend name override (defaults to the job's `data_backend` or "pandas").
+            Continues to select the `DataBackend` used for IO and conversions; it no
+            longer affects the routing decision, which is made by `engine`.
         native_backend: Override for native execution (required for ray).
         checkpointing: Whether to read/write checkpoint state.
-        runner: Runner implementation to use for non-ray backends ("pandas" or "arrow").
+        runner: Deprecated. Use `engine` instead. Runner implementation to use for
+            non-ray backends ("pandas" or "arrow"), consulted only when `engine`
+            is not given.
+        engine: Execution engine to use ("pandas", "arrow", "polars" or "ray").
+            Takes precedence over the deprecated `runner`/`data_backend` pair.
+            Defaults to the value resolved from that pair when not given.
         ray_address: Optional Ray cluster address (only used for ray backend).
         output_path: Optional output path used to enable direct shard writes when using
             the pandas runner and directory outputs.
@@ -182,7 +250,10 @@ async def run_job_unified(
 
     Raises:
         TypeError: If the job does not implement the streaming API.
-        ValueError: If required id columns are missing or if checkpointing is misconfigured.
+        ValueError: If required id columns are missing, if checkpointing is
+            misconfigured, or if the resolved engine requires a data backend
+            other than the one resolved (e.g. `engine="ray"` with a non-ray
+            backend, or `engine="polars"` with a non-polars backend).
         RuntimeError: If the backend cannot be resolved.
     """
     job_probe = job_factory()
@@ -191,7 +262,21 @@ async def run_job_unified(
     id_col, require_id = _resolve_id_column(job_probe)
     backend = get_backend(backend_name)
 
-    if backend.name == "ray":
+    resolved_engine = resolve_engine(
+        engine=engine,
+        data_backend=backend.name,
+        runner=runner,
+        warn=engine is None and runner != "pandas",
+    )
+    required_backend = _ENGINE_REQUIRED_BACKEND.get(resolved_engine)
+    if required_backend is not None and backend.name != required_backend:
+        raise ValueError(
+            f"engine={resolved_engine!r} requires the {required_backend!r} data backend, "
+            f"but the resolved backend is {backend.name!r}. Pass "
+            f"data_backend={required_backend!r} (or declare it on the job)."
+        )
+
+    if resolved_engine == "ray":
         _resolve_ray_native(native_backend)
         if not require_id:
             raise ValueError("Ray backend requires a user-provided id column (use --id-column).")
@@ -210,7 +295,7 @@ async def run_job_unified(
             ray_address=ray_address,
         )
 
-    if runner == "arrow" and backend.name == "polars":
+    if resolved_engine == "polars":
         return await _run_polars(
             job_factory=job_factory,
             backend=backend,
@@ -229,7 +314,7 @@ async def run_job_unified(
             shard_output=shard_output,
         )
 
-    if runner == "arrow":
+    if resolved_engine == "arrow":
         result = await _run_arrow(
             job_factory=job_factory,
             backend=backend,

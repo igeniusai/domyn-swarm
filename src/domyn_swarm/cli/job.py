@@ -172,7 +172,14 @@ def submit_job(
     runner: str = typer.Option(
         "pandas",
         "--runner",
-        help="Runner implementation for non-ray backends (pandas, arrow).",
+        help="Deprecated; use --engine instead. Runner implementation for non-ray "
+        "backends (pandas, arrow).",
+    ),
+    engine: str | None = typer.Option(
+        None,
+        "--engine",
+        help="Execution engine to use (pandas, arrow, polars, ray). Takes precedence "
+        "over the deprecated --runner/--data-backend pair.",
     ),
     checkpoint_interval: int = typer.Option(
         32,
@@ -307,6 +314,7 @@ def submit_job(
         no_resume=no_resume,
         no_checkpointing=no_checkpointing,
         runner=runner,
+        engine=engine,
         num_shards=num_shards,
         limit=limit,
         shard_mode=shard_mode,

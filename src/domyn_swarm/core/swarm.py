@@ -542,6 +542,7 @@ class DomynLLMSwarm(BaseModel):
         no_resume: bool = False,
         no_checkpointing: bool = False,
         runner: str = "pandas",
+        engine: str | None = None,
         shard_mode: str = "id",
         global_resume: bool = False,
         job_resources: dict | None = None,
@@ -580,6 +581,13 @@ class DomynLLMSwarm(BaseModel):
         shard_mode : str, default "id"
             Sharding strategy for `num_shards` > 1 ("id" for stable id hashing, "index" for
             legacy row order sharding).
+        runner : str, default "pandas"
+            Deprecated; use `engine` instead. Runner implementation for non-ray
+            backends, consulted only when `engine` is not given.
+        engine : str or None, optional
+            Execution engine to use ("pandas", "arrow", "polars" or "ray"). Takes
+            precedence over the deprecated `runner`/data-backend pair. Defaults to
+            the value resolved from that pair when not given.
         global_resume : bool, default False
             When resuming a sharded job, filter inputs using global done ids across shards.
         detach : bool, default False
@@ -661,6 +669,7 @@ class DomynLLMSwarm(BaseModel):
             checkpoint_dir=checkpoint_dir,
             checkpoint_interval=checkpoint_interval,
             runner=runner,
+            engine=engine,
             no_resume=no_resume,
             no_checkpointing=no_checkpointing,
             checkpoint_tag=checkpoint_tag,
@@ -756,6 +765,7 @@ class DomynLLMSwarm(BaseModel):
         checkpoint_dir: str | Path,
         checkpoint_interval: int | None,
         runner: str,
+        engine: str | None,
         no_resume: bool,
         no_checkpointing: bool,
         checkpoint_tag: str | None,
@@ -777,7 +787,9 @@ class DomynLLMSwarm(BaseModel):
             num_shards: Number of shards to split the input into.
             checkpoint_dir: Checkpoint directory.
             checkpoint_interval: Checkpoint interval override.
-            runner: Runner implementation name.
+            runner: Deprecated runner implementation name; consulted only when
+                `engine` is not given.
+            engine: Execution engine to use, emitted as `--engine=...` when given.
             no_resume: Whether to ignore existing checkpoints.
             no_checkpointing: Whether to disable checkpointing.
             checkpoint_tag: Optional checkpoint tag override.
@@ -814,6 +826,8 @@ class DomynLLMSwarm(BaseModel):
             exe.append("--no-checkpointing")
         if checkpoint_tag:
             exe.append(f"--checkpoint-tag={checkpoint_tag}")
+        if engine is not None:
+            exe.append(f"--engine={engine}")
         if shard_output:
             exe.append("--shard-output")
         if shard_mode:
