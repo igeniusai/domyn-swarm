@@ -6,13 +6,13 @@
 import contextlib
 from dataclasses import dataclass
 import json
-from pathlib import Path
 import sys
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError, field_validator
 import typer
 
+from domyn_swarm.core.job_run import JobRunSpec as JobRunSpec
 from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.jobs.api import JobBuilder
@@ -61,28 +61,6 @@ class HandlePayloadModel(BaseModel):
         if status is None:
             return None
         return coerce_job_status(status)
-
-
-@dataclass(frozen=True)
-class JobRunSpec:
-    """Run-time parameters for job submission."""
-
-    input_path: Path
-    output_path: Path
-    shard_output: bool
-    checkpoint_dir: Path | None
-    no_resume: bool
-    no_checkpointing: bool
-    runner: str
-    num_shards: int
-    limit: int | None
-    detach: bool
-    mail_user: str | None
-    ray_address: str | None
-    engine: str | None = None
-    global_resume: bool = False
-    checkpoint_tag: str | None = None
-    shard_mode: Literal["id", "index"] = "id"
 
 
 @dataclass(frozen=True)
