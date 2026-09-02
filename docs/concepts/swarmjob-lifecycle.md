@@ -7,8 +7,14 @@ Understanding this is mostly understanding how little your own code has to do.
 
 `job submit` takes `<module>:<ClassName>` and imports it, defaulting to
 `domyn_swarm.jobs:ChatCompletionJob`. `--job-kwargs` is parsed as JSON and passed
-to the constructor, so OpenAI parameters like `temperature` reach the client
-without the CLI knowing what they mean.
+to the constructor as configuration overrides. Provider parameters that the
+CLI doesn't need to understand — `temperature`, `top_p`, and the like — go
+under `request_params`, so they reach the client without the CLI knowing what
+they mean:
+
+```json
+{"max_concurrency": 8, "request_params": {"temperature": 0.2}}
+```
 
 The swarm is located either by `--name`, rehydrated from the state record, or
 created fresh from `--config`.
@@ -73,7 +79,9 @@ Available on `self`:
 
 - `self.client` — an `AsyncOpenAI` already pointed at the swarm endpoint
 - `self.model` — the model being served
-- `self.kwargs` — whatever came through `--job-kwargs`
+- `self.kwargs` — the configured `request_params`: the provider parameters
+  forwarded on every request, however they reached the job (`--job-kwargs`'s
+  `request_params` key, or a `request_params=...` constructor argument)
 - `self.output_cols` — the column(s) your results populate
 
 ## 6. Results are joined and written

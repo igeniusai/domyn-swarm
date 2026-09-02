@@ -22,10 +22,9 @@ with DomynLLMSwarm(cfg=config, delete_on_exit=True) as swarm:
         model=swarm.model,
         # 16 concurrent requests to the LLM
         max_concurrency=16,
-        # You can add custom keyword arguments, which you
-        # can reference in you transform implementation by calling
-        # self.kwargs
-        temperature=0.2,
+        # Provider request parameters, readable from the transform
+        # implementation as self.kwargs
+        request_params={"temperature": 0.2},
     )
     rprint(job.to_kwargs())
 

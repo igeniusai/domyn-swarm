@@ -5,7 +5,9 @@
 This script is an example on how you can use the domyn-swarm API to
 implement your own custom job, which is totally free in terms of implementation.
 
-Your custom job must implement an async transform_items method, with the signature
+A custom job needs no constructor at all. Declare its configuration as a
+class-level `config` (an instance of `JobConfig`, or of a subclass that adds
+your own fields via `config_class`) and implement `transform_items`:
 
 async def transform_items(items: list[Any]) -> list[Any]:
     pass
@@ -16,7 +18,7 @@ PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomSwarmJob
    --config examples/configs/deepseek_r1_distill.yaml \
    --input examples/data/completion.parquet \
    --output results/output.parquet \
-   --job-kwargs '{"temperature": 0.2}'
+   --job-kwargs '{"request_params": {"temperature": 0.2}}'
 
 or running a main module importing and instantiating this class.
 
@@ -30,7 +32,7 @@ PYTHONPATH=. python examples/scripts/custom_main.py
 import random
 from typing import Any
 
-from domyn_swarm.jobs import SwarmJob
+from domyn_swarm import JobConfig, SwarmJob
 
 
 class MyCustomSwarmJob(SwarmJob):
@@ -40,36 +42,21 @@ class MyCustomSwarmJob(SwarmJob):
     - Reads prompts from the `input_column_name` column (default: "messages")
     - Produces three output columns: completion, score, current_model
     - No checkpointing/I-O logic here: the runner handles that.
+
+    Every field set below already exists on `JobConfig`, so this job only
+    overrides defaults and needs no `config_class`. A job that needs *new*
+    fields declares its own `JobConfig` subclass and points `config_class` at
+    it; see `SwarmJob`'s docstring.
     """
 
-    def __init__(
-        self,
-        *,
-        endpoint: str | None = None,
-        model: str = "",
-        input_column_name: str = "messages",
-        # We'll override outputs to three columns
-        output_cols: str | list[str] = "result",
-        checkpoint_interval: int = 16,
-        max_concurrency: int = 2,
-        retries: int = 5,
-        timeout: float = 600,
-        **extra_kwargs: Any,
-    ):
-        # Initialize the base job (creates self.client, stores kwargs, etc.)
-        super().__init__(
-            endpoint=endpoint,
-            model=model,
-            input_column_name=input_column_name,
-            output_cols=output_cols,
-            checkpoint_interval=checkpoint_interval,
-            max_concurrency=max_concurrency,
-            retries=retries,
-            timeout=timeout,
-            **extra_kwargs,
-        )
-        # Our job returns 3 values per item
-        self.output_cols = ["completion", "score", "current_model"]
+    config = JobConfig(
+        input_column_name="messages",
+        output_cols=["completion", "score", "current_model"],
+        checkpoint_interval=16,
+        max_concurrency=2,
+        retries=5,
+        timeout=600,
+    )
 
     async def transform_items(self, items: list[Any]) -> list[tuple[str, float, str]]:
         """
@@ -79,7 +66,8 @@ class MyCustomSwarmJob(SwarmJob):
         Returns:
             List of tuples: (completion_text, random_score, model_tag)
         """
-        # You can pass OpenAI params via job kwargs (e.g., temperature)
+        # Provider request parameters (e.g. temperature) are configured via
+        # `request_params` and read back through `self.kwargs`.
         temperature = float(self.kwargs.get("temperature", 0.7))
 
         results: list[tuple[str, float, str]] = []
