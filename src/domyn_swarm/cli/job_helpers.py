@@ -334,30 +334,7 @@ def submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> Job
     Returns:
         Submitted job handle.
     """
-    resolved_checkpoint_dir = (
-        swarm.swarm_dir / "checkpoints"
-        if request.run.checkpoint_dir is None
-        else request.run.checkpoint_dir
-    )
-    return swarm.submit_job(
-        request.job,
-        input_path=request.run.input_path,
-        output_path=request.run.output_path,
-        num_shards=request.run.num_shards,
-        shard_output=request.run.shard_output,
-        limit=request.run.limit,
-        detach=request.run.detach,
-        mail_user=request.run.mail_user,
-        checkpoint_dir=resolved_checkpoint_dir,
-        no_resume=request.run.no_resume,
-        no_checkpointing=request.run.no_checkpointing,
-        runner=request.run.runner,
-        engine=request.run.engine,
-        ray_address=request.run.ray_address,
-        checkpoint_tag=request.run.checkpoint_tag,
-        shard_mode=request.run.shard_mode,
-        global_resume=request.run.global_resume,
-    )
+    return swarm.submit_job(request.job, run=request.run)
 
 
 def maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarm) -> None:
