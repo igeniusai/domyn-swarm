@@ -12,7 +12,10 @@ down, unless `delete_on_exit=False` keeps the allocation alive for later.
 
 ```python
 with DomynLLMSwarm(cfg=cfg) as swarm:
-    swarm.submit_job(job, input_path="in.parquet", output_path="out.parquet")
+    swarm.submit_job(
+        job,
+        run=JobRunSpec(input_path=Path("in.parquet"), output_path=Path("out.parquet")),
+    )
 ```
 
 It is a thin coordinator. The platform-specific work lives below it.

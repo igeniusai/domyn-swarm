@@ -121,6 +121,7 @@ manager:
 ```python
 from pathlib import Path
 from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
+from domyn_swarm.core.job_run import JobRunSpec
 from mypkg.jobs import MyCustomSwarmJob
 
 cfg = DomynLLMSwarmConfig.read("config.yaml")
@@ -132,7 +133,13 @@ with DomynLLMSwarm(cfg=cfg) as swarm:
         max_concurrency=16,
         request_params={"temperature": 0.2},
     )
-    swarm.submit_job(job, input_path=Path("prompts.parquet"), output_path=Path("answers.parquet"))
+    swarm.submit_job(
+        job,
+        run=JobRunSpec(
+            input_path=Path("prompts.parquet"),
+            output_path=Path("answers.parquet"),
+        ),
+    )
 ```
 
 The endpoint is torn down when the block exits. Pass `delete_on_exit=False` to
