@@ -106,14 +106,10 @@ def test_shipped_jobs_output_cols(factory, expected_output_cols) -> None:
     assert factory().output_cols == expected_output_cols
 
 
-def test_multi_chat_without_output_cols_raises() -> None:
-    """MultiChatCompletionJob cannot be built without an explicit output_cols.
-
-    A defect rather than intended behaviour: `__init__` calls
-    `kwargs.pop("output_cols")` with no default.
-    """
-    with pytest.raises(KeyError, match="output_cols"):
-        MultiChatCompletionJob(model="m")
+def test_multi_chat_without_output_cols_uses_the_default_base_name() -> None:
+    """MultiChatCompletionJob does not require an explicit output_cols."""
+    job = MultiChatCompletionJob(model="m", n=2)
+    assert job.output_cols == ["result_1", "result_2"]
 
 
 @pytest.mark.parametrize(

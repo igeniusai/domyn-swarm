@@ -6,9 +6,11 @@ from typing import Any
 
 from openai.types.chat import ChatCompletionAssistantMessageParam, ChatCompletionMessageParam
 from openai.types.chat.chat_completion import ChatCompletion, Choice
+from pydantic import model_validator
 
 from domyn_swarm.helpers.data import compute_perplexity_metrics, extract_token_logprobs
 from domyn_swarm.jobs.api.base import SwarmJob
+from domyn_swarm.jobs.api.config import JobConfig
 
 
 def _extract_reasoning_content(message: Any) -> Any | None:
@@ -25,6 +27,53 @@ def _assistant_message_dict(*, role: str, content: Any, message: Any) -> dict[st
     if reasoning_content is not None:
         response_dict["reasoning_content"] = reasoning_content
     return response_dict
+
+
+class ChatCompletionConfig(JobConfig):
+    """Configuration for `ChatCompletionJob`.
+
+    Attributes:
+        parse_reasoning: Whether to split the provider's reasoning content into
+            a second output column.
+    """
+
+    parse_reasoning: bool = False
+
+    @model_validator(mode="after")
+    def _apply_parse_reasoning(self) -> "ChatCompletionConfig":
+        """Derive the output columns from `parse_reasoning`.
+
+        Returns:
+            This config, with `output_cols` and `default_output_cols` set.
+        """
+        cols = ["result", "reasoning_content"] if self.parse_reasoning else "result"
+        object.__setattr__(self, "output_cols", cols)
+        object.__setattr__(self, "default_output_cols", cols if isinstance(cols, list) else [cols])
+        return self
+
+
+class MultiChatCompletionConfig(JobConfig):
+    """Configuration for `MultiChatCompletionJob`.
+
+    Attributes:
+        n: Number of independent completions produced per row.
+    """
+
+    n: int = 3
+
+    @model_validator(mode="after")
+    def _expand_output_cols(self) -> "MultiChatCompletionConfig":
+        """Expand a base output column name into `n` numbered columns.
+
+        Returns:
+            This config, with `output_cols` and `default_output_cols` set.
+        """
+        base = self.output_cols
+        if isinstance(base, str):
+            cols = [f"{base}_{i + 1}" for i in range(self.n)]
+            object.__setattr__(self, "output_cols", cols)
+            object.__setattr__(self, "default_output_cols", cols)
+        return self
 
 
 class CompletionJob(SwarmJob):
@@ -80,19 +129,14 @@ class CompletionJob(SwarmJob):
 
 
 class ChatCompletionJob(SwarmJob):
-    """
-    Input DF must have column `messages` (list of dicts).
-    Output DF gets `answer`.
+    """Input DF must have column `messages` (list of dicts).
+
+    Output DF gets `result`, plus `reasoning_content` when `parse_reasoning` is
+    set.
     """
 
     api_version = 2
-
-    def __init__(self, *, parse_reasoning: bool | None = None, **kwargs):
-        explicit = parse_reasoning
-        super().__init__(**kwargs)
-        from_extras = bool(self.kwargs.pop("parse_reasoning", False))
-        self.parse_reasoning = explicit if explicit is not None else from_extras
-        self.output_cols = ["result", "reasoning_content"] if self.parse_reasoning else "result"
+    config_class = ChatCompletionConfig
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
@@ -115,24 +159,14 @@ class ChatCompletionJob(SwarmJob):
 
 
 class MultiChatCompletionJob(SwarmJob):
-    """
-    Produce *n* independent chat completions for every row.
+    """Produce *n* independent chat completions for every row.
 
-    Input  column : `messages`
-    Output columns: `generated_1`, `generated_2`, …, `generated_n`
+    Input column: `messages`. Output columns: `result_1` … `result_n`, or the
+    supplied `output_cols` base name numbered the same way.
     """
 
     api_version = 2
-
-    def __init__(self, n: int = 3, **kwargs):
-        super().__init__(**kwargs)
-        self.n = n
-        base_output_cols = kwargs.pop("output_cols")
-        self.output_cols = (
-            [f"{base_output_cols}_{i + 1}" for i in range(n)]
-            if isinstance(base_output_cols, str)
-            else base_output_cols
-        )
+    config_class = MultiChatCompletionConfig
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []
@@ -182,13 +216,12 @@ class ChatCompletionPerplexityJob(PerplexityMixin, SwarmJob):
             endpoint=endpoint,
             model=model,
             input_column_name=input_column_name,
-            output_cols=output_cols,
+            output_cols=["text", "perplexity", "bottom50_perplexity"],
             checkpoint_interval=checkpoint_interval,
             max_concurrency=max_concurrency,
             retries=retries,
             **extra_kwargs,
         )
-        self.output_cols = ["text", "perplexity", "bottom50_perplexity"]
 
     async def transform_items(self, items: list[list[ChatCompletionMessageParam]]) -> list[Any]:
         outs = []

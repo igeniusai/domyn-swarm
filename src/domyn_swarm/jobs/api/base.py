@@ -23,7 +23,6 @@ Sub-classes included:
 
 import abc
 from collections.abc import Awaitable, Callable
-import dataclasses
 import difflib
 import inspect
 import logging
@@ -41,55 +40,30 @@ from tqdm import tqdm
 from domyn_swarm.checkpoint.manager import CheckpointManager
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.helpers.logger import setup_logger
-from domyn_swarm.jobs.api.config import OutputJoinMode as OutputJoinMode
+from domyn_swarm.jobs.api.config import JobConfig, OutputJoinMode as OutputJoinMode
 
 from .batching import BatchExecutor
 
 logger = setup_logger(__name__, level=logging.INFO)
 
 
-def _reject_misspelled_parameters(extra_kwargs: dict[str, Any]) -> None:
-    """Raise if an extra kwarg looks like a misspelling of a real parameter.
+def _is_bare_value(value: Any) -> bool:
+    """Return whether a class namespace entry is a plain configuration value.
 
-    ``SwarmJob`` deliberately accepts arbitrary extra kwargs so callers can pass
-    provider request parameters through (``--job-kwargs '{"temperature":0.2}'``).
-    That also means a misspelled constructor argument is silently accepted, takes
-    no effect, and is forwarded into every request -- a failure that only shows up
-    once the job is already running on the cluster.
-
-    Names that closely resemble a real parameter are almost certainly typos, so
-    they are rejected here with a suggestion. Names that resemble nothing are left
-    alone: they are the request parameters this mechanism exists to carry.
+    A subclass may define a `property` (or another descriptor) whose name
+    matches a configuration field -- see `SwarmJob.__setattr__`. Such an entry
+    is not a class-level configuration declaration and must not be swept into
+    one, or `__init_subclass__` would delete the descriptor out from under the
+    class.
 
     Args:
-        extra_kwargs: The collected extra keyword arguments.
-
-    Raises:
-        TypeError: If a key is a near-miss of a known constructor parameter.
-    """
-    known = _constructor_parameter_names()
-    for name in extra_kwargs:
-        matches = difflib.get_close_matches(name, known, n=1, cutoff=0.85)
-        if matches:
-            raise TypeError(
-                f"{name!r} is not a SwarmJob parameter -- did you mean {matches[0]!r}? "
-                f"If {name!r} really is a provider request parameter, rename it or pass "
-                f"it explicitly inside `kwargs={{...}}`."
-            )
-
-
-def _constructor_parameter_names() -> frozenset[str]:
-    """Return the keyword parameter names accepted by :meth:`SwarmJob.__init__`.
+        value: The value found in a class's own `__dict__` for a field name.
 
     Returns:
-        The declared parameter names, excluding ``self`` and the ``**extra_kwargs``
-        catch-all.
+        `False` for a `property`, `classmethod`, `staticmethod`, function, or
+        other callable; `True` otherwise.
     """
-    return frozenset(
-        name
-        for name, param in inspect.signature(SwarmJob.__init__).parameters.items()
-        if name != "self" and param.kind is not inspect.Parameter.VAR_KEYWORD
-    )
+    return not isinstance(value, property | classmethod | staticmethod) and not callable(value)
 
 
 class SwarmJob(abc.ABC):
@@ -115,10 +89,31 @@ class SwarmJob(abc.ABC):
         `transform_items()` method while inheriting all reliability and concurrency infrastructure.
         Processing flows through: DataFrame → batching → transform_items → results → checkpointing.
 
+    Configuration:
+        Configuration lives on `JobConfig`, not on the job itself. A subclass
+        declares it by setting a class-level `config` -- an instance of
+        `JobConfig`, or of a subclass paired with a matching `config_class`
+        when the job adds fields of its own. No constructor is needed. Every
+        configuration field is readable and writable as an attribute of the
+        job (`self.threshold` below) and overridable at construction time
+        (`MyJob(model="gpt-4", threshold=0.9)`). Provider request parameters
+        (`temperature`, `top_p`, and the like) are not configuration fields:
+        they live in `config.request_params` and are read back through
+        `self.kwargs`.
+
     Example:
         ::
 
-            class MyLLMJob(SwarmJob):
+            class MyJobConfig(JobConfig):
+                threshold: float = 0.5
+
+
+            class MyJob(SwarmJob):
+                config_class = MyJobConfig
+                config = MyJobConfig(
+                    input_column_name="prompt", output_cols="answer", max_concurrency=8
+                )
+
                 async def transform_items(self, items: list[Any]) -> list[Any]:
                     # Process items using self.client
                     results = []
@@ -130,23 +125,13 @@ class SwarmJob(abc.ABC):
                     return results
 
 
-            job = MyLLMJob(model="gpt-4", max_concurrency=5)
+            job = MyJob(model="gpt-4")
             results_df = await job.run(input_df, tag="experiment_1")
 
     Attributes:
-        api_version: API version for compatibility tracking (default: 2)
-        endpoint: LLM service endpoint URL (from ENDPOINT env var or parameter)
-        model: Model identifier (e.g., "gpt-4", "claude-3-sonnet")
-        provider: LLM provider name ("openai", "anthropic", etc.)
-        input_column_name: DataFrame column containing input data
-        id_column_name: Optional column name used for stable row ids
-        output_cols: DataFrame column(s) for storing results
-        checkpoint_interval: Items processed between automatic checkpoints
-        max_concurrency: Maximum concurrent requests allowed
-        retries: Maximum retry attempts for failed requests
-        timeout: Request timeout in seconds
-        client: Initialized async LLM client instance
-        results: Final processed DataFrame after job completion
+        config: The job's resolved configuration -- see `JobConfig`.
+        client: Initialized async LLM client instance.
+        results: Final processed DataFrame after job completion.
 
     Raises:
         RuntimeError: When ENDPOINT environment variable is missing
@@ -161,134 +146,138 @@ class SwarmJob(abc.ABC):
     """
 
     api_version: int = 2
-    _REQUEST_KWARG_BLOCKLIST: ClassVar = {
-        "api_version",
-        "checkpoint_interval",
-        "client",
-        "client_kwargs",
-        "default_output_cols",
-        "endpoint",
-        "input_column_name",
-        "max_concurrency",
-        "model",
-        "name",
-        "output_cols",
-        "output_column_name",
-        "output_mode",
-        "provider",
-        "retries",
-        "results",
-        "system_prompt",
-        "timeout",
-    }
+
+    config_class: ClassVar[type[JobConfig]] = JobConfig
+    config: JobConfig
 
     def __init__(
         self,
         *,
-        name: str | None = None,
-        endpoint: str | None = None,
-        model: str = "",
-        provider: str = "openai",
-        input_column_name: str = "messages",
-        id_column_name: str | None = None,
-        output_column_name: str | list | None = None,
-        output_cols: str | list | None = None,
-        checkpoint_interval: int = 16,
-        max_concurrency: int = 2,
-        retries: int = 5,
-        timeout: float = 600,
+        config: JobConfig | None = None,
         client=None,
-        client_kwargs: dict | None = None,
-        output_mode: OutputJoinMode = OutputJoinMode.APPEND,
-        default_output_cols: list[str] | None = None,
-        data_backend: str | None = None,
-        native_backend: bool = False,
-        backend_read_kwargs: dict | None = None,
-        backend_write_kwargs: dict | None = None,
-        native_batch_size: int | None = None,
-        **extra_kwargs,
+        **overrides: Any,
     ):
-        """Initialize the job with parameters and an optional LLM client.
+        """Initialize the job from its configuration.
 
         Args:
-            name: Optional job name (for logging).
-            endpoint: Optional LLM endpoint URL (overrides `ENDPOINT` env var).
-            model: Model name to use (e.g., "gpt-4").
-            provider: LLM provider (default: "openai").
-            input_column_name: Name of the input column in the DataFrame.
-            id_column_name: Optional column name for stable row identifiers.
-            output_column_name: [DEPRECATED] Name of the output column(s) in the DataFrame.
-                Use output_cols instead.
-            output_cols: Name of the output column(s) in the DataFrame.
-            checkpoint_interval: Number of items to process before checkpointing.
-            max_concurrency: Maximum number of concurrent requests to process.
-            retries: Number of retries for failed requests.
-            timeout: Request timeout in seconds.
-            client: Optional pre-initialized LLM client (e.g., `AsyncOpenAI`).
-            client_kwargs: Additional kwargs for the LLM client.
-            output_mode: How to join outputs to the input DataFrame.
-            default_output_cols: Default output columns if none are specified.
-            **extra_kwargs: Additional parameters to pass to the job constructor.
+            config: The job's configuration. Defaults to the class-level
+                declaration, or to `config_class()` when there is none.
+            client: A pre-built async LLM client. Not configuration, and not
+                serialized.
+            **overrides: Individual configuration fields, taking precedence over
+                `config` and over any class-level declaration. A name that is not
+                a configuration field is folded into `request_params` instead,
+                with a `DeprecationWarning`, unless it closely resembles a field
+                name -- then it is treated as a typo and raises.
 
         Raises:
-            RuntimeError: If ENDPOINT environment variable is not set.
-            ValueError: If model name is not specified.
+            RuntimeError: If no endpoint is given and `ENDPOINT` is unset.
+            ValueError: If the model name is empty.
+            TypeError: If an override is not a configuration field and closely
+                resembles one -- almost certainly a typo rather than a genuine
+                provider request parameter.
         """
+        if config is not None and not isinstance(config, self.config_class):
+            raise TypeError(
+                f"{type(self).__name__} expects a {self.config_class.__name__}, got "
+                f"{type(config).__name__}."
+            )
 
-        self.name = name or self.__class__.__name__
-        self.endpoint = endpoint or os.getenv("ENDPOINT")
-        if not self.endpoint:
+        base = config if config is not None else self._class_config()
+        fields = type(base).model_fields
+
+        legacy_output_col = overrides.pop("output_column_name", None)
+        if legacy_output_col is not None:
+            if "output_cols" in overrides:
+                warnings.warn(
+                    "Both 'output_column_name' and 'output_cols' parameters are "
+                    "provided. The 'output_column_name' parameter is deprecated and "
+                    "will be ignored in favor of 'output_cols'.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            else:
+                warnings.warn(
+                    "The 'output_column_name' parameter is "
+                    "deprecated and will be removed in a future version. "
+                    "Use 'output_cols' instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                overrides["output_cols"] = legacy_output_col
+
+        nested = overrides.pop("kwargs", None)
+        unknown = [k for k in overrides if k not in fields]
+
+        # A name that closely resembles a field is a typo, not a provider
+        # parameter: routing it to request_params would silently leave the field
+        # at its default. Only inexact names reach here, so an exact field name
+        # can never be reported as a misspelling of itself.
+        #
+        # 0.75 rather than 0.8 so that 'retrys' (an ordinary typo of 'retries',
+        # ratio 0.769) is caught; checked against the common provider parameter
+        # names for false positives, which score well below it.
+        NEAR_MISS_CUTOFF = 0.75
+        for name in unknown:
+            close = difflib.get_close_matches(name, fields, n=1, cutoff=NEAR_MISS_CUTOFF)
+            if close:
+                raise TypeError(
+                    f"{name!r} is not a configuration field -- did you mean "
+                    f"{close[0]!r}? If it really is a provider request parameter, "
+                    f"pass request_params={{{name!r}: ...}}."
+                )
+
+        legacy_request_params = {k: overrides.pop(k) for k in unknown}
+        if isinstance(nested, dict):
+            legacy_request_params.update(nested)
+
+        if legacy_request_params:
+            # A fixed cutoff always has a tail of typos just below it, so the
+            # warning names the closest field for anything loosely similar. Well
+            # short of the raise threshold, and above the score common provider
+            # parameter names reach against any field.
+            HINT_CUTOFF = 0.6
+            hints = {
+                name: match[0]
+                for name in unknown
+                if (match := difflib.get_close_matches(name, fields, n=1, cutoff=HINT_CUTOFF))
+            }
+            hint = ""
+            if hints:
+                resemblances = ", ".join(f"{n!r} resembles {f!r}" for n, f in sorted(hints.items()))
+                hint = f" ({resemblances})"
+            warnings.warn(
+                f"Passing provider request parameters as constructor arguments is "
+                f"deprecated: {sorted(legacy_request_params)}{hint}. Pass "
+                f"request_params={{...}} instead. This will be an error in "
+                f"domyn-swarm 0.33.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # An explicit request_params={...} is the recommended, non-deprecated
+            # form, so it takes precedence over the deprecated bare-kwarg form
+            # when both name the same parameter.
+            merged_request_params = {
+                **base.request_params,
+                **legacy_request_params,
+                **overrides.pop("request_params", {}),
+            }
+            overrides["request_params"] = merged_request_params
+
+        # Always a fresh config: the resolution above writes to it, and neither
+        # a caller's config nor a class-level declaration may be mutated -- deep,
+        # because a job that adds a provider parameter does it by mutating
+        # `request_params` in place.
+        self.config = base.merged_with(**overrides) if overrides else base.model_copy(deep=True)
+
+        if not self.config.name:
+            self.config.name = self.__class__.__name__
+        if not self.config.endpoint:
+            self.config.endpoint = os.getenv("ENDPOINT")
+        if not self.config.endpoint:
             raise RuntimeError("ENDPOINT environment variable is not set")
-
-        if not model:
+        if not self.config.model:
             raise ValueError("Model name must be specified")
-
-        # Handle deprecated output_column_name parameter
-        if output_column_name is not None and output_cols is not None:
-            warnings.warn(
-                "Both 'output_column_name' and 'output_cols' parameters are provided. "
-                "The 'output_column_name' parameter is deprecated and "
-                "will be ignored in favor of 'output_cols'.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
-        if output_column_name is not None:
-            warnings.warn(
-                "The 'output_column_name' parameter is "
-                "deprecated and will be removed in a future version. "
-                "Use 'output_cols' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            self.output_column_name = output_column_name
-            self.output_cols = output_column_name
-        elif output_cols is not None:
-            self.output_cols = output_cols
-        else:
-            self.output_cols = "result"
-
-        self.model = model
-        self.provider = provider
-        self.input_column_name = input_column_name
-        self.id_column_name = id_column_name
-        self.checkpoint_interval = checkpoint_interval
-        self.max_concurrency = max_concurrency
-        self.retries = retries
-        self.timeout = timeout
-        self.kwargs = {**extra_kwargs.get("kwargs", extra_kwargs)}
-        _reject_misspelled_parameters(self.kwargs)
-        self.output_mode = output_mode
-        self.default_output_cols = (
-            default_output_cols
-            if default_output_cols is not None
-            else ([self.output_cols] if isinstance(self.output_cols, str) else self.output_cols)
-        )
-        self.data_backend = data_backend
-        self.native_backend = native_backend
-        self.backend_read_kwargs = backend_read_kwargs
-        self.backend_write_kwargs = backend_write_kwargs
-        self.native_batch_size = native_batch_size
 
         headers = {}
         token = get_settings().resolved_api_token
@@ -297,17 +286,158 @@ class SwarmJob(abc.ABC):
             headers["Authorization"] = f"Bearer {token.get_secret_value()}"
 
         self.client = client or AsyncOpenAI(
-            base_url=f"{self.endpoint}/v1",
+            base_url=f"{self.config.endpoint}/v1",
             api_key="-",
             organization="-",
             project="-",
-            timeout=timeout,
+            timeout=self.config.timeout,
             default_headers=headers,
-            **(client_kwargs or {}),
+            **(self.config.client_kwargs or {}),
         )
         self._callbacks: dict[str, Callable] = {}
 
         self.results = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Fold class-level configuration declarations into the class config.
+
+        A bare class attribute whose name matches a configuration field is a
+        declaration of that field's value. One that differs from the field
+        default warns, because such declarations were silently ignored before
+        domyn-swarm 0.32 and the change in behaviour is otherwise invisible.
+
+        Args:
+            **kwargs: Forwarded to `super().__init_subclass__`.
+
+        Raises:
+            TypeError: If a bare attribute and this same class's `config`
+                object both declare a value for the same field. Declaring
+                `config` for some fields and bare attributes for others is
+                fine, as is a subclass overriding, via a bare attribute, a
+                field an ancestor's `config` object set -- only a same-class,
+                same-field conflict is contradictory.
+        """
+        super().__init_subclass__(**kwargs)
+
+        fields = cls.config_class.model_fields
+        declared = {
+            name: cls.__dict__[name]
+            for name in fields
+            if name in cls.__dict__ and _is_bare_value(cls.__dict__[name])
+        }
+        base = cls.__dict__.get("config")
+
+        if isinstance(base, JobConfig):
+            clash = sorted(set(declared) & base.model_fields_set)
+            if clash:
+                raise TypeError(
+                    f"{cls.__name__} declares {clash} as both a bare class attribute "
+                    f"and a field of its `config` object -- it is ambiguous which one "
+                    f"should apply. Set each of {clash} in only one of the two places."
+                )
+
+        if not declared:
+            return
+
+        changed = sorted(name for name, value in declared.items() if value != fields[name].default)
+        if changed:
+            warnings.warn(
+                f"{cls.__name__} declares {changed} as bare class attributes with "
+                f"values other than the field defaults. These were silently ignored "
+                f"before domyn-swarm 0.32; now `{cls.__name__}(...)` instances use "
+                f"them unless a constructor argument overrides them. If the job "
+                f"relied on the previous (ignored) declaration, pass the value "
+                f"explicitly as a constructor argument instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        for name in declared:
+            delattr(cls, name)
+        cls._declared_config = dict(declared)
+
+    @classmethod
+    def _class_config(cls) -> JobConfig:
+        """Return the configuration declared across the class hierarchy.
+
+        Each class in the MRO may contribute fields two ways: a `config`
+        object (only the fields *it* explicitly set) and bare attributes
+        collected into `_declared_config` by `__init_subclass__`. The walk goes
+        base-to-derived, so a more derived class's declaration for a field wins
+        over a less derived one's, including a bare attribute overriding a field
+        an ancestor's `config` object set.
+
+        Returns:
+            A config combining every ancestor's declared fields.
+        """
+        merged: dict[str, Any] = {}
+        for klass in reversed(cls.__mro__):
+            own_config = klass.__dict__.get("config")
+            if isinstance(own_config, JobConfig):
+                merged.update(own_config.model_dump(exclude_unset=True))
+            merged.update(klass.__dict__.get("_declared_config") or {})
+        return cls.config_class(**merged)
+
+    def __getattr__(self, name: str) -> Any:
+        """Read configuration fields as attributes.
+
+        Only reached for names not found normally, so instance state and methods
+        are unaffected.
+
+        Known limitation: an `AttributeError` raised inside a subclass descriptor
+        for `name` (e.g. a `property` getter) is treated by normal attribute lookup
+        as "not found" and falls through to here, so the reported error is "no
+        attribute `name`" even though the real fault is inside the descriptor.
+
+        Args:
+            name: Attribute name.
+
+        Returns:
+            The configuration field's value.
+
+        Raises:
+            AttributeError: If `name` is not a configuration field.
+        """
+        config = self.__dict__.get("config")
+        if config is not None and name in type(config).model_fields:
+            return getattr(config, name)
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Write configuration fields through to the config.
+
+        A subclass property named after a config field is a data descriptor, so a
+        *read* of `name` reaches the property rather than `__getattr__`. The
+        property check here keeps writes symmetric: without it a write would skip
+        the property and land in the config, bypassing whatever the setter does.
+
+        Known limitation: an attribute assigned before `self.config` exists (that
+        is, before `super().__init__()` runs) has no config to route into and lands
+        in `self.__dict__`. Once `config` is assigned, that instance entry
+        permanently shadows the config field of the same name -- reads never reach
+        the config again, and the value never appears in `to_kwargs()`'s payload.
+
+        Args:
+            name: Attribute name.
+            value: Value to assign.
+        """
+        if isinstance(getattr(type(self), name, None), property):
+            object.__setattr__(self, name, value)
+            return
+        config = self.__dict__.get("config")
+        if config is not None and name in type(config).model_fields:
+            setattr(config, name, value)
+            return
+        object.__setattr__(self, name, value)
+
+    @property
+    def kwargs(self) -> dict[str, Any]:
+        """Provider request parameters.
+
+        Returns:
+            The configured `request_params`.
+        """
+        return self.config.request_params
 
     def register_callback(self, event: str, fn: Callable) -> None:
         """Register a named callback (e.g., 'on_batch_done')."""
@@ -378,27 +508,36 @@ class SwarmJob(abc.ABC):
         )
 
     def to_kwargs(self) -> dict:
-        """
-        Serialize the job's constructor parameters (for remote reconstruction).
-        """
-        if dataclasses.is_dataclass(self):
-            return dataclasses.asdict(self)
+        """Return the configuration to serialize into `--job-kwargs`.
 
-        return {
-            k: v
-            for k, v in self.__dict__.items()
-            if isinstance(v, str | int | float | bool | list | dict | type(None))
-            and k not in {"endpoint", "model", "client", "_callbacks", "results"}
-        }
+        Most fields are emitted only when a caller actually set them, so a
+        merely derived value is derived again on the far side instead of
+        arriving as if it had been chosen. Two are unconditional: `name`, which
+        `__init__` always assigns, and a non-empty `request_params`, which a job
+        can add to by mutating `self.kwargs` in place -- a mutation
+        `exclude_unset` cannot see, because it performs no assignment.
+        `endpoint` and `model` are supplied separately by the runner, and the
+        client is not serializable, so neither appears here.
+
+        Returns:
+            A JSON-serializable configuration payload.
+        """
+        payload = self.config.model_dump(mode="json", exclude_unset=True)
+        if self.config.request_params and "request_params" not in payload:
+            payload["request_params"] = self.config.model_dump(
+                mode="json", include={"request_params"}
+            )["request_params"]
+        payload.pop("endpoint", None)
+        payload.pop("model", None)
+        return payload
 
     def _request_kwargs(self) -> dict:
-        if not self.kwargs:
-            return {}
-        return {
-            k: v
-            for k, v in self.kwargs.items()
-            if not k.startswith("_") and k not in self._REQUEST_KWARG_BLOCKLIST
-        }
+        """Return the parameters forwarded to the provider on each request.
+
+        Returns:
+            The configured `request_params`.
+        """
+        return dict(self.config.request_params)
 
     async def _call_unit(self, item: Any) -> Any:
         """

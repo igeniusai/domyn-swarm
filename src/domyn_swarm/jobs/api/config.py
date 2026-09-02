@@ -92,15 +92,33 @@ class JobConfig(BaseModel):
         string `output_cols` and the list as-is for a list one, and is left
         alone when given explicitly.
 
+        Explicitness is decided by `model_fields_set`, not by the value being
+        `None`, and a derived value is kept out of that set. A derivation
+        therefore re-runs when `output_cols` is assigned, and survives
+        `model_dump(exclude_unset=True)` as something to derive again rather
+        than as a value a caller chose.
+
         Returns:
             This config, with `output_cols` and `default_output_cols`
             resolved.
         """
         if self.output_cols is None:
             object.__setattr__(self, "output_cols", "result")
-        if self.default_output_cols is None:
+        if self.default_output_cols is None or "default_output_cols" not in self.model_fields_set:
             derived = [self.output_cols] if isinstance(self.output_cols, str) else self.output_cols
             object.__setattr__(self, "default_output_cols", derived)
+            # `model_fields_set` returns pydantic v2's live
+            # `__pydantic_fields_set__`, not a copy, so discarding here is what keeps
+            # a derived `default_output_cols` out of `model_dump(exclude_unset=True)`.
+            # Asserted so a pydantic release that starts returning a copy fails here
+            # rather than silently shipping a stale `default_output_cols` to the
+            # cluster.
+            self.model_fields_set.discard("default_output_cols")
+            assert "default_output_cols" not in self.model_fields_set, (
+                "model_fields_set is no longer live -- discard() above did not "
+                "affect __pydantic_fields_set__; the derived-vs-explicit "
+                "distinction this validator relies on is now broken"
+            )
         return self
 
     def merged_with(self, **overrides: Any) -> JobConfig:
