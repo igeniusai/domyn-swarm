@@ -13,6 +13,7 @@ from .chat_completion import (
     MultiTurnTranslationJob,
     PerplexityMixin,
 )
+from .config import JobConfig
 from .runner import JobRunner, RunnerConfig, run_sharded
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "ChatCompletionPerplexityJob",
     "CompletionJob",
     "JobBuilder",
+    "JobConfig",
     "JobRunner",
     "MultiChatCompletionJob",
     "MultiTurnChatCompletionJob",

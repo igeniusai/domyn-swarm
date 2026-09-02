@@ -3,7 +3,14 @@
 
 from typing import TYPE_CHECKING
 
-__all__ = ["DomynLLMSwarm", "DomynLLMSwarmConfig", "SwarmJob", "__version__", "run_job_unified"]
+__all__ = [
+    "DomynLLMSwarm",
+    "DomynLLMSwarmConfig",
+    "JobConfig",
+    "SwarmJob",
+    "__version__",
+    "run_job_unified",
+]
 
 
 def _resolve_version() -> str:
@@ -31,6 +38,10 @@ def __getattr__(name: str):
         from .jobs.api.base import SwarmJob
 
         return SwarmJob
+    if name == "JobConfig":
+        from .jobs.api.config import JobConfig
+
+        return JobConfig
     if name == "run_job_unified":
         from .jobs.execution.dispatch import run_job_unified
 
@@ -43,4 +54,5 @@ if TYPE_CHECKING:
     from .config.swarm import DomynLLMSwarmConfig
     from .core.swarm import DomynLLMSwarm
     from .jobs.api.base import SwarmJob
+    from .jobs.api.config import JobConfig
     from .jobs.execution.dispatch import run_job_unified

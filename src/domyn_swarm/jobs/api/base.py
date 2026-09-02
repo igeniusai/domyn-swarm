@@ -25,7 +25,6 @@ import abc
 from collections.abc import Awaitable, Callable
 import dataclasses
 import difflib
-from enum import Enum
 import inspect
 import logging
 import os
@@ -42,16 +41,11 @@ from tqdm import tqdm
 from domyn_swarm.checkpoint.manager import CheckpointManager
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.helpers.logger import setup_logger
+from domyn_swarm.jobs.api.config import OutputJoinMode as OutputJoinMode
 
 from .batching import BatchExecutor
 
 logger = setup_logger(__name__, level=logging.INFO)
-
-
-class OutputJoinMode(str, Enum):
-    APPEND = "append"
-    REPLACE = "replace"
-    IO_ONLY = "io_only"
 
 
 def _reject_misspelled_parameters(extra_kwargs: dict[str, Any]) -> None:
