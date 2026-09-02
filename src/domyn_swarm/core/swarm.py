@@ -542,6 +542,7 @@ class DomynLLMSwarm(BaseModel):
         no_resume: bool = False,
         no_checkpointing: bool = False,
         runner: str = "pandas",
+        engine: str | None = None,
         shard_mode: str = "id",
         global_resume: bool = False,
         job_resources: dict | None = None,
@@ -571,13 +572,29 @@ class DomynLLMSwarm(BaseModel):
             checkpoint layout, so keep it fixed across resumes of the same job
             or previously-completed rows will be reprocessed.
         shard_output : bool, default False
-            If True and `output_path` is a directory, emit one parquet file per shard using
-            checkpoint outputs as the source of truth (supported by the polars runner).
+            If True and `output_path` is a directory, shards are written directly from
+            checkpoint outputs rather than assembling the merged result in memory first.
+            This controls how the result is produced, not the file layout: a directory
+            output is written as one parquet file per shard whenever `num_shards` > 1
+            either way. Applies to the pandas and polars engines; ignored by the Arrow
+            and Ray engines. On the pandas and polars engines this also makes
+            `global_resume` a no-op: each shard's own checkpoint store already supplies
+            resume, which is equivalent to global resume as long as `num_shards` stays
+            fixed across resumes of the same job.
         shard_mode : str, default "id"
             Sharding strategy for `num_shards` > 1 ("id" for stable id hashing, "index" for
             legacy row order sharding).
+        runner : str, default "pandas"
+            Deprecated; use `engine` instead. Runner implementation for non-ray
+            backends, consulted only when `engine` is not given.
+        engine : str or None, optional
+            Execution engine to use ("pandas", "arrow", "polars" or "ray"). Takes
+            precedence over the deprecated `runner`/data-backend pair. Defaults to
+            the value resolved from that pair when not given.
         global_resume : bool, default False
-            When resuming a sharded job, filter inputs using global done ids across shards.
+            When resuming a sharded job, filter inputs using global done ids across
+            shards. Ignored on the pandas and polars engines when `shard_output` is True
+            (see `shard_output`).
         detach : bool, default False
             If *True*, start the job in a new process group and return immediately;
             if *False* (default), the call blocks until completion.
@@ -657,6 +674,7 @@ class DomynLLMSwarm(BaseModel):
             checkpoint_dir=checkpoint_dir,
             checkpoint_interval=checkpoint_interval,
             runner=runner,
+            engine=engine,
             no_resume=no_resume,
             no_checkpointing=no_checkpointing,
             checkpoint_tag=checkpoint_tag,
@@ -752,6 +770,7 @@ class DomynLLMSwarm(BaseModel):
         checkpoint_dir: str | Path,
         checkpoint_interval: int | None,
         runner: str,
+        engine: str | None,
         no_resume: bool,
         no_checkpointing: bool,
         checkpoint_tag: str | None,
@@ -773,7 +792,9 @@ class DomynLLMSwarm(BaseModel):
             num_shards: Number of shards to split the input into.
             checkpoint_dir: Checkpoint directory.
             checkpoint_interval: Checkpoint interval override.
-            runner: Runner implementation name.
+            runner: Deprecated runner implementation name; consulted only when
+                `engine` is not given.
+            engine: Execution engine to use, emitted as `--engine=...` when given.
             no_resume: Whether to ignore existing checkpoints.
             no_checkpointing: Whether to disable checkpointing.
             checkpoint_tag: Optional checkpoint tag override.
@@ -810,6 +831,8 @@ class DomynLLMSwarm(BaseModel):
             exe.append("--no-checkpointing")
         if checkpoint_tag:
             exe.append(f"--checkpoint-tag={checkpoint_tag}")
+        if engine is not None:
+            exe.append(f"--engine={engine}")
         if shard_output:
             exe.append("--shard-output")
         if shard_mode:

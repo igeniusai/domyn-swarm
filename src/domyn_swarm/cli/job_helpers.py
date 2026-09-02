@@ -79,6 +79,7 @@ class JobRunSpec:
     detach: bool
     mail_user: str | None
     ray_address: str | None
+    engine: str | None = None
     global_resume: bool = False
     checkpoint_tag: str | None = None
     shard_mode: Literal["id", "index"] = "id"
@@ -373,6 +374,7 @@ def submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> Job
         no_resume=request.run.no_resume,
         no_checkpointing=request.run.no_checkpointing,
         runner=request.run.runner,
+        engine=request.run.engine,
         ray_address=request.run.ray_address,
         checkpoint_tag=request.run.checkpoint_tag,
         shard_mode=request.run.shard_mode,

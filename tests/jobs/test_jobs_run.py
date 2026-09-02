@@ -350,6 +350,154 @@ async def test_run_job_unified_global_resume_arrow_runner(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_job_unified_global_resume_with_custom_id_column_pandas(tmp_path):
+    """Regression: global resume must not lose a custom id column when finalizing.
+
+    `_finalize_global_resume` used to construct a fresh `ParquetShardStore` and call
+    `finalize()` on it without ever calling `prepare()`, so the store's id column
+    stayed at its default (`_row_id`) instead of the job's real id column. `finalize()`
+    then looked for `_row_id` in a parquet shard that only had the custom id column
+    (`doc_id`) and raised `ValueError: Merged parquet is missing id column '_row_id'`.
+
+    `shard_mode="index"` (not "id") keeps every shard non-empty so this isolates the
+    id-column bug from the separate empty-shard bug.
+    """
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [1, 2, 3, 4], "messages": [1, 2, 3, 4]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        global_resume=True,
+    )
+    assert sorted(out_df["doc_id"].tolist()) == [1, 2, 3, 4]
+    assert sorted(out_df["output"].tolist()) == [f"test_shard_{i}" for i in [1, 2, 3, 4]]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_global_resume_with_custom_id_column_arrow(tmp_path):
+    """Arrow-engine counterpart of the pandas custom-id-column global resume bug.
+
+    `_finalize_arrow_global_resume` -> `_merge_shard_outputs` had the same defect:
+    a fresh `ArrowShardStore` was finalized without ever calling `prepare()`, so it
+    looked for the default `_row_id` instead of the job's real id column.
+    """
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [1, 2, 3, 4], "messages": [1, 2, 3, 4]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=2,
+        shard_mode="index",
+        runner="arrow",
+        global_resume=True,
+    )
+    assert sorted(out_df["doc_id"].tolist()) == [1, 2, 3, 4]
+    assert sorted(out_df["output"].tolist()) == [f"test_shard_{i}" for i in [1, 2, 3, 4]]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_id_sharding_tolerates_empty_shards_pandas(tmp_path):
+    """Regression: id-hash sharding can produce empty shards; empty shards must not crash.
+
+    `shard_indices_by_id` hashes ids into buckets by `hash(id) % nshards`. With these
+    five ids and four shards, two shards get zero rows
+    (`shard_indices_by_id(pd.Series([10, 11, 12, 13, 14]), 4)` gives shard sizes
+    `[1, 4, 0, 0]`). `ParquetShardStore.finalize()` used to crash on an empty shard
+    with `KeyError: "None of ['doc_id'] are in the columns"` because it fell back to
+    `pd.DataFrame().set_index(self.id_col)`, and an empty `pd.DataFrame()` has no
+    columns to index by.
+    """
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [10, 11, 12, 13, 14], "messages": [1, 2, 3, 4, 5]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=4,
+        shard_mode="id",
+    )
+    assert sorted(out_df["doc_id"].tolist()) == [10, 11, 12, 13, 14]
+    assert sorted(out_df["output"].tolist()) == [f"test_shard_{i}" for i in [1, 2, 3, 4, 5]]
+
+
+@pytest.mark.asyncio
+async def test_run_job_unified_id_sharding_tolerates_empty_shards_arrow(tmp_path):
+    """Arrow-engine counterpart: an empty id-hash shard used to break `pa.concat_tables`.
+
+    A shard with zero assigned rows produced a result table with a null-typed,
+    "output"-less schema (built from empty Python lists via `pa.Table.from_pydict`),
+    which didn't match the other shards' schemas and made `pa.concat_tables(parts)`
+    raise `pyarrow.lib.ArrowInvalid: Schema at index N was different`.
+    """
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [10, 11, 12, 13, 14], "messages": [1, 2, 3, 4, 5]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=4,
+        shard_mode="id",
+        runner="arrow",
+    )
+    assert sorted(out_df["doc_id"].tolist()) == [10, 11, 12, 13, 14]
+    assert sorted(out_df["output"].tolist()) == [f"test_shard_{i}" for i in [1, 2, 3, 4, 5]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("global_resume", [False, True])
+async def test_run_job_unified_id_sharding_tolerates_empty_shards_polars(tmp_path, global_resume):
+    """Polars-engine counterpart: an empty id-hash shard broke two things in turn.
+
+    Polars shares the Arrow checkpoint stores, so an empty shard's `ArrowShardStore`
+    result is the same null-typed, id-only table as the plain Arrow engine's. That
+    first broke `PolarsJobRunner._finalize_output`'s `base_df.join(out_df, ...)` with
+    `SchemaError: datatypes of join keys don't match` (the id column's `Null` dtype
+    vs. the input's `Int64`). After aligning that dtype, the per-shard joined result
+    was still missing the output column entirely (nothing to derive it from), which
+    broke `pl.concat(parts, how="vertical")` in `_run_polars_sharded` with
+    `ShapeError: unable to append to a DataFrame of width 3 with a DataFrame of
+    width 2`. `_run_polars_sharded` runs (and therefore can raise) regardless of
+    `global_resume`, since its concatenated return value is only used when
+    `global_resume` is False -- hence parametrizing both here.
+    """
+    pytest.importorskip("polars")
+    store_uri = f"file://{tmp_path / 'out.parquet'}"
+    data = pd.DataFrame({"doc_id": [10, 11, 12, 13, 14], "messages": [1, 2, 3, 4, 5]})
+
+    out_df = await run_job_unified(
+        lambda: DummySwarmJob(id_column_name="doc_id"),
+        data,
+        input_col="messages",
+        output_cols=["output"],
+        store_uri=store_uri,
+        nshards=4,
+        shard_mode="id",
+        runner="arrow",
+        data_backend="polars",
+        global_resume=global_resume,
+    )
+    assert sorted(out_df["doc_id"].to_list()) == [10, 11, 12, 13, 14]
+    assert sorted(out_df["output"].to_list()) == [f"test_shard_{i}" for i in [1, 2, 3, 4, 5]]
+    assert str(out_df["doc_id"].dtype) == "Int64"
+
+
+@pytest.mark.asyncio
 async def test_run_job_unified_global_resume_polars_runner(tmp_path):
     pytest.importorskip("polars")
 

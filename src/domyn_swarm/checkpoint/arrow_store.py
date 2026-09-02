@@ -229,7 +229,16 @@ class InMemoryArrowStore(CheckpointStore[pa.Table]):
 class ArrowShardStore(CheckpointStore[pa.Table]):
     """Arrow-native shard store. Mirrors ParquetShardStore but returns Arrow tables."""
 
-    def __init__(self, base_uri: str):
+    def __init__(self, base_uri: str, id_col: str = "_row_id"):
+        """Initialize the store.
+
+        Args:
+            base_uri: Base checkpoint URI (local or cloud) for this store.
+            id_col: Column name used for stable row ids. Normally set later by
+                :meth:`prepare`; pass it explicitly when a store must be
+                :meth:`finalize`-d without a prior call to `prepare` (e.g. when
+                re-opening a shard's store from a different process/step).
+        """
         self.base_uri = base_uri
         if ".parquet" in base_uri:
             self.dir_uri = base_uri.rsplit(".", 1)[0] + "/"
@@ -241,7 +250,7 @@ class ArrowShardStore(CheckpointStore[pa.Table]):
             self.dir_path = self.dir_path + "/"
         self.base_path = self.dir_path.rstrip("/") + ".parquet"
         self.fs.mkdirs(self.dir_path, exist_ok=True)
-        self.id_col = "_row_id"
+        self.id_col = id_col
         self.done_ids: set[Any] = set()
 
     def _normalize_id_column(self, table: pa.Table) -> pa.Table:

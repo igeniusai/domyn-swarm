@@ -362,6 +362,37 @@ class PolarsJobRunner:
 
         return _on_flush
 
+    def _align_id_dtype(
+        self, data: pl.DataFrame | pl.LazyFrame, out_df: pl.DataFrame
+    ) -> pl.DataFrame:
+        """Cast `out_df`'s id column to match the input's id column dtype.
+
+        A shard assigned zero rows (e.g. an unlucky id-hash bucket) never flushes
+        anything, so `ArrowShardStore.finalize()` returns a table built from an
+        empty Python list for the id column. Arrow (and polars, converting from
+        it) can only type that column `Null`, since there is nothing to infer a
+        real dtype from. Joining that against the input's correctly-typed id
+        column in `_finalize_output` would otherwise raise
+        `SchemaError: datatypes of join keys don't match`.
+
+        Args:
+            data: Input polars DataFrame or LazyFrame (already has the id column).
+            out_df: Output DataFrame built from the checkpoint store's `finalize()`.
+
+        Returns:
+            `out_df` with its id column cast to the input's id column dtype when
+            they differ; unchanged otherwise.
+        """
+        import polars as pl
+
+        if self.cfg.id_col not in out_df.columns:
+            return out_df
+        schema = data.collect_schema() if isinstance(data, pl.LazyFrame) else data.schema
+        expected = schema.get(self.cfg.id_col)
+        if expected is not None and out_df.schema[self.cfg.id_col] != expected:
+            out_df = out_df.with_columns(pl.col(self.cfg.id_col).cast(expected))
+        return out_df
+
     def _finalize_output(
         self,
         data: pl.DataFrame | pl.LazyFrame,
@@ -479,6 +510,7 @@ class PolarsJobRunner:
 
         out_table = await asyncio.to_thread(self.store.finalize)
         out_df = cast(pl.DataFrame, pl.from_arrow(out_table))
+        out_df = self._align_id_dtype(data, out_df)
         return self._finalize_output(
             data,
             out_df=out_df,
@@ -673,7 +705,8 @@ async def _run_polars(
         require_id: Whether id_col must already exist in the input.
         nshards: Number of shards to split the input into.
         shard_mode: Sharding strategy ("id" for stable id hashing, "index" for legacy order).
-        global_resume: Whether to resume using global done ids across shards.
+        global_resume: Whether to resume using global done ids across shards. Ignored
+            when `shard_output` is True; see the comment on the filter below.
         store_uri: Base checkpoint store URI.
         checkpoint_every: Flush interval in items.
         checkpointing: Whether checkpointing is enabled.
@@ -731,7 +764,24 @@ async def _run_polars(
     data = _collect_polars_data(data)
     data_full = data
 
-    if global_resume and checkpointing:
+    # The global-resume filter is deliberately skipped when `shard_output` is on.
+    # Each shard streams its own parquet file by left-joining that shard's
+    # checkpoint outputs onto the shard's slice of `data`
+    # (`PolarsJobRunner._stream_output_to_path`), so a row filtered out of `data`
+    # here is absent from the join's left side and therefore missing from the
+    # file that overwrites the previous run's -- silently dropping rows that were
+    # already complete. Unlike the non-sharded path there is no
+    # `_finalize_polars_global_resume` pass afterwards to reconcile them, because
+    # `shard_output` returns early by design: streaming per shard is the whole
+    # reason to use it, and rebuilding one merged frame would defeat that.
+    #
+    # Resume is still correct without the filter: each shard's own checkpoint
+    # store already skips ids that shard finished, and `shard_mode="id"` hashes an
+    # id to a stable shard, so per-shard resume equals global resume whenever
+    # `nshards` is unchanged -- already required, since `nshards` is part of the
+    # checkpoint layout. They diverge only when `nshards` changed, where a moved
+    # id is reprocessed in its new shard rather than dropped from the output.
+    if global_resume and checkpointing and not shard_output:
         if store_uri is None:
             raise ValueError("store_uri is required when global_resume is enabled.")
         done_ids = load_global_done_ids(
@@ -969,4 +1019,13 @@ async def _run_polars_sharded(
     parts = await asyncio.gather(*tasks)
     if shard_output:
         return None
-    return pl.concat(parts, how="vertical")
+    # A shard assigned zero rows (e.g. an unlucky id-hash bucket) never flushes
+    # anything, so its checkpoint store's finalize() has only the id column to
+    # join back against the input -- the resulting per-shard frame is missing
+    # the output column(s) entirely, unlike every non-empty shard's frame.
+    # `pl.concat(..., how="vertical")` requires matching schemas and rejects
+    # that width mismatch outright. Drop empty parts before concatenating
+    # instead, mirroring the same fix already applied to the pandas engine's
+    # equivalent concat; an empty shard contributes zero rows either way.
+    non_empty_parts = [part for part in parts if part.height > 0]
+    return pl.concat(non_empty_parts if non_empty_parts else parts, how="vertical")

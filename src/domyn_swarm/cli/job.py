@@ -172,7 +172,14 @@ def submit_job(
     runner: str = typer.Option(
         "pandas",
         "--runner",
-        help="Runner implementation for non-ray backends (pandas, arrow).",
+        help="Deprecated; use --engine instead. Runner implementation for non-ray "
+        "backends (pandas, arrow).",
+    ),
+    engine: str | None = typer.Option(
+        None,
+        "--engine",
+        help="Execution engine to use (pandas, arrow, polars, ray). Takes precedence "
+        "over the deprecated --runner/--data-backend pair.",
     ),
     checkpoint_interval: int = typer.Option(
         32,
@@ -218,8 +225,12 @@ def submit_job(
     shard_output: bool = typer.Option(
         False,
         "--shard-output",
-        help="When output is a directory and using the Polars runner, write one parquet file per "
-        "shard (based on --num-shards) using checkpoint outputs as the source of truth.",
+        help="When output is a directory, write shards directly from checkpoint outputs instead "
+        "of assembling the merged result in memory first. Supported by the pandas and polars "
+        "runners; ignored by the arrow runner. Either way the directory is written as one "
+        "parquet file per shard (based on --num-shards). On the pandas and polars runners "
+        "this also makes --global-resume a no-op: per-shard checkpoint resume alone already "
+        "covers it, as long as --num-shards stays fixed across resumes.",
     ),
     limit: int | None = typer.Option(
         None,
@@ -305,6 +316,7 @@ def submit_job(
         no_resume=no_resume,
         no_checkpointing=no_checkpointing,
         runner=runner,
+        engine=engine,
         num_shards=num_shards,
         limit=limit,
         shard_mode=shard_mode,

@@ -76,7 +76,16 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
     _shard_seq = itertools.count()
     _shard_seq_lock = threading.Lock()
 
-    def __init__(self, base_uri: str):
+    def __init__(self, base_uri: str, id_col: str = "_row_id"):
+        """Initialize the store.
+
+        Args:
+            base_uri: Base checkpoint URI (local or cloud) for this store.
+            id_col: Column name used for stable row ids. Normally set later by
+                :meth:`prepare`; pass it explicitly when a store must be
+                :meth:`finalize`-d without a prior call to `prepare` (e.g. when
+                re-opening a shard's store from a different process/step).
+        """
         self.base_uri = base_uri
         if ".parquet" in base_uri:
             self.dir_uri = base_uri.rsplit(".", 1)[0] + "/"
@@ -94,7 +103,7 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
             self.dir_path = self.dir_path + "/"
         self.base_path = self.dir_path.rstrip("/") + ".parquet"
         self.fs.mkdirs(self.dir_path, exist_ok=True)
-        self.id_col = "_row_id"
+        self.id_col = id_col
         self.done_ids: set[Any] = set()
 
     def prepare(self, data: pd.DataFrame, id_col: str) -> pd.DataFrame:
@@ -227,7 +236,11 @@ class ParquetShardStore(CheckpointStore[pd.DataFrame]):
                 table = self._normalize_id_column(table)
                 df = table.to_pandas(ignore_metadata=True).set_index(self.id_col, drop=True)
                 return df
-            return pd.DataFrame().set_index(self.id_col)
+            # Nothing was ever flushed for this shard (e.g. an id-hash shard that
+            # received zero rows). An empty `pd.DataFrame()` has no columns, so
+            # `set_index(self.id_col)` would raise KeyError; build the id column
+            # explicitly instead so callers see a well-formed empty result.
+            return pd.DataFrame(columns=[self.id_col]).set_index(self.id_col)
 
         tables: list[pa.Table] = []
         if self.fs.exists(self.base_path):
@@ -294,7 +307,11 @@ class InMemoryStore(CheckpointStore[pd.DataFrame]):
 
     def finalize(self) -> pd.DataFrame:
         if not self._rows_by_id:
-            return pd.DataFrame().set_index(self.id_col)
+            # Nothing was ever flushed (e.g. an empty input). An empty
+            # `pd.DataFrame()` has no columns, so `set_index(self.id_col)`
+            # would raise KeyError; build the id column explicitly instead so
+            # callers see a well-formed empty result.
+            return pd.DataFrame(columns=[self.id_col]).set_index(self.id_col)
 
         rows = [{self.id_col: item_id, **payload} for item_id, payload in self._rows_by_id.items()]
         return pd.DataFrame(rows).set_index(self.id_col, drop=True)
