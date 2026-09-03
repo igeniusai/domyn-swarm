@@ -103,7 +103,7 @@ The important parts:
 Address the class as `<module>:<ClassName>`:
 
 ```shell
-PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomJob \
+PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomSwarmJob \
    --config examples/configs/deepseek_r1_distill.yaml \
    --input examples/data/completion.parquet \
    --output results/output.parquet \
