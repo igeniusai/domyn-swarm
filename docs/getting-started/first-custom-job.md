@@ -120,8 +120,7 @@ manager:
 
 ```python
 from pathlib import Path
-from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
-from domyn_swarm.core.job_run import JobRunSpec
+from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig, JobRunSpec
 from mypkg.jobs import MyCustomSwarmJob
 
 cfg = DomynLLMSwarmConfig.read("config.yaml")

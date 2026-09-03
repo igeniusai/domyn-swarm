@@ -16,6 +16,16 @@ def test_init_getattr_exposes_classes():
     assert domyn_swarm.SwarmJob.__name__ == "SwarmJob"
 
 
+def test_job_run_spec_is_importable_from_the_package_root():
+    """`JobRunSpec` -- the type `submit_job` takes as `run=` -- is part of the
+    public surface, next to `SwarmJob` and `JobConfig`, not only reachable via
+    the internal `domyn_swarm.core.job_run` module."""
+    from domyn_swarm import JobRunSpec
+    from domyn_swarm.core.job_run import JobRunSpec as _JobRunSpec
+
+    assert JobRunSpec is _JobRunSpec
+
+
 @pytest.mark.parametrize("name", domyn_swarm.__all__)
 def test_every_public_name_resolves(name):
     """Every name advertised in ``__all__`` is importable from the package root."""

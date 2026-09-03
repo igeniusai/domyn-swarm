@@ -4,8 +4,7 @@
 import os
 from pathlib import Path
 
-from domyn_swarm import DomynLLMSwarmConfig
-from domyn_swarm.core.job_run import JobRunSpec
+from domyn_swarm import DomynLLMSwarmConfig, JobRunSpec
 from domyn_swarm.core.swarm_pool import create_swarm_pool
 from domyn_swarm.jobs import ChatCompletionJob
 
