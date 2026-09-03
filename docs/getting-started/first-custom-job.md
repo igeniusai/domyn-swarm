@@ -17,7 +17,7 @@ provides.
 ## Define the job
 
 A job declares its configuration as a class-level `config` — an instance of
-`JobConfig`, or of a subclass adding fields of its own via `config_class` —
+`JobConfig`, or of a subclass adding fields of its own —
 instead of writing a constructor. Every field on `config` is readable and
 writable as an attribute of the job, and any of them can be overridden when
 the class is instantiated (`MyCustomSwarmJob(model="gpt-4", max_concurrency=8)`).
@@ -86,8 +86,8 @@ The important parts:
 
 - `config` declares the job's configuration. Every field on it — including
   `output_cols` — is readable and writable as an attribute of the job, and
-  overridable at construction time. A job that needs fields of its own pairs a
-  `JobConfig` subclass with a matching `config_class`; see the
+  overridable at construction time. A job that needs fields of its own
+  declares `config` as an instance of a `JobConfig` subclass; see the
   [SwarmJob API reference](../reference/api/jobs.md).
 - `output_cols` declares the columns the job writes. Set it to a list when a job
   returns several values per row, as above.

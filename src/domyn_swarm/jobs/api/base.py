@@ -92,10 +92,10 @@ class SwarmJob(abc.ABC):
     Configuration:
         Configuration lives on `JobConfig`, not on the job itself. A subclass
         declares it by setting a class-level `config` -- an instance of
-        `JobConfig`, or of a subclass paired with a matching `config_class`
-        when the job adds fields of its own. No constructor is needed. Every
-        configuration field is readable and writable as an attribute of the
-        job (`self.threshold` below) and overridable at construction time
+        `JobConfig`, or of a subclass when the job adds fields of its own. No
+        constructor is needed. Every configuration field is readable and
+        writable as an attribute of the job (`self.threshold` below) and
+        overridable at construction time
         (`MyJob(model="gpt-4", threshold=0.9)`). Provider request parameters
         (`temperature`, `top_p`, and the like) are not configuration fields:
         they live in `config.request_params` and are read back through
@@ -109,7 +109,6 @@ class SwarmJob(abc.ABC):
 
 
             class MyJob(SwarmJob):
-                config_class = MyJobConfig
                 config = MyJobConfig(
                     input_column_name="prompt", output_cols="answer", max_concurrency=8
                 )
@@ -306,6 +305,25 @@ class SwarmJob(abc.ABC):
         default warns, because such declarations were silently ignored before
         domyn-swarm 0.32 and the change in behaviour is otherwise invisible.
 
+        `config_class` follows `config`: whenever `type(config)` is a strict
+        subclass of the `config_class` that would otherwise apply -- declared
+        on this class or inherited -- `type(config)` is adopted instead, so
+        declaring `config` alone is enough. A broader `config_class` declared
+        explicitly is no reason to keep it, since `isinstance(config,
+        config_class)` holds either way.
+
+        The consequences of a `config_class` broader than `config` reach past
+        a skipped validator. It is what `_class_config` rebuilds through, what
+        validates constructor overrides, and what reconstructs the job on the
+        far side of the wire, so a field only the more specific type defines
+        would be rejected as an unrecognized override and lost on
+        reconstruction.
+
+        The two types must be related. If neither `type(config)` nor the
+        applicable `config_class` is a subclass of the other, no type can
+        carry every field `config` set, and the declaration raises rather
+        than guessing.
+
         Args:
             **kwargs: Forwarded to `super().__init_subclass__`.
 
@@ -316,8 +334,34 @@ class SwarmJob(abc.ABC):
                 fine, as is a subclass overriding, via a bare attribute, a
                 field an ancestor's `config` object set -- only a same-class,
                 same-field conflict is contradictory.
+            TypeError: If this class's `config` object's type and the
+                `config_class` that would apply to it are unrelated types --
+                neither a subclass of the other.
         """
         super().__init_subclass__(**kwargs)
+
+        base = cls.__dict__.get("config")
+        own_config_class = cls.__dict__.get("config_class")
+
+        if isinstance(base, JobConfig):
+            effective_config_class = own_config_class or cls.config_class
+            config_is_more_specific = issubclass(type(base), effective_config_class)
+            compatible = config_is_more_specific or issubclass(effective_config_class, type(base))
+            if not compatible:
+                raise TypeError(
+                    f"{cls.__name__} declares config_class={effective_config_class.__name__} "
+                    f"but its `config` object is a {type(base).__name__}, and neither is a "
+                    f"subclass of the other -- reconstructing through "
+                    f"{effective_config_class.__name__} would lose or misinterpret fields "
+                    f"{type(base).__name__} actually set. Change `config` to a "
+                    f"{effective_config_class.__name__} instance, or change `config_class` to "
+                    f"{type(base).__name__} (or a shared base of the two)."
+                )
+            if config_is_more_specific:
+                # `_class_config()` rebuilds through `config_class`, so it has
+                # to name the most specific type available or the subclass's
+                # validators and extra fields are dropped.
+                cls.config_class = type(base)
 
         fields = cls.config_class.model_fields
         declared = {
@@ -325,7 +369,6 @@ class SwarmJob(abc.ABC):
             for name in fields
             if name in cls.__dict__ and _is_bare_value(cls.__dict__[name])
         }
-        base = cls.__dict__.get("config")
 
         if isinstance(base, JobConfig):
             clash = sorted(set(declared) & base.model_fields_set)

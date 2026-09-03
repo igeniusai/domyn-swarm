@@ -7,7 +7,7 @@ implement your own custom job, which is totally free in terms of implementation.
 
 A custom job needs no constructor at all. Declare its configuration as a
 class-level `config` (an instance of `JobConfig`, or of a subclass that adds
-your own fields via `config_class`) and implement `transform_items`:
+your own fields) and implement `transform_items`:
 
 async def transform_items(items: list[Any]) -> list[Any]:
     pass
@@ -44,9 +44,8 @@ class MyCustomSwarmJob(SwarmJob):
     - No checkpointing/I-O logic here: the runner handles that.
 
     Every field set below already exists on `JobConfig`, so this job only
-    overrides defaults and needs no `config_class`. A job that needs *new*
-    fields declares its own `JobConfig` subclass and points `config_class` at
-    it; see `SwarmJob`'s docstring.
+    overrides defaults. A job that needs *new* fields declares `config` as an
+    instance of its own `JobConfig` subclass; see `SwarmJob`'s docstring.
     """
 
     config = JobConfig(

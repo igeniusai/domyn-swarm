@@ -3,6 +3,7 @@
 
 """Class-level configuration declarations."""
 
+from pydantic import model_validator
 import pytest
 
 from domyn_swarm.jobs.api.base import SwarmJob
@@ -204,3 +205,109 @@ def test_declaring_both_forms_for_the_same_field_names_only_that_field() -> None
     message = str(exc_info.value)
     assert "retries" in message
     assert "max_concurrency" not in message
+
+
+def test_config_class_is_inferred_from_a_config_object_with_only_a_validator() -> None:
+    """A `config=` subclass instance is used as-is when `config_class` is not
+    declared, even when the subclass adds no new field -- only a validator.
+
+    A validator-only subclass is the case a field-based check would miss:
+    rebuilding through a plain `JobConfig` yields a config carrying every
+    field `config` set, with the validator silently not run.
+    """
+
+    class FancyConfig(JobConfig):
+        @model_validator(mode="after")
+        def _force_output(self) -> "FancyConfig":
+            object.__setattr__(self, "output_cols", "fancy_result")
+            return self
+
+    class FancyJob(SwarmJob):
+        config = FancyConfig(model="m")
+
+        async def transform_items(self, items: list):
+            return items
+
+    job = FancyJob()
+    assert type(job.config) is FancyConfig
+    assert job.output_cols == "fancy_result"
+
+
+def test_declaring_both_forms_with_an_incompatible_config_class_raises() -> None:
+    """`config_class` and `config` declared together, naming unrelated types,
+    is an error naming both -- not a `pydantic.ValidationError` naming only
+    the wrong one, and not a silent downgrade to the declared `config_class`.
+    """
+
+    class ConfigA(JobConfig):
+        a: int = 1
+
+    class ConfigB(JobConfig):
+        b: int = 2
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class J(SwarmJob):
+            config_class = ConfigA
+            config = ConfigB(model="m")
+
+            async def transform_items(self, items: list):
+                return items
+
+    message = str(exc_info.value)
+    assert "ConfigA" in message
+    assert "ConfigB" in message
+
+
+def test_declaring_both_forms_with_matching_types_keeps_that_config_class() -> None:
+    """When `config_class` and `config` are both declared and `config` is
+    exactly an instance of `config_class`, that type is what `config_class`
+    resolves to: there is nothing more specific to prefer."""
+
+    class FancyConfig(JobConfig):
+        extra: int = 5
+
+    class J(SwarmJob):
+        config_class = FancyConfig
+        config = FancyConfig(model="m", extra=9)
+
+        async def transform_items(self, items: list):
+            return items
+
+    job = J()
+    assert job.config_class is FancyConfig
+    assert job.extra == 9
+
+
+def test_a_more_specific_config_wins_over_an_explicitly_broader_config_class() -> None:
+    """When `config_class` and `config` are both declared and `type(config)`
+    is a strict subclass of `config_class`, the more specific type wins over
+    the explicit declaration.
+
+    `isinstance(config, config_class)` holds either way, so the declaration
+    is not violated. Honouring it literally would drop the subclass's
+    validator and reject `threshold` -- a field only the subclass defines --
+    as an unrecognized constructor override.
+    """
+
+    class FancyConfig(JobConfig):
+        threshold: float = 0.1
+
+        @model_validator(mode="after")
+        def _force_output(self) -> "FancyConfig":
+            object.__setattr__(self, "output_cols", "fancy_result")
+            return self
+
+    class J(SwarmJob):
+        config_class = JobConfig  # explicit, but broader than `config`
+        config = FancyConfig(model="m")
+
+        async def transform_items(self, items: list):
+            return items
+
+    job = J()
+    assert type(job.config) is FancyConfig
+    assert job.output_cols == "fancy_result"
+
+    overridden = J(model="m", threshold=0.9)
+    assert overridden.threshold == 0.9
