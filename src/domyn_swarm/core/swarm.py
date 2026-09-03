@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import contextlib
+import dataclasses
 import logging
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ from domyn_swarm import utils
 from domyn_swarm.config.plan import DeploymentContext, DeploymentPlan
 from domyn_swarm.config.settings import get_settings
 from domyn_swarm.config.swarm import DomynLLMSwarmConfig
+from domyn_swarm.core.job_run import JobRunSpec
 from domyn_swarm.deploy.deployment import Deployment
 from domyn_swarm.helpers.io import to_path
 from domyn_swarm.helpers.logger import setup_logger
@@ -102,7 +104,13 @@ class DomynLLMSwarm(BaseModel):
             cfg = DomynLLMSwarmConfig.read("config.yaml")
             with DomynLLMSwarm(cfg=cfg) as swarm:
                 # Reachable at swarm.endpoint
-                swarm.submit_job(my_job, input_path="data.parquet", output_path="results.parquet")
+                swarm.submit_job(
+                    my_job,
+                    run=JobRunSpec(
+                        input_path=Path("data.parquet"),
+                        output_path=Path("results.parquet"),
+                    ),
+                )
 
         Persistent deployment, reattached later from another process:
 
@@ -121,9 +129,11 @@ class DomynLLMSwarm(BaseModel):
             with DomynLLMSwarm(cfg=cfg) as swarm:
                 handle = swarm.submit_job(
                     job=LongRunningJob(),
-                    input_path="large_dataset.parquet",
-                    output_path="results.parquet",
-                    detach=True,
+                    run=JobRunSpec(
+                        input_path=Path("large_dataset.parquet"),
+                        output_path=Path("results.parquet"),
+                        detach=True,
+                    ),
                 )
                 print(handle.pid, handle.external_id)
 
@@ -530,28 +540,10 @@ class DomynLLMSwarm(BaseModel):
         self,
         job: SwarmJob,
         *,
-        input_path: Path,
-        output_path: Path,
-        num_shards: int = 1,
-        shard_output: bool = False,
-        detach: bool = False,
-        limit: int | None = None,
-        mail_user: str | None = None,
-        checkpoint_dir: str | Path | None = None,
-        checkpoint_interval: int | None = None,
-        no_resume: bool = False,
-        no_checkpointing: bool = False,
-        runner: str = "pandas",
-        engine: str | None = None,
-        shard_mode: str = "id",
-        global_resume: bool = False,
-        job_resources: dict | None = None,
-        checkpoint_tag: str | None = None,
-        ray_address: str | None = None,
-        num_threads: int | None = None,
+        run: JobRunSpec | None = None,
+        **legacy: Any,
     ) -> JobHandle:
-        """
-        Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
+        """Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
         SLURM swarm allocation.
 
         The *job* object is converted to keyword arguments via
@@ -559,83 +551,80 @@ class DomynLLMSwarm(BaseModel):
         (where ``SLURM_NODEID == 0``), reconstructed by
         ``domyn_swarm.jobs.cli.run``, and executed under ``srun``.
 
-        Parameters
-        ----------
-        job : SwarmJob
-            The job instance to execute.
-        input_path : utils.EnvPath | str
-            Parquet file produced by the upstream pipeline stage.
-        output_path : utils.EnvPath | str
-            Destination Parquet file to be written by *job*.
-        num_shards : int, default 1
-            Number of shards to split the input into. This is part of the
-            checkpoint layout, so keep it fixed across resumes of the same job
-            or previously-completed rows will be reprocessed.
-        shard_output : bool, default False
-            If True and `output_path` is a directory, shards are written directly from
-            checkpoint outputs rather than assembling the merged result in memory first.
-            This controls how the result is produced, not the file layout: a directory
-            output is written as one parquet file per shard whenever `num_shards` > 1
-            either way. Applies to the pandas and polars engines; ignored by the Arrow
-            and Ray engines. On the pandas and polars engines this also makes
-            `global_resume` a no-op: each shard's own checkpoint store already supplies
-            resume, which is equivalent to global resume as long as `num_shards` stays
-            fixed across resumes of the same job.
-        shard_mode : str, default "id"
-            Sharding strategy for `num_shards` > 1 ("id" for stable id hashing, "index" for
-            legacy row order sharding).
-        runner : str, default "pandas"
-            Deprecated; use `engine` instead. Runner implementation for non-ray
-            backends, consulted only when `engine` is not given.
-        engine : str or None, optional
-            Execution engine to use ("pandas", "arrow", "polars" or "ray"). Takes
-            precedence over the deprecated `runner`/data-backend pair. Defaults to
-            the value resolved from that pair when not given.
-        global_resume : bool, default False
-            When resuming a sharded job, filter inputs using global done ids across
-            shards. Ignored on the pandas and polars engines when `shard_output` is True
-            (see `shard_output`).
-        detach : bool, default False
-            If *True*, start the job in a new process group and return immediately;
-            if *False* (default), the call blocks until completion.
-        limit : int or None, optional
-            Maximum number of rows to read from *input_path* — handy for
-            dry-runs and debugging.  When *None* (default) the entire
-            dataset is processed.
+        Args:
+            job: The job instance to execute.
+            run: How the job should run: input/output paths, sharding,
+                checkpointing, engine selection, and resources. See
+                :class:`~domyn_swarm.core.job_run.JobRunSpec` for the full
+                field list and their semantics.
+            **legacy: Deprecated. `JobRunSpec` fields (`input_path`,
+                `output_path`, `num_shards`, `shard_output`, `detach`,
+                `limit`, `mail_user`, `checkpoint_dir`, `checkpoint_interval`,
+                `no_resume`, `no_checkpointing`, `runner`, `engine`,
+                `shard_mode`, `global_resume`, `job_resources`,
+                `checkpoint_tag`, `ray_address`, `num_threads`) passed as
+                flat keyword arguments instead of via `run=JobRunSpec(...)`.
+                Folded into a `JobRunSpec` with a `DeprecationWarning`; will
+                become a `TypeError` in domyn-swarm 0.33. Cannot be combined
+                with `run`, and an unrecognized keyword raises `TypeError`
+                immediately.
 
-        Returns
-        -------
-        JobHandle
-            Compute job handle with normalized status and metadata.
+        Returns:
+            JobHandle: Compute job handle with normalized status and metadata.
 
-        Raises
-        ------
-        RuntimeError
-            The swarm is not ready (`self.serving_handle` or `self.endpoint`
-            is ``None``).
-        FileNotFoundError
-            *input_path* does not exist.
-        subprocess.CalledProcessError
-            Propagated when the synchronous ``srun`` command exits with a
-            non-zero status code.
+        Raises:
+            TypeError: Neither `run` nor any legacy keyword was given, `run`
+                and one or more legacy keywords were given together, or an
+                unrecognized legacy keyword was passed.
+            RuntimeError: The swarm is not ready (`self.serving_handle` or
+                `self.endpoint` is ``None``).
+            FileNotFoundError: `run.input_path` does not exist.
+            subprocess.CalledProcessError: Propagated when the synchronous
+                ``srun`` command exits with a non-zero status code.
 
-        Notes
-        -----
-        The constructed command is logged with *rich* for transparency, e.g.::
+        Note:
+            The constructed command is logged with *rich* for transparency, e.g.::
 
-            srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
-                python -m domyn_swarm.jobs.cli.run --job-class=<module:Class> ...
+                srun --jobid=<...> --nodelist=<...> --ntasks=1 --overlap ...
+                    python -m domyn_swarm.jobs.cli.run --job-class=<module:Class> ...
 
-        Examples
-        --------
-        >>> swarm.submit_job(
-        ...     my_job,
-        ...     input_path=Path("batch.parquet"),
-        ...     output_path=Path("predictions.parquet"),
-        ...     num_shards=4,
-        ... )
+        Example:
+            ::
+
+                swarm.submit_job(
+                    my_job,
+                    run=JobRunSpec(
+                        input_path=Path("batch.parquet"),
+                        output_path=Path("predictions.parquet"),
+                        num_shards=4,
+                    ),
+                )
         """
-        if num_threads is not None:
+        if legacy:
+            if run is not None:
+                raise TypeError(
+                    "submit_job() received both run=JobRunSpec(...) and legacy "
+                    f"keyword arguments {sorted(legacy)}; pass one or the other, "
+                    "not both."
+                )
+            warnings.warn(
+                f"Passing run parameters to submit_job individually is deprecated: "
+                f"{sorted(legacy)}. Pass run=JobRunSpec(...) instead. This will be "
+                f"an error in domyn-swarm 0.33.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            known = {f.name for f in dataclasses.fields(JobRunSpec)}
+            unknown = sorted(set(legacy) - known)
+            if unknown:
+                raise TypeError(f"submit_job() got unexpected keyword arguments: {unknown}")
+            run = JobRunSpec(**legacy)
+
+        if run is None:
+            raise TypeError("submit_job() requires run=JobRunSpec(...)")
+
+        num_shards = run.num_shards
+        if run.num_threads is not None:
             warnings.warn(
                 "`num_threads` is deprecated and will be removed in a future release; "
                 "use `num_shards`. The value has always been a shard count, not a "
@@ -643,17 +632,20 @@ class DomynLLMSwarm(BaseModel):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            num_shards = num_threads
+            num_shards = run.num_threads
 
         # A swarm reattached via `from_state` never passed through the context
         # manager, so its layout may not exist yet.
         self.ensure_directories()
 
-        if checkpoint_dir is None:
-            checkpoint_dir = self.swarm_dir / "checkpoints"
+        checkpoint_dir = (
+            self.swarm_dir / "checkpoints"
+            if run.checkpoint_dir is None
+            else to_path(run.checkpoint_dir)
+        )
 
-        input_parquet = to_path(input_path)
-        output_parquet = to_path(output_path)
+        input_parquet = to_path(run.input_path)
+        output_parquet = to_path(run.output_path)
 
         from domyn_swarm.jobs import JobBuilder
 
@@ -661,8 +653,8 @@ class DomynLLMSwarm(BaseModel):
         job_kwargs = JobBuilder.to_kwargs_json(job)
 
         python_interpreter, image, resources, env = self._compose_runtime()
-        resources = self._merge_resources(resources, None, job_resources)
-        env = self._augment_job_env(env, job, job_class, ray_address=ray_address)
+        resources = self._merge_resources(resources, None, run.job_resources)
+        env = self._augment_job_env(env, job, job_class, ray_address=run.ray_address)
 
         exe = self._build_job_command(
             job=job,
@@ -672,16 +664,16 @@ class DomynLLMSwarm(BaseModel):
             output_parquet=output_parquet,
             num_shards=num_shards,
             checkpoint_dir=checkpoint_dir,
-            checkpoint_interval=checkpoint_interval,
-            runner=runner,
-            engine=engine,
-            no_resume=no_resume,
-            no_checkpointing=no_checkpointing,
-            checkpoint_tag=checkpoint_tag,
-            shard_output=shard_output,
-            shard_mode=shard_mode,
-            global_resume=global_resume,
-            limit=limit,
+            checkpoint_interval=run.checkpoint_interval,
+            runner=run.runner,
+            engine=run.engine,
+            no_resume=run.no_resume,
+            no_checkpointing=run.no_checkpointing,
+            checkpoint_tag=run.checkpoint_tag,
+            shard_output=run.shard_output,
+            shard_mode=run.shard_mode,
+            global_resume=run.global_resume,
+            limit=run.limit,
             ray_address=env.get("DOMYN_SWARM_RAY_ADDRESS"),
             python_interpreter=str(python_interpreter),
         )
@@ -706,7 +698,7 @@ class DomynLLMSwarm(BaseModel):
                 command=exe,
                 env=env,
                 resources=resources,
-                detach=detach,
+                detach=run.detach,
             ),
         )
 

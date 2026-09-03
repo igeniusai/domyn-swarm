@@ -6,13 +6,13 @@
 import contextlib
 from dataclasses import dataclass
 import json
-from pathlib import Path
 import sys
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError, field_validator
 import typer
 
+from domyn_swarm.core.job_run import JobRunSpec as JobRunSpec
 from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.jobs.api import JobBuilder
@@ -61,28 +61,6 @@ class HandlePayloadModel(BaseModel):
         if status is None:
             return None
         return coerce_job_status(status)
-
-
-@dataclass(frozen=True)
-class JobRunSpec:
-    """Run-time parameters for job submission."""
-
-    input_path: Path
-    output_path: Path
-    shard_output: bool
-    checkpoint_dir: Path | None
-    no_resume: bool
-    no_checkpointing: bool
-    runner: str
-    num_shards: int
-    limit: int | None
-    detach: bool
-    mail_user: str | None
-    ray_address: str | None
-    engine: str | None = None
-    global_resume: bool = False
-    checkpoint_tag: str | None = None
-    shard_mode: Literal["id", "index"] = "id"
 
 
 @dataclass(frozen=True)
@@ -356,30 +334,7 @@ def submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> Job
     Returns:
         Submitted job handle.
     """
-    resolved_checkpoint_dir = (
-        swarm.swarm_dir / "checkpoints"
-        if request.run.checkpoint_dir is None
-        else request.run.checkpoint_dir
-    )
-    return swarm.submit_job(
-        request.job,
-        input_path=request.run.input_path,
-        output_path=request.run.output_path,
-        num_shards=request.run.num_shards,
-        shard_output=request.run.shard_output,
-        limit=request.run.limit,
-        detach=request.run.detach,
-        mail_user=request.run.mail_user,
-        checkpoint_dir=resolved_checkpoint_dir,
-        no_resume=request.run.no_resume,
-        no_checkpointing=request.run.no_checkpointing,
-        runner=request.run.runner,
-        engine=request.run.engine,
-        ray_address=request.run.ray_address,
-        checkpoint_tag=request.run.checkpoint_tag,
-        shard_mode=request.run.shard_mode,
-        global_resume=request.run.global_resume,
-    )
+    return swarm.submit_job(request.job, run=request.run)
 
 
 def maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarm) -> None:

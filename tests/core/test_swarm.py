@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from domyn_swarm.core.job_run import JobRunSpec
 import domyn_swarm.core.swarm as mod
 from domyn_swarm.core.swarm import DomynLLMSwarm
 from domyn_swarm.deploy.deployment import Deployment
@@ -921,3 +922,162 @@ def test_submit_job_num_threads_still_works_but_warns(cfg_stub):
 
     command = dep.run_calls[-1]["command"]
     assert "--num-shards=4" in command
+
+
+# ---------------------------
+# submit_job(run=JobRunSpec(...))
+# ---------------------------
+
+
+def test_submit_job_accepts_run_spec_without_warning(cfg_stub, recwarn):
+    """The spec form is the supported path: no warning at all."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    run = JobRunSpec(
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        num_shards=3,
+        shard_output=True,
+        detach=True,
+        limit=7,
+        checkpoint_dir=Path("/tmp/.ckpt"),
+        checkpoint_interval=11,
+        no_resume=True,
+        no_checkpointing=True,
+        runner="polars",
+        engine="polars",
+        shard_mode="index",
+        global_resume=True,
+        job_resources={"cpu": 4},
+        checkpoint_tag="tag-1",
+        ray_address=None,
+    )
+
+    handle = swarm.submit_job(_shard_job_stub(), run=run)
+
+    assert not [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)]
+    assert handle.pid == 4321
+
+    call = dep.run_calls[-1]
+    cmd = call["command"]
+    assert "--num-shards=3" in cmd
+    assert "--shard-output" in cmd
+    assert "--limit=7" in cmd
+    assert f"--checkpoint-dir={Path('/tmp/.ckpt')}" in cmd
+    assert "--checkpoint-interval=11" in cmd
+    assert "--no-resume" in cmd
+    assert "--no-checkpointing" in cmd
+    assert "--runner=polars" in cmd
+    assert "--engine=polars" in cmd
+    assert "--shard-mode=index" in cmd
+    assert "--global-resume" in cmd
+    assert "--checkpoint-tag=tag-1" in cmd
+    assert call["resources"]["cpu"] == 4
+    assert call["detach"] is True
+
+
+def test_submit_job_run_spec_checkpoint_dir_defaults_when_none(cfg_stub):
+    """A spec with no checkpoint_dir falls back to swarm_dir/checkpoints."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    run = JobRunSpec(input_path=Path("/tmp/in.parquet"), output_path=Path("/tmp/out.parquet"))
+    swarm.submit_job(_shard_job_stub(), run=run)
+
+    cmd = dep.run_calls[-1]["command"]
+    expected = swarm.swarm_dir / "checkpoints"
+    assert f"--checkpoint-dir={expected}" in cmd
+
+
+def test_submit_job_missing_run_and_legacy_raises_type_error(cfg_stub):
+    """Neither run= nor a flat keyword given: fail clearly, not with an
+    AttributeError deep in the method body."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    with pytest.raises(TypeError, match="requires run="):
+        swarm.submit_job(_shard_job_stub())
+
+
+def test_submit_job_run_and_legacy_together_raises_type_error(cfg_stub):
+    """Both run= and a flat parameter given: fail rather than pick a winner."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    run = JobRunSpec(input_path=Path("/tmp/in.parquet"), output_path=Path("/tmp/out.parquet"))
+
+    with pytest.raises(TypeError, match="both"):
+        swarm.submit_job(_shard_job_stub(), run=run, num_shards=4)
+
+    assert dep.run_calls == []
+
+
+def test_submit_job_unknown_legacy_keyword_raises_type_error(cfg_stub):
+    """An unrecognized flat keyword names itself in the error."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    with pytest.raises(TypeError, match="not_a_real_param"):
+        swarm.submit_job(
+            _shard_job_stub(),
+            input_path=Path("/tmp/in.parquet"),
+            output_path=Path("/tmp/out.parquet"),
+            not_a_real_param=True,
+        )
+
+
+def test_submit_job_legacy_str_checkpoint_dir_still_works(cfg_stub):
+    """The flat form accepted a `str` `checkpoint_dir`, and still does even
+    though `JobRunSpec.checkpoint_dir` is typed `Path | None`."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    with pytest.warns(DeprecationWarning):
+        swarm.submit_job(
+            _shard_job_stub(),
+            input_path=Path("/tmp/in.parquet"),
+            output_path=Path("/tmp/out.parquet"),
+            checkpoint_dir="/tmp/str-ckpt",
+        )
+
+    cmd = dep.run_calls[-1]["command"]
+    assert f"--checkpoint-dir={Path('/tmp/str-ckpt')}" in cmd
+
+
+def test_submit_job_run_spec_str_checkpoint_dir_still_works(cfg_stub):
+    """A `str` `checkpoint_dir` passed straight into `JobRunSpec`, bypassing
+    its `Path | None` static type, is normalized too."""
+    swarm = make_swarm(cfg_stub)
+    swarm.endpoint = "http://ep:9000"
+    swarm.serving_handle = SimpleNamespace(id="ep", url="http://ep:9000", meta={})
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    dep.compute = FakeComputeBackend()
+
+    run = JobRunSpec(
+        input_path=Path("/tmp/in.parquet"),
+        output_path=Path("/tmp/out.parquet"),
+        checkpoint_dir="/tmp/str-ckpt",  # type: ignore[arg-type]
+    )
+    swarm.submit_job(_shard_job_stub(), run=run)
+
+    cmd = dep.run_calls[-1]["command"]
+    assert f"--checkpoint-dir={Path('/tmp/str-ckpt')}" in cmd

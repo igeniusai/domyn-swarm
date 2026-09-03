@@ -54,7 +54,7 @@ Jobs take a DataFrame in and write a DataFrame out:
 ```bash
 domyn-swarm job submit \
   --name my-swarm-name \
-  --job-kwargs '{"temperature":0.3}' \
+  --job-kwargs '{"request_params":{"temperature":0.3}}' \
   --checkpoint-interval 16 \
   --max-concurrency 8 \
   --retries 2 \

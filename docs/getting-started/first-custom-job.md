@@ -16,51 +16,36 @@ provides.
 
 ## Define the job
 
+A job declares its configuration as a class-level `config` — an instance of
+`JobConfig`, or of a subclass adding fields of its own —
+instead of writing a constructor. Every field on `config` is readable and
+writable as an attribute of the job, and any of them can be overridden when
+the class is instantiated (`MyCustomSwarmJob(model="gpt-4", max_concurrency=8)`).
+
 ```python
 import random
-from typing import Any, List, Tuple
+from typing import Any
 
-import pandas as pd
-from domyn_swarm.jobs import SwarmJob
+from domyn_swarm import JobConfig, SwarmJob
 
 
 class MyCustomSwarmJob(SwarmJob):
     """
-    Example custom job using the new SwarmJob API.
+    Example custom job.
 
     - Reads prompts from the `input_column_name` column (default: "messages")
     - Produces three output columns: completion, score, current_model
     - No checkpointing/I-O logic here: the runner handles that.
     """
 
-    def __init__(
-        self,
-        *,
-        endpoint: str | None = None,
-        model: str = "",
-        input_column_name: str = "messages",
-        # We'll override outputs to three columns
-        output_cols: str | list[str] = "result",
-        checkpoint_interval: int = 16,
-        max_concurrency: int = 2,
-        retries: int = 5,
-        timeout: float = 600,
-        **extra_kwargs: Any,
-    ):
-        # Initialize the base job (creates self.client, stores kwargs, etc.)
-        super().__init__(
-            endpoint=endpoint,
-            model=model,
-            input_column_name=input_column_name,
-            output_cols=output_cols,
-            checkpoint_interval=checkpoint_interval,
-            max_concurrency=max_concurrency,
-            retries=retries,
-            timeout=timeout,
-            **extra_kwargs,
-        )
-        # Our job returns 3 values per item
-        self.output_cols = ["completion", "score", "current_model"]
+    config = JobConfig(
+        input_column_name="messages",
+        output_cols=["completion", "score", "current_model"],
+        checkpoint_interval=16,
+        max_concurrency=2,
+        retries=5,
+        timeout=600,
+    )
 
     async def transform_items(self, items: list[Any]) -> list[tuple[str, float, str]]:
         """
@@ -70,7 +55,8 @@ class MyCustomSwarmJob(SwarmJob):
         Returns:
             List of tuples: (completion_text, random_score, model_tag)
         """
-        # You can pass OpenAI params via job kwargs (e.g., temperature)
+        # Provider request parameters (e.g. temperature) are configured via
+        # `request_params` and read back through `self.kwargs`.
         temperature = float(self.kwargs.get("temperature", 0.7))
 
         results: list[tuple[str, float, str]] = []
@@ -98,12 +84,18 @@ class MyCustomSwarmJob(SwarmJob):
 
 The important parts:
 
+- `config` declares the job's configuration. Every field on it — including
+  `output_cols` — is readable and writable as an attribute of the job, and
+  overridable at construction time. A job that needs fields of its own
+  declares `config` as an instance of a `JobConfig` subclass; see the
+  [SwarmJob API reference](../reference/api/jobs.md).
 - `output_cols` declares the columns the job writes. Set it to a list when a job
   returns several values per row, as above.
 - `transform_items` receives a list of items and must return results in the same
   order and of the same length.
 - `self.client` is an `AsyncOpenAI` already pointed at the swarm endpoint, and
-  `self.kwargs` carries whatever was passed through `--job-kwargs`.
+  `self.kwargs` carries the configured `request_params` — the provider
+  parameters forwarded on every request.
 - No checkpointing or I/O logic belongs here. The runner handles it.
 
 ## Run it from the CLI
@@ -111,11 +103,11 @@ The important parts:
 Address the class as `<module>:<ClassName>`:
 
 ```shell
-PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomJob \
+PYTHONPATH=. domyn-swarm job submit examples.scripts.custom_job:MyCustomSwarmJob \
    --config examples/configs/deepseek_r1_distill.yaml \
    --input examples/data/completion.parquet \
    --output results/output.parquet \
-   --job-kwargs '{"temperature": 0.2}'
+   --job-kwargs '{"request_params": {"temperature": 0.2}}'
 ```
 
 `PYTHONPATH=.` is what makes a job class in the working directory importable by
@@ -128,14 +120,25 @@ manager:
 
 ```python
 from pathlib import Path
-from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig
+from domyn_swarm import DomynLLMSwarm, DomynLLMSwarmConfig, JobRunSpec
 from mypkg.jobs import MyCustomSwarmJob
 
 cfg = DomynLLMSwarmConfig.read("config.yaml")
 
 with DomynLLMSwarm(cfg=cfg) as swarm:
-    job = MyCustomSwarmJob(endpoint=swarm.endpoint, model=swarm.model, max_concurrency=16, temperature=0.2)
-    swarm.submit_job(job, input_path=Path("prompts.parquet"), output_path=Path("answers.parquet"))
+    job = MyCustomSwarmJob(
+        endpoint=swarm.endpoint,
+        model=swarm.model,
+        max_concurrency=16,
+        request_params={"temperature": 0.2},
+    )
+    swarm.submit_job(
+        job,
+        run=JobRunSpec(
+            input_path=Path("prompts.parquet"),
+            output_path=Path("answers.parquet"),
+        ),
+    )
 ```
 
 The endpoint is torn down when the block exits. Pass `delete_on_exit=False` to

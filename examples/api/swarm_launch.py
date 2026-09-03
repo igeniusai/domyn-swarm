@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+from pathlib import Path
 
-from domyn_swarm import DomynLLMSwarmConfig
+from domyn_swarm import DomynLLMSwarmConfig, JobRunSpec
 from domyn_swarm.core.swarm_pool import create_swarm_pool
 from domyn_swarm.jobs import ChatCompletionJob
 
@@ -47,10 +48,12 @@ with create_swarm_pool(*configs) as swarms:
         # for their completion later.
         pid = swarm.submit_job(
             job,
-            input_path="examples/data/chat_completion.parquet",
-            output_path=f"results_{index}.parquet",
-            num_shards=2,
-            detach=True,
+            run=JobRunSpec(
+                input_path=Path("examples/data/chat_completion.parquet"),
+                output_path=Path(f"results_{index}.parquet"),
+                num_shards=2,
+                detach=True,
+            ),
         )
         pids.append(pid)
 

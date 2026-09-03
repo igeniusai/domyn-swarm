@@ -8,7 +8,7 @@ against a running swarm. This page covers the choices that matter; the
 domyn-swarm job submit \
   my_module:CustomCompletionJob \
   --name my-swarm-name \
-  --job-kwargs '{"temperature":0.2}' \
+  --job-kwargs '{"request_params":{"temperature":0.2}}' \
   --checkpoint-interval 16 \
   --input prompts.parquet \
   --output answers.parquet
@@ -19,11 +19,12 @@ domyn-swarm job submit \
 The positional argument is `<module>:<ClassName>`, naming a class that implements
 `SwarmJob`. It defaults to `domyn_swarm.jobs:ChatCompletionJob`.
 
-`--job-kwargs` takes a JSON object passed to the job's constructor, which is how
-OpenAI parameters reach the client:
+`--job-kwargs` takes a JSON object passed to the job's constructor as
+configuration overrides. OpenAI parameters reach the client through its
+`request_params` key:
 
 ```bash
---job-kwargs '{"temperature":0.2,"top_p":0.9}'
+--job-kwargs '{"request_params":{"temperature":0.2,"top_p":0.9}}'
 ```
 
 Writing your own class: [Your first custom job](../getting-started/first-custom-job.md).

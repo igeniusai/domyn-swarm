@@ -206,13 +206,13 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     swarm.submit_job.assert_called_once()
     call = swarm.submit_job.call_args
     assert call.args[0] is job_obj
-    k = call.kwargs
-    assert k["input_path"] == in_path
-    assert k["output_path"] == out_path
-    assert k["num_shards"] == 4
-    assert k["limit"] == 100
-    assert k["detach"] is True
-    assert "checkpoint_dir" in k
+    run = call.kwargs["run"]
+    assert run.input_path == in_path
+    assert run.output_path == out_path
+    assert run.num_shards == 4
+    assert run.limit == 100
+    assert run.detach is True
+    assert run.checkpoint_dir is None
     payload = _parse_last_json_line(res.stdout)
     assert payload["command"] == "submit"
     assert payload["swarm"] == "cfg-swarm"
@@ -405,12 +405,12 @@ def test_submit_job_forwards_specific_options(mocker, tmp_path: Path):
 
     assert res.exit_code == 0
     swarm.submit_job.assert_called_once()
-    kwargs = swarm.submit_job.call_args.kwargs
-    assert kwargs["num_shards"] == 3
-    assert kwargs["limit"] == 50
-    assert kwargs["detach"] is True
-    assert kwargs["mail_user"] == "me@example.com"
-    assert kwargs["checkpoint_dir"] == tmp_path / ".ckpt"
+    run = swarm.submit_job.call_args.kwargs["run"]
+    assert run.num_shards == 3
+    assert run.limit == 50
+    assert run.detach is True
+    assert run.mail_user == "me@example.com"
+    assert run.checkpoint_dir == tmp_path / ".ckpt"
 
 
 def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
@@ -453,8 +453,8 @@ def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
 
     assert res.exit_code == 0
     swarm.submit_job.assert_called_once()
-    kwargs = swarm.submit_job.call_args.kwargs
-    assert kwargs["ray_address"] == "ray://head:10001"
+    run = swarm.submit_job.call_args.kwargs["run"]
+    assert run.ray_address == "ray://head:10001"
 
 
 def test_wait_job_with_job_id_updates_status_and_emits_json(mocker):
@@ -811,5 +811,5 @@ def test_submit_job_accepts_deprecated_num_threads_alias(mocker, tmp_path: Path)
     )
 
     assert res.exit_code == 0
-    assert swarm.submit_job.call_args.kwargs["num_shards"] == 5
+    assert swarm.submit_job.call_args.kwargs["run"].num_shards == 5
     assert "--num-shards" in res.stderr
