@@ -14,7 +14,8 @@ Example (in LB job):
   python3 /opt/watchdog_collector.py \
     --db /path/to/swarms/<name>/watchdog.db \
     --host 0.0.0.0 \
-    --port 9100
+    --port 9100 \
+    --ready-file /path/to/swarms/<name>/run/collector.ready
 
 Watchdog instances then send small JSON blobs via TCP to <host>:<port>.
 """
@@ -195,7 +196,99 @@ def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_collector(db_path: Path, host: str, port: int) -> int:
+def _bind_listener(host: str, port: int) -> socket.socket | None:
+    """
+    Bind and listen on (host, port).
+
+    Args:
+        host: IP or hostname to bind to.
+        port: TCP port to bind to.
+
+    Returns:
+        The listening socket, or None if the port could not be bound, in which
+        case the reason has been reported on stderr.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+        sock.listen(128)  # now the kernel actually accepts connections
+    except OSError as e:
+        print(f"collector: FATAL: cannot bind {host}:{port}: {e}", file=sys.stderr)
+        with contextlib.suppress(Exception):
+            sock.close()
+        return None
+    sock.settimeout(1.0)  # allow periodic checks for shutdown
+    return sock
+
+
+def _write_ready_file(ready_file: Path | None, port: int) -> bool:
+    """
+    Record the port the collector is listening on.
+
+    Args:
+        ready_file: Path to create, or None to skip the announcement.
+        port: Port the socket is bound to, written as the file's content.
+
+    Returns:
+        True on success; False if the file could not be written, in which case
+        the reason has been reported on stderr.
+    """
+    if ready_file is None:
+        return True
+    try:
+        ready_file.write_text(f"{port}\n")
+    except OSError as e:
+        print(
+            f"collector: FATAL: cannot write ready file {ready_file}: {e}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _clear_ready_file(ready_file: Path | None) -> None:
+    """
+    Remove the ready file so a dead collector no longer looks listening.
+
+    Args:
+        ready_file: Path to remove, or None when no ready file is in use.
+    """
+    if ready_file is None:
+        return
+    with contextlib.suppress(OSError):
+        ready_file.unlink(missing_ok=True)
+
+
+def _start_listening(host: str, port: int, ready_file: Path | None) -> socket.socket | None:
+    """
+    Bring the collector's socket up and announce that it is ready.
+
+    Args:
+        host: IP or hostname to bind to.
+        port: TCP port to bind to.
+        ready_file: Path to create once the socket accepts connections, or None.
+
+    Returns:
+        The listening socket, or None if the collector cannot serve, in which
+        case the reason has been reported on stderr.
+    """
+    sock = _bind_listener(host, port)
+    if sock is None:
+        return None
+    if not _write_ready_file(ready_file, sock.getsockname()[1]):
+        with contextlib.suppress(Exception):
+            sock.close()
+        return None
+    return sock
+
+
+def run_collector(
+    db_path: Path,
+    host: str,
+    port: int,
+    ready_file: Path | None = None,
+) -> int:
     """
     Main collector loop.
 
@@ -203,16 +296,25 @@ def run_collector(db_path: Path, host: str, port: int) -> int:
     Each message describes the status of one replica, which is upserted into
     the replica_status table in the SQLite DB at db_path.
 
-    Returns exit code (0=clean shutdown).
+    Args:
+        db_path: Path to the swarm-local watchdog SQLite database.
+        host: IP or hostname to bind the TCP socket to.
+        port: TCP port to listen on.
+        ready_file: Optional path to create, holding the bound port, once the
+            socket accepts connections; removed again on shutdown. It lets a
+            supervisor tell "listening" from "died while starting up", which a
+            TCP probe cannot when another process owns the port.
+
+    Returns:
+        Exit code: 0 on clean shutdown, 1 when the socket could not be bound.
     """
     conn = open_db(db_path)
 
-    # TCP server socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((host, port))
-    sock.listen(128)  # now the kernel actually accepts connections
-    sock.settimeout(1.0)  # allow periodic checks for shutdown
+    sock = _start_listening(host, port, ready_file)
+    if sock is None:
+        with contextlib.suppress(Exception):
+            conn.close()
+        return 1
 
     hostname = socket.gethostname()
     print(
@@ -302,6 +404,7 @@ def run_collector(db_path: Path, host: str, port: int) -> int:
         with contextlib.suppress(Exception):
             conn.close()
             sock.close()
+        _clear_ready_file(ready_file)
 
     print("collector: shutting down.", file=sys.stderr)
     return 0
@@ -328,6 +431,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=9100,
         help="TCP port to listen on (default: 9100).",
     )
+    p.add_argument(
+        "--ready-file",
+        default=None,
+        help=(
+            "Path to create once the socket is listening, holding the bound "
+            "port; removed on shutdown. Lets the load-balancer job tell a "
+            "listening collector from one that died while starting."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -335,7 +447,12 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     args = _parse_args(argv)
-    return run_collector(Path(args.db), args.host, args.port)
+    return run_collector(
+        Path(args.db),
+        args.host,
+        args.port,
+        Path(args.ready_file) if args.ready_file else None,
+    )
 
 
 if __name__ == "__main__":

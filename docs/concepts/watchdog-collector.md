@@ -45,6 +45,14 @@ submission environment overrides it for that swarm. The host is always the
 load-balancer node, and replicas read both values from the swarm's
 `serving/collector.env`.
 
+A collector that cannot bind that port — something else on the node already
+owns it — exits with `collector: FATAL: cannot bind <host>:<port>: ...` in
+`logs/collector.log`. The load-balancer job waits for the collector to create
+`run/collector.ready` before it carries on, and fails with that log excerpt if
+it never appears. Watchdogs tolerate a collector that is missing, so without
+that gate the swarm would serve traffic normally while reporting no replica
+health at all, indistinguishable from a swarm that has only just started.
+
 ## Why a single writer
 
 This is the design decision the split exists to make.
