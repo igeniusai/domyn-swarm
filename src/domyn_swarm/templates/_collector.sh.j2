@@ -1,0 +1,55 @@
+# Watchdog collector startup: launch it and prove it is listening.
+#
+# The including script must define, before calling any of this:
+#   collector_cmd        - function running the collector in the foreground,
+#                          passing --ready-file "$COLLECTOR_READY_FILE"
+#   COLLECTOR_LOG        - file the collector's output is appended to
+#   COLLECTOR_READY_FILE - path the collector creates once it has bound its port
+#   COLLECTOR_HOST       - host replicas reach the collector on (for logging)
+#   COLLECTOR_PORT       - port the collector is expected to listen on
+
+COLLECTOR_START_TIMEOUT_S="${COLLECTOR_START_TIMEOUT_S:-60}"
+
+collector_spawn() {
+    rm -f "$COLLECTOR_READY_FILE"
+    collector_cmd >>"$COLLECTOR_LOG" 2>&1 &
+    COLLECTOR_PID=$!
+}
+
+# Waits for the collector's own ready file rather than probing the port: when
+# another process already owns that port, a TCP connect succeeds while the
+# collector is dead. Gives up as soon as the process is gone, so a port
+# conflict surfaces immediately instead of looking like a slow start.
+collector_wait_ready() {
+    local deadline
+    deadline=$(( $(date +%s) + COLLECTOR_START_TIMEOUT_S ))
+    while true; do
+        if [ -f "$COLLECTOR_READY_FILE" ]; then
+            return 0
+        fi
+        if ! kill -0 "$COLLECTOR_PID" 2>/dev/null; then
+            return 1
+        fi
+        if (( $(date +%s) > deadline )); then
+            return 1
+        fi
+        sleep 0.2
+    done
+}
+
+# A swarm whose collector never started serves traffic but reports no replica
+# health at all, and nothing downstream can tell that from a collector that is
+# merely slow, so say why and refuse to carry on.
+collector_start_or_die() {
+    collector_spawn
+    if collector_wait_ready; then
+        echo "[lb] collector listening on $COLLECTOR_HOST:$COLLECTOR_PORT (PID $COLLECTOR_PID)"
+        return 0
+    fi
+    echo "[lb] ERROR: collector failed to start on port $COLLECTOR_PORT" >&2
+    echo "[lb] ---- last 20 lines of $COLLECTOR_LOG ----" >&2
+    tail -n 20 "$COLLECTOR_LOG" >&2 2>/dev/null || true
+    echo "[lb] -------------------------------------------" >&2
+    kill "$COLLECTOR_PID" 2>/dev/null || true
+    return 1
+}

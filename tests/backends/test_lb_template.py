@@ -26,7 +26,7 @@ def _cfg(gpu_enabled, ray_enabled=False):
         gpu_exporter=gx,
         ray_metrics=rx,
     )
-    ep = SimpleNamespace(port=9000, monitoring=mon)
+    ep = SimpleNamespace(port=9000, collector_port=9100, monitoring=mon)
     backend = SimpleNamespace(
         endpoint=ep, requires_ray=False, ray_dashboard_port=8265, ray_port=6379
     )

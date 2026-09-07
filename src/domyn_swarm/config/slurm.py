@@ -240,6 +240,16 @@ class SlurmEndpointConfig(BaseModel):
         default=9000,
         description="External port exposed by the Nginx load balancer.",
     )
+    collector_port: int = Field(
+        default=9100,
+        description=(
+            "TCP port on the load-balancer node where the watchdog collector "
+            "listens for replica status updates. Replicas read the resolved "
+            "address from the swarm's `serving/collector.env`, so only the load "
+            "balancer needs this. A `COLLECTOR_PORT` variable exported in the "
+            "submission environment overrides it."
+        ),
+    )
     nginx_image: str | utils.EnvPath = Field(
         default_factory=default_for("slurm.endpoint.nginx_image"),
         description=(

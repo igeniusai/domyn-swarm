@@ -158,7 +158,7 @@ class SlurmDriver:
             "--dependency",
             f"after:{dep_jobid}",
             "--export",
-            f"DEP_JOBID={dep_jobid}",
+            f"ALL,DEP_JOBID={dep_jobid}",
             script_path,
         ]
         out = subprocess.check_output(cmd, text=True).strip()

@@ -94,6 +94,7 @@ class _EP:
     nginx_image = "/img/nginx.sif"
     nginx_timeout = "60s"
     enable_proxy_buffering = True
+    collector_port = 9100
     monitoring = SimpleNamespace(
         enabled=False,
         mode="container",
@@ -164,6 +165,15 @@ def test_lb_starts_supervisor_and_mounts_main_conf():
 def test_lb_still_starts_collector():
     out = _render_lb()
     assert "watchdog_collector.py" in out
+
+
+def test_lb_gates_startup_on_a_listening_collector():
+    out = _render_lb()
+    # The collector is launched through the lifecycle helpers, which prove it
+    # bound its port before the job carries on.
+    assert "collector_wait_ready()" in out
+    assert "collector_start_or_die" in out
+    assert '--ready-file "$COLLECTOR_READY_FILE"' in out
 
 
 def _cfg_with_monitoring(enabled: bool):
