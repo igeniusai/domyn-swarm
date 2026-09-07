@@ -1,3 +1,34 @@
+## v0.32.0 (2026-09-07)
+
+### Feat
+
+- **slurm**: make the watchdog collector port configurable
+- **api**: export JobRunSpec from the domyn_swarm package root
+- **jobs**: add JobConfig
+- **execution**: select the engine with one parameter
+- **execution**: add the shared sharded-execution pipeline
+- **execution**: add the FrameOps adapters for pandas and Arrow
+
+### Fix
+
+- **slurm**: fail the lb job when the collector cannot start
+- **jobs**: infer config_class from a class-level config object
+- **execution**: stop dropping completed rows from polars shard output
+- **execution**: stop wiping directory output on pandas global-resume
+- **execution**: make --shard-output control sharded directory output
+- **execution**: tolerate empty id-hash shards in the polars runner
+- **checkpoint**: handle an empty result in InMemoryStore
+- **execution**: tolerate empty shards in id-hash sharding
+- **checkpoint**: keep the real id column on global resume
+
+### Refactor
+
+- **core**: submit_job takes a JobRunSpec
+- **core**: move JobRunSpec out of the CLI layer
+- **jobs**: build SwarmJob from JobConfig
+- **execution**: move the pandas engine onto the shared pipeline
+- **execution**: move the Arrow engine onto the shared pipeline
+
 ## v0.31.1 (2026-09-01)
 
 ### Feat
