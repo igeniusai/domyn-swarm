@@ -94,6 +94,7 @@ class _EP:
     nginx_image = "/img/nginx.sif"
     nginx_timeout = "60s"
     enable_proxy_buffering = True
+    collector_port = 9100
     monitoring = SimpleNamespace(
         enabled=False,
         mode="container",

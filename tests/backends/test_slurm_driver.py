@@ -73,7 +73,7 @@ def test_submit_endpoint(mock_get_template, mock_check_output, slurm_driver, tmp
             "--dependency",
             "after:12345",
             "--export",
-            "DEP_JOBID=12345",
+            "ALL,DEP_JOBID=12345",
             ANY,
         ],
         text=True,
@@ -103,6 +103,33 @@ def test_lb_template_uses_endpoint_qos_override(dummy_config, endpoint_qos, expe
     )
 
     assert f"#SBATCH --qos={expected_qos}" in rendered
+
+
+def _render_lb(cfg):
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(cfg.backend.template_path.parent),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    return env.get_template("lb.sh.j2").render(
+        cfg=cfg,
+        job_name="test_lb_job",
+        dep_jobid=12345,
+        replicas=4,
+        swarm_directory="/tmp/swarm",
+        collector_script_path="/tmp/collector.py",
+        supervisor_script_path="/tmp/supervisor.py",
+    )
+
+
+def test_lb_template_defaults_collector_port_to_9100(dummy_config):
+    assert 'COLLECTOR_PORT="${COLLECTOR_PORT:-9100}"' in _render_lb(dummy_config)
+
+
+def test_lb_template_uses_configured_collector_port(dummy_config):
+    dummy_config.backend.endpoint.collector_port = 9200
+    assert 'COLLECTOR_PORT="${COLLECTOR_PORT:-9200}"' in _render_lb(dummy_config)
 
 
 @patch("domyn_swarm.backends.serving.slurm_driver.subprocess.check_output")

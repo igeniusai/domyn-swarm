@@ -26,7 +26,7 @@ NGINX_IMG={{ cfg.backend.endpoint.nginx_image }}
 PYTHON_IMG={{ cfg.image }}
 INSTANCE_NAME="lb_${DEP_JOBID}_${SLURM_JOB_ID}"
 
-COLLECTOR_PORT="${COLLECTOR_PORT:-9100}"
+COLLECTOR_PORT="${COLLECTOR_PORT:-{{ cfg.backend.endpoint.collector_port }}}"
 COLLECTOR_HOST="$(hostname -f)"
 
 mkdir -p "$HOST_DIR" "$SERVING_DIR"

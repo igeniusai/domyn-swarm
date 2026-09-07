@@ -39,6 +39,12 @@ One collector runs per swarm, on the load-balancer node
 Watchdogs find it via `--collector-address host:port`, which the Slurm backend
 injects. You do not normally wire this by hand.
 
+The port defaults to `9100` and is configurable as
+`backend.endpoint.collector_port`; a `COLLECTOR_PORT` variable exported in the
+submission environment overrides it for that swarm. The host is always the
+load-balancer node, and replicas read both values from the swarm's
+`serving/collector.env`.
+
 ## Why a single writer
 
 This is the design decision the split exists to make.
