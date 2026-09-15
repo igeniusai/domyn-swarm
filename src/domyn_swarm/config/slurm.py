@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025-2026 Domyn
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -239,6 +239,28 @@ class SlurmEndpointConfig(BaseModel):
     port: int = Field(
         default=9000,
         description="External port exposed by the Nginx load balancer.",
+    )
+    nginx_worker_processes: Annotated[int, Field(gt=0)] | Literal["auto"] | None = Field(
+        default=None,
+        description=(
+            "Number of Nginx worker processes on the load balancer. Nginx defaults "
+            "to a single worker, which becomes the throughput ceiling once a swarm "
+            "has many replicas. Defaults to `cpus_per_task`, so the workers stay "
+            "within the job's CPU allocation and leave the monitoring sidecars "
+            "schedulable; set `auto` to let Nginx count the node's cores itself."
+        ),
+    )
+    nginx_upstream_keepalive: int = Field(
+        default=32,
+        description=(
+            "Idle connections to the replicas that each Nginx worker keeps alive "
+            "for reuse. Without it Nginx speaks HTTP/1.0 upstream and opens a new "
+            "TCP connection per request. The load balancer holds up to "
+            "`nginx_upstream_keepalive * nginx_worker_processes` idle connections "
+            "spread across all replicas; set 0 to restore the old per-request "
+            "connection behaviour."
+        ),
+        ge=0,
     )
     collector_port: int = Field(
         default=9100,

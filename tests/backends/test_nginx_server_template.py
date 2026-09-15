@@ -43,3 +43,9 @@ def test_gpu_ownership_location_present_when_enabled():
 def test_gpu_ownership_location_absent_when_gpu_disabled():
     out = _render(_cfg(True, False))
     assert "gpu_ownership" not in out
+
+
+def test_server_conf_proxies_upstream_over_http11():
+    out = _render(_cfg(mon_enabled=False, gpu_enabled=False))
+    assert "proxy_http_version 1.1;" in out
+    assert 'proxy_set_header Connection "";' in out
