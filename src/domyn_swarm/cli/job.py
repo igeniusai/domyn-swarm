@@ -11,6 +11,7 @@ from rich.console import Console
 import typer
 
 from domyn_swarm.cli import job_helpers as helpers
+from domyn_swarm.cli.errors import exit_on_config_path_error
 from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.utils.click_env_path import ClickEnvPath
 
@@ -53,6 +54,16 @@ logger = _LazyLogger()
 job_app = typer.Typer(help="Submit a workload to a Domyn-Swarm allocation.")
 
 
+SKIP_PREFLIGHT_OPTION = typer.Option(
+    False,
+    "--skip-preflight",
+    help=(
+        "Deploy without checking that the config's image, model and mount paths "
+        "exist on this host. Only relevant with --config."
+    ),
+)
+
+
 def _load_swarm_config(*args, **kwargs):
     """Load a swarm config lazily."""
     from domyn_swarm.config.swarm import _load_swarm_config as load_swarm_config
@@ -72,6 +83,7 @@ def submit_script(
     ),
     name: str | None = typer.Option(None, "-n", "--name", exists=True, help="Swarm name."),
     args: list[str] = typer.Argument(None, help="extra CLI args passed to script"),
+    skip_preflight: bool = SKIP_PREFLIGHT_OPTION,
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
@@ -82,7 +94,10 @@ def submit_script(
 
     if config:
         cfg = _load_swarm_config(config)
-        with DomynLLMSwarm(cfg=cfg) as swarm:
+        with (
+            exit_on_config_path_error(source=config.name),
+            DomynLLMSwarm(cfg=cfg, preflight=not skip_preflight) as swarm,
+        ):
             handle = swarm.submit_script(script_file, extra_args=args)
             helpers.emit_submission_json(
                 handle=handle,
@@ -274,6 +289,7 @@ def submit_job(
         "--ray-address",
         help="Ray cluster address to connect to when --data-backend=ray (optional).",
     ),
+    skip_preflight: bool = SKIP_PREFLIGHT_OPTION,
 ):
     """
     Submit a strongly-typed job to the swarm for DataFrame processing.
@@ -329,9 +345,9 @@ def submit_job(
 
     if config:
         cfg = _load_swarm_config(config)
-        swarm_ctx = DomynLLMSwarm(cfg=cfg)
+        swarm_ctx = DomynLLMSwarm(cfg=cfg, preflight=not skip_preflight)
         try:
-            with swarm_ctx as swarm:
+            with exit_on_config_path_error(source=config.name), swarm_ctx as swarm:
                 job = helpers.build_job_for_swarm(
                     swarm=swarm,
                     job_class=job_class,

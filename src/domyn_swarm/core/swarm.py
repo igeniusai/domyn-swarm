@@ -82,6 +82,9 @@ class DomynLLMSwarm(BaseModel):
             carrying metadata such as job IDs, node assignments and status.
         model: Name or path of the model being served. May be set after
             initialization to switch models.
+        preflight: Whether to check the config's filesystem paths before
+            deploying. Off for sites where they are visible only from the
+            compute nodes.
 
     Raises:
         RuntimeError: If resource allocation fails; the message carries
@@ -161,6 +164,13 @@ class DomynLLMSwarm(BaseModel):
         False  # Delete the resources for this cluster at the end of the job
     )
     serving_handle: ServingHandle | None = None  # ServingHandle, set after deployment
+    preflight: bool = Field(
+        default=True,
+        description=(
+            "Check that the config's image, model and mount paths exist before "
+            "deploying. Turn off where they are visible only from the nodes."
+        ),
+    )
     swarm_dir: utils.EnvPath = Field(
         description="Directory where swarm-related files are stored",
         default_factory=lambda data: data["cfg"].home_directory / "swarms" / data["name"],
@@ -260,6 +270,13 @@ class DomynLLMSwarm(BaseModel):
         return self._deployment_cache
 
     def __enter__(self):
+        # Before anything is created on disk. Skipped when re-attaching: a
+        # deployed swarm's resources exist whatever its images look like now.
+        if self.serving_handle is None and self.preflight:
+            from domyn_swarm.config.preflight import raise_on_path_problems
+
+            raise_on_path_problems(self.cfg)
+
         self.ensure_directories()
 
         # If instantiating from state, the swarm will be already deployed,
