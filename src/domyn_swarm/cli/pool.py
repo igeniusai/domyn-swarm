@@ -64,6 +64,8 @@ def deploy_pool(
 ):
     import yaml
 
+    from domyn_swarm.cli.errors import exit_on_config_path_error
+
     pool_config = SwarmPoolConfig.model_validate(yaml.safe_load(config.read()))
     named_swarms = [
         DomynLLMSwarm(
@@ -71,5 +73,5 @@ def deploy_pool(
         )
         for pool_element in pool_config.pool
     ]
-    with create_swarm_pool(*named_swarms):
+    with exit_on_config_path_error(source=config.name), create_swarm_pool(*named_swarms):
         pass

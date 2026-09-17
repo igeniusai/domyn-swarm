@@ -217,15 +217,34 @@ def launch_up(
             help="Number of replicas for the swarm allocation. Defaults to 1.",
         ),
     ] = None,
+    skip_preflight: Annotated[
+        bool,
+        typer.Option(
+            "--skip-preflight",
+            help=(
+                "Submit without checking that the config's image, model and mount "
+                "paths exist on this host."
+            ),
+        ),
+    ] = False,
 ):
     """
     Launch a swarm allocation with the given configuration.
     The configuration must be provided as a YAML file.
     """
     from domyn_swarm.backends.serving.slurm_readiness import SwarmReplicaFailure
+    from domyn_swarm.config.preflight import check_config_paths, format_path_problems
 
     cfg = _load_swarm_config(config, replicas=replicas)
-    swarm_ctx = DomynLLMSwarm(cfg=cfg)
+
+    if not skip_preflight:
+        problems = check_config_paths(cfg)
+        if problems:
+            source = getattr(config, "name", None)
+            typer.echo(format_path_problems(problems, source=source), err=True)
+            raise typer.Exit(code=2)
+
+    swarm_ctx = DomynLLMSwarm(cfg=cfg, preflight=not skip_preflight)
 
     def _safe_down(ctx) -> None:
         try:

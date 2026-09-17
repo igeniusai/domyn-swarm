@@ -55,6 +55,46 @@ Practical notes:
 - `image` is optional if you run vLLM from a virtual environment instead of a
   container; `endpoint.nginx_image` is not.
 
+## Path checks before submission
+
+`up` checks the config's paths on the submit host and submits nothing if one of
+them cannot be used, rather than letting a typo surface minutes later as a
+container-runtime error in a replica log:
+
+```text
+Config check failed: 1 path in swarm.yaml cannot be used
+
+  image
+      /shared/images/vllm.sif
+      -> does not exist (deepest existing parent: /shared)
+
+Nothing was submitted. Fix the paths above, or pass --skip-preflight to launch anyway.
+```
+
+The hint names the deepest ancestor that exists, pinpointing the segment that
+is wrong — here, `images`. Every bad path is listed at once; the exit status
+is 2.
+
+Checked: `image`, `model`, `endpoint.nginx_image`, the monitoring sidecar
+images (container mode only), `mounts` sources and `venv_path`. Images may be a
+`.sif` or a Singularity sandbox directory.
+
+Values this host cannot resolve are skipped rather than guessed at, since a
+false alarm would block a working launch: registry references, Hugging Face
+repo ids, bare names, relative paths, variables that are unset or empty here,
+and anything under an unreadable directory. `system_mounts` keeps its per-node
+treatment (see [Site mounts](#site-mounts)), and Lepton is not path-checked.
+
+```{note}
+A `venv_path` that does not exist is now an error. It was previously ignored,
+falling back to the ambient Python.
+```
+
+Pass `--skip-preflight` where paths are visible only from the compute nodes;
+`job submit` and `job submit-script` accept it too. The Python API raises
+`domyn_swarm.exceptions.SwarmConfigPathError`, and `DomynLLMSwarm` takes
+`preflight=False`.
+
 ## Bind mounts
 
 `backend.mounts` adds bind mounts to the vLLM containers:

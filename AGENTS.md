@@ -60,6 +60,7 @@ with retries + checkpointing.
 - Backend configs + plan builder: `src/domyn_swarm/config/backend.py`, `src/domyn_swarm/config/plan.py`
 - Environment settings (.env + env vars): `src/domyn_swarm/config/settings.py`
 - Defaults file loader (search order + cache): `src/domyn_swarm/config/defaults.py`
+- Submit-time path checks (`up` only, not pydantic validators): `src/domyn_swarm/config/preflight.py`
 
 ### State & persistence (SQLite)
 - Local state DB (`swarm.db`) schema + CRUD: `src/domyn_swarm/core/state/state_manager.py`

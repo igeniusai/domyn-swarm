@@ -194,7 +194,7 @@ def test_up_prints_only_name(monkeypatch, disable_autoupgrade):
 
     runner = CliRunner()
     monkeypatch.setattr(main, "_load_swarm_config", lambda *a, **k: object())
-    monkeypatch.setattr(main, "DomynLLMSwarm", lambda cfg: DummySwarm())
+    monkeypatch.setattr(main, "DomynLLMSwarm", lambda **kwargs: DummySwarm())
 
     result = runner.invoke(main.app, ["up", "-c", "-"], input="{}")
     assert result.exit_code == 0
