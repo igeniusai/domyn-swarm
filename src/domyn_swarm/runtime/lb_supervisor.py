@@ -76,6 +76,7 @@ def render_upstreams(
     ray_enabled: bool,
     ray_dashboard_port: int,
     ray_port: int,
+    upstream_keepalive: int = 0,
 ) -> str:
     """Render the nginx ``upstream`` blocks for the current replicas.
 
@@ -88,14 +89,19 @@ def render_upstreams(
             (typically replica 0)).
         ray_dashboard_port: Ray dashboard port for the ``ray`` upstream.
         ray_port: Ray client port for the ``ray_control`` upstream.
+        upstream_keepalive: Idle connections each nginx worker caches for the
+            ``llm`` upstream. 0 disables connection reuse, so every proxied
+            request opens a fresh connection to a replica.
 
     Returns:
         nginx configuration text defining the ``llm`` upstream (and Ray
         upstreams when enabled).
     """
     addrs = read_head_files(serving_dir)
-    lines = ["upstream llm {", "  least_conn;"]
+    lines = ["upstream llm {", "  zone llm 1m;", "  least_conn;"]
     lines.extend(f"  server {addr} max_fails=2 fail_timeout=10s;" for addr in addrs)
+    if upstream_keepalive > 0:
+        lines.append(f"  keepalive {upstream_keepalive};")
     lines.append("}")
 
     if ray_enabled and addrs:
@@ -263,6 +269,7 @@ class SupervisorOptions:
         emit_targets: Whether to also write the Prometheus file_sd targets.json.
         emit_gpu_targets: Whether to also write gpu_targets.json and gpu_ownership.prom.
         emit_ray_targets: Whether to also write the Prometheus file_sd ray_targets.json.
+        upstream_keepalive: Idle upstream connections cached per nginx worker.
     """
 
     serving_dir: Path
@@ -272,6 +279,7 @@ class SupervisorOptions:
     emit_targets: bool = False
     emit_gpu_targets: bool = False
     emit_ray_targets: bool = False
+    upstream_keepalive: int = 0
 
 
 def reconcile_once(opts: SupervisorOptions) -> bool:
@@ -292,6 +300,7 @@ def reconcile_once(opts: SupervisorOptions) -> bool:
         ray_enabled=opts.ray_enabled,
         ray_dashboard_port=opts.ray_dashboard_port,
         ray_port=opts.ray_port,
+        upstream_keepalive=opts.upstream_keepalive,
     )
     changed = write_if_changed(opts.serving_dir / UPSTREAMS_FILENAME, conf)
     if opts.emit_targets:
@@ -365,6 +374,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[SupervisorOptions, bool, 
     p.add_argument("--emit-targets", action="store_true")
     p.add_argument("--emit-gpu-targets", action="store_true")
     p.add_argument("--emit-ray-targets", action="store_true")
+    p.add_argument("--upstream-keepalive", type=int, default=0)
     a = p.parse_args(argv)
     opts = SupervisorOptions(
         serving_dir=Path(a.serving_dir),
@@ -374,6 +384,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[SupervisorOptions, bool, 
         emit_targets=a.emit_targets,
         emit_gpu_targets=a.emit_gpu_targets,
         emit_ray_targets=a.emit_ray_targets,
+        upstream_keepalive=a.upstream_keepalive,
     )
     return opts, a.once, a.interval
 

@@ -27,9 +27,33 @@ def test_render_upstreams_no_ray(tmp_path: Path):
     conf = render_upstreams(tmp_path, ray_enabled=False, ray_dashboard_port=8265, ray_port=6379)
     assert "upstream llm {" in conf
     assert "least_conn;" in conf
+    assert "zone llm 1m;" in conf
     assert "server h0:9000 max_fails=2 fail_timeout=10s;" in conf
     assert "server h1:9000 max_fails=2 fail_timeout=10s;" in conf
     assert "upstream ray" not in conf
+
+
+def test_render_upstreams_omits_keepalive_by_default(tmp_path: Path):
+    _write_heads(tmp_path, {0: "h0:9000"})
+    conf = render_upstreams(tmp_path, ray_enabled=False, ray_dashboard_port=8265, ray_port=6379)
+    assert "keepalive" not in conf
+
+
+def test_render_upstreams_emits_keepalive_after_servers(tmp_path: Path):
+    _write_heads(tmp_path, {0: "h0:9000", 1: "h1:9000"})
+    conf = render_upstreams(
+        tmp_path,
+        ray_enabled=False,
+        ray_dashboard_port=8265,
+        ray_port=6379,
+        upstream_keepalive=32,
+    )
+    lines = [ln.strip() for ln in conf.splitlines()]
+    assert "keepalive 32;" in lines
+    assert lines.index("keepalive 32;") > lines.index(
+        "server h1:9000 max_fails=2 fail_timeout=10s;"
+    )
+    assert lines.index("keepalive 32;") < lines.index("}")
 
 
 def test_render_upstreams_with_ray_uses_replica0_host(tmp_path: Path):
@@ -104,6 +128,16 @@ def test_parse_args_builds_options():
     assert opts.ray_port == 6379
     assert interval == 5
     assert once is True
+
+
+def test_parse_args_reads_upstream_keepalive():
+    opts, _, _ = lbs.parse_args(["--serving-dir", "/tmp/s", "--upstream-keepalive", "64"])
+    assert opts.upstream_keepalive == 64
+
+
+def test_parse_args_upstream_keepalive_defaults_to_zero():
+    opts, _, _ = lbs.parse_args(["--serving-dir", "/tmp/s"])
+    assert opts.upstream_keepalive == 0
 
 
 def test_parse_args_defaults_ray_disabled():

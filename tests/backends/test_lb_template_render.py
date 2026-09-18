@@ -19,12 +19,44 @@ def _env() -> jinja2.Environment:
     )
 
 
+def _main_cfg(cpus_per_task: int = 32, nginx_worker_processes=None) -> SimpleNamespace:
+    return SimpleNamespace(
+        backend=SimpleNamespace(
+            endpoint=SimpleNamespace(
+                cpus_per_task=cpus_per_task,
+                nginx_worker_processes=nginx_worker_processes,
+            )
+        )
+    )
+
+
 def test_nginx_main_sets_run_pid_and_includes_confd():
-    out = _env().get_template("nginx.conf.j2").render()
+    out = _env().get_template("nginx.conf.j2").render(cfg=_main_cfg())
     assert "pid /run/nginx.pid;" in out
     assert "include /etc/nginx/conf.d/*.conf;" in out
     assert "/tmp/nginx.pid" not in out
     assert "upstream vllm" not in out
+
+
+def test_nginx_main_defaults_workers_to_cpus_per_task():
+    out = _env().get_template("nginx.conf.j2").render(cfg=_main_cfg(cpus_per_task=32))
+    assert "worker_processes 32;" in out
+
+
+def test_nginx_main_honours_explicit_worker_processes():
+    out = (
+        _env()
+        .get_template("nginx.conf.j2")
+        .render(cfg=_main_cfg(cpus_per_task=32, nginx_worker_processes="auto"))
+    )
+    assert "worker_processes auto;" in out
+
+    out = (
+        _env()
+        .get_template("nginx.conf.j2")
+        .render(cfg=_main_cfg(cpus_per_task=32, nginx_worker_processes=4))
+    )
+    assert "worker_processes 4;" in out
 
 
 def test_server_conf_has_llm_proxy_and_health():
@@ -95,6 +127,7 @@ class _EP:
     nginx_timeout = "60s"
     enable_proxy_buffering = True
     collector_port = 9100
+    nginx_upstream_keepalive = 32
     monitoring = SimpleNamespace(
         enabled=False,
         mode="container",
@@ -321,3 +354,8 @@ def test_lb_launches_sidecars_only_when_enabled():
     out_off = _render_lb_with_monitoring(enabled=False)
     assert "--web.route-prefix" not in out_off
     assert "--emit-targets" not in out_off
+
+
+def test_lb_passes_upstream_keepalive_to_both_supervisor_calls():
+    out = _render_lb()
+    assert out.count("--upstream-keepalive 32") == 2

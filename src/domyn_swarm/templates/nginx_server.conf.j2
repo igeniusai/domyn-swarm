@@ -7,6 +7,7 @@ server {
     proxy_send_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
     proxy_read_timeout          {{ cfg.backend.endpoint.nginx_timeout }};
     send_timeout                {{ cfg.backend.endpoint.nginx_timeout }};
+    proxy_http_version 1.1;
     proxy_set_header Connection "";
     sendfile on;
     tcp_nopush on;

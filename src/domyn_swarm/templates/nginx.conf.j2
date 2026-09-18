@@ -1,6 +1,8 @@
 {# src/domyn_swarm/templates/nginx.conf.j2 — LB main nginx config #}
 pid /run/nginx.pid;
 
+worker_processes {{ cfg.backend.endpoint.nginx_worker_processes or cfg.backend.endpoint.cpus_per_task }};
+
 events {
     worker_connections 100000;
 }

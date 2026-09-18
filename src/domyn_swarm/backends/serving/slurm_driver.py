@@ -115,7 +115,7 @@ class SlurmDriver:
 
         # Main nginx config (mounted at $HOST_DIR/nginx.conf by lb.sh.j2).
         (Path(swarm_directory) / "nginx.conf").write_text(
-            env.get_template("nginx.conf.j2").render()
+            env.get_template("nginx.conf.j2").render(cfg=self.cfg)
         )
 
         # Prometheus config (only when monitoring is enabled).
