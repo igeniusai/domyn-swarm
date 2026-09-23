@@ -29,6 +29,13 @@ logger = setup_logger(__name__)
 
 
 class DomynLLMSwarmConfig(BaseModel):
+    """Validated configuration for one serving swarm.
+
+    Field descriptions are the canonical user-facing reference for individual
+    settings. Use `read` and `persist` for YAML-backed configuration and
+    `build_plan` to resolve the configured serving and compute backends.
+    """
+
     # model / revision --------------------------------------------------------
     model: str = Field(
         description=(
