@@ -150,7 +150,6 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return "python"
 
     def default_image(self, cfg: LeptonConfig) -> str | None:
-        # if you populated cfg.lepton.job.image, reuse it
         return cfg.job.image
 
     def default_resources(self, cfg: LeptonConfig) -> dict | None:
@@ -175,5 +174,4 @@ class LeptonComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return spec.model_dump(by_alias=True)
 
     def default_env(self, cfg) -> dict[str, str]:
-        # forward secret name for the endpoint token if you stored it in the handle
         return {}

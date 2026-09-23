@@ -19,16 +19,12 @@ logger = setup_logger(__name__, level=logging.INFO)
 T = TypeVar("T")
 _REQUIRED = object()  # sentinel
 
-# Search order (first hit wins)
+# Order defines precedence; the first existing path wins.
 _DEFAULT_FILES = (
-    # explicit path via env
     lambda: Path(os.environ["DOMYN_SWARM_DEFAULTS"]) if os.getenv("DOMYN_SWARM_DEFAULTS") else None,
-    # project local
     lambda: Path.cwd() / "defaults.yaml",
     lambda: Path.cwd() / ".domyn_swarm" / "defaults.yaml",
-    # user config dir
     lambda: Path.home() / ".domyn_swarm" / "defaults.yaml",
-    # package etc/ (optional; adjust to your tree)
     lambda: Path(__file__).resolve().parents[2] / "etc" / "defaults.yaml",
 )
 

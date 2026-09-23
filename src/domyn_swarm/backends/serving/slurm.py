@@ -80,7 +80,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         )
 
     def wait_ready(self, handle: ServingHandle, timeout_s: int, extras: dict) -> ServingHandle:
-        # Delegate to your health checker which sets endpoint when LB is alive
         swarm_dir = extras.get("swarm_directory")
         swarm_name = handle.meta.get("name", "")
 
@@ -124,7 +123,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         rep = self.driver.get_job_state(handle.meta["jobid"])
         lb = self.driver.get_job_state(handle.meta["lb_jobid"])
 
-        # 1) Scheduler view
         if rep in SLURM_BAD_STATES or lb in SLURM_BAD_STATES:
             return ServingStatus(ServingPhase.FAILED, handle.url, {"rep": rep, "lb": lb})
         if (
@@ -135,7 +133,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
         ):
             return ServingStatus(ServingPhase.PENDING, handle.url, {"rep": rep, "lb": lb})
 
-        # 2) Endpoint probe (non-blocking, small timeout)
         lb_node = handle.meta.get("lb_node") or self.driver.get_node_from_jobid(
             handle.meta["lb_jobid"]
         )
@@ -148,12 +145,11 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             else:
                 r = requests.get(f"{base}/health", timeout=1.5)
             http_ok = r.status_code == 200
-            # Optional: verify expected model is listed
             model_ok = False
             try:
                 data = r.json()
                 names = {m.get("id") for m in data.get("data", []) if isinstance(m, dict)}
-                expected = handle.meta.get("model")  # if you stored it
+                expected = handle.meta.get("model")
                 model_ok = (expected in names) if expected else http_ok
             except Exception:
                 model_ok = http_ok
@@ -161,7 +157,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
             http_ok = model_ok = False
 
         if http_ok and model_ok:
-            # cache url if we didn't earlier
             if not handle.url:
                 handle.url = base
             return ServingStatus(
@@ -170,7 +165,6 @@ class SlurmServingBackend(ServingBackend):  # type: ignore[misc]
                 {"rep": rep, "lb": lb, "http": 200},
             )
 
-        # Slurm says RUNNING but HTTP not ready → still initializing
         return ServingStatus(
             ServingPhase.INITIALIZING,
             handle.url,
