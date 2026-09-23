@@ -1,104 +1,109 @@
-# Checklist
+# Contributing to Domyn Swarm
 
-We are glad you are contributing to Domyn Swarm! Before you make a PR, be sure to read over this guide in detail.
-This checklist ensures that Domyn Swarm stays easy-to-use by both users and developers.
-Not all steps are necessary for some contributions, so read the linked sections for more information about each item.
+Contributions should keep Domyn Swarm predictable for users and maintainable for
+contributors. Keep each pull request focused and explain the behavior it changes
+or preserves.
 
-- [Checklist](#checklist)
-  - [General principles](#general-principles)
-  - [Python style](#python-style)
-  - [Setup and Dev](#setup-and-dev)
-    - [Prerequisites](#prerequisites)
-    - [Installation](#installation)
-  - [Unit tests](#unit-tests)
-  - [Coverage](#coverage)
-  - [Pull Requests (PR) Guidelines](#pull-requests-pr-guidelines)
+## Principles
 
-## General principles
-1. **User-oriented**: make it easy for end users, even at the cost of writing more code in the background
-1. **Robust**: make it hard for users to make mistakes.
-1. **Reusable**: for every piece of code, think about how it can be reused in the future and make it easy to be reused.
-1. **Readable**: code should be easier to read.
-1. **Legal**: if you copy even one line of code from the Internet, make sure that the code allows the license that NeMo Curator supports. Give credit and link back to the code.
-1. **Sensible**: code should make sense. If you think a piece of code might be confusing, write comments.
+- Start from the user-facing behavior and make invalid states difficult to
+  express or submit.
+- Preserve existing behavior and compatibility unless the change explicitly
+  introduces a migration.
+- Prefer direct designs, existing abstractions, and domain-specific names.
+  Generalize code only when current callers share a real rule.
+- Keep code, tests, documentation, and configuration descriptions consistent.
+- Confirm that copied or adapted code is compatible with the Apache-2.0 license,
+  retain required notices, and credit its source.
 
-## Python style
-We use ``ruff`` as our style guide. To fix your format run `pre-commit install && pre-commit run --all`.
+## Development setup
 
-1. Include docstrings for every class and method exposed to the user.
-1. Loggers are preferred to print.
-
-## Setup and Dev
-
-### Prerequisites
-
-- Python >=3.10, < 3.13
-- OS: Ubuntu 22.04/20.04
-- uv
-
-```
-# We use `uv` for package management and environment isolation.
-pip3 install uv
-
-# If you cannot install at the system level, you can install for your user with
-pip3 install --user uv
-```
-
-### Installation
-
-Domyn Swarm uses [uv](https://docs.astral.sh/uv/) for package management.
-
-You can configure uv with the following commands:
+Domyn Swarm supports Python `>=3.10,<3.14` on Linux. Install
+[uv](https://docs.astral.sh/uv/), clone the repository, and synchronize the
+development environment:
 
 ```bash
-uv sync
-```
-
-You can additionally sync optional dependency groups:
-
-```bash
-uv sync --extra lepton
-
-# Sync all extras
 uv sync --all-extras
 ```
 
-- If project dependencies are updated a new uv lock file needs to be generated. Run `uv lock` and add the changes of the new uv.lock file.
+Documentation work also needs the docs dependency group:
 
-## Unit tests
-Unit tests should be simple and fast.
-Developers should be able to run them frequently while developing without any slowdown.
-```
-pytest
+```bash
+uv sync --all-extras --group docs
 ```
 
-## Coverage
-Pull requests should cover at least 80% of its changes with tests. CI will reject PRs that do not fulfill this requirement. Please refer to the [Unit tests](#unit-tests) section for more about writing unit tests.
+Run project tools through `uv run`. When dependencies change intentionally,
+update and commit `uv.lock`; otherwise leave it unchanged.
 
-## Pull Requests (PR) Guidelines
+## Code and prose style
 
-**Send your PRs to the `main` branch**
+Ruff owns formatting and linting, and Pyright owns static type checking. The
+repository-specific conventions are:
 
-1) Make sure your PR does one thing. Have a clear answer to "What does this PR do?".
-2) Read General Principles and style guide above
-3) Ensure that your environment is set up for signing commits. This [GitHub doc](https://docs.github.com/en/authentication/managing-commit-signature-verification) contains all the information about setting up commit signing.
-    - [This doc](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) has more details about how you can sign commits and has links with instructions to set up keys for commit signing.
-4) Make sure you sign your commits. E.g. use ``git commit -sS`` when committing.
-    1) If you forget to do this, please follow the steps below to undo the commits and reapply the changes under a new (signed and signed-off) commit. Note: This will preserve your changes, but delete the git history of commits.
-    ```bash
-    git reset --soft HEAD~N
-    git add <insert all files you want to include>
-    git commit -sS -m "My commit message"
-    git push --force
-    ```
-    Replace `N` in the first line with the number of commits you want to undo. To undo the latest commit, do `git reset --soft HEAD~1`.
-4) Make sure all unittests finish successfully before sending PR ``pytest`` or (if your dev box does not have GPU) ``pytest --cpu`` from the root folder
-5) Send your PR and request a review
+- Preserve public imports, serialized forms, CLI output, templates, and
+  persistence formats unless the task explicitly changes them.
+- Add Google-style docstrings to supported public APIs and non-obvious internal
+  contracts. Do not add boilerplate docstrings to obvious private helpers,
+  overrides, callbacks, validators, properties, or special methods.
+- Comments are exceptional. Use one only when unusual code, a hidden invariant,
+  an external constraint, a non-local side effect, or a non-obvious tradeoff
+  would otherwise surprise a careful reader. Do not narrate straightforward
+  code.
+- Use concise active voice, US English, and sentence-case headings. Use “Domyn
+  Swarm” for the project, `domyn-swarm` for the CLI and distribution, and
+  `domyn_swarm` for the Python package.
 
-Unit tests are expected to pass before merging into `main`.
-Every release a new branch will be cut from `main`.
+Run the style checks with:
 
-Full text of the DCO:
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+```
+
+## Tests and documentation
+
+Run the closest tests while iterating, then the full suite before review:
+
+```bash
+uv run pytest tests/path/to/test_file.py -q --no-cov
+uv run pytest
+```
+
+Changes to user-facing behavior require corresponding documentation. Build the
+documentation with warnings treated as errors:
+
+```bash
+docs_output=$(mktemp -d)
+DOCS_VERSION=latest uv run sphinx-build -W --keep-going -b html docs "$docs_output"
+```
+
+Run every configured hook before submitting:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+## Pull request guidelines
+
+Open pull requests against `main` and keep each one centered on a single change.
+Describe the motivation, observable effect, verification performed, and any
+compatibility or migration considerations. Update tests and documentation where
+the behavior requires them.
+
+Use conventional commit messages. Every commit must be signed and signed off;
+create commits with:
+
+```bash
+git commit -sS -m "type(scope): concise description"
+```
+
+See GitHub's documentation for
+[configuring commit signing](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+
+## Developer Certificate of Origin
+
+Signing off a commit certifies the following Developer Certificate of Origin.
 
 ```
 Developer Certificate of Origin
