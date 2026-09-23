@@ -1,28 +1,28 @@
 # Watchdog and collector
 
-Replica health is not inferred from whether a process is running. domyn-swarm uses
-a **watchdog** per replica and a single **collector** per swarm, and the split
-exists for a specific reason worth understanding before changing this code.
+Process state does not prove replica health. domyn-swarm uses one watchdog per
+replica and one collector per swarm. This design prevents concurrent database
+writes from the replicas.
 
 ## The watchdog supervises one replica
 
 Each replica is launched via `domyn_swarm.runtime.watchdog`, which:
 
-- spawns `vllm serve ...`
-- probes HTTP `/health`, and optionally Ray, on an interval
-- applies the restart policy — `always`, `on-failure` or `never` — plus
-  `unhealthy_restart_after`, which forces a restart when a replica has been
-  unhealthy for too long
-- sends compact JSON status updates over **TCP** to the collector
+- It spawns `vllm serve ...`.
+- It probes HTTP `/health`, and optionally Ray, on an interval.
+- It applies the `always`, `on-failure`, or `never` restart policy.
+- It uses `unhealthy_restart_after` to restart a replica after a long unhealthy
+  period.
+- It sends compact JSON status updates over TCP to the collector.
 
 Each update carries `state`, `http_ready`, `pid`, `exit_code`, `fail_reason`,
 `agent_version` and `last_seen`.
 
-A running process is not a healthy replica: vLLM can be alive and not serving,
-particularly while loading a large model. That is why readiness is a probe and why
-`readiness_timeout` exists separately from the restart policy.
+A running vLLM process can still be unable to serve requests while it loads a
+large model. A separate readiness probe detects this state.
+`readiness_timeout` limits how long the watchdog waits for readiness.
 
-All of it is configurable under `watchdog` — see
+The `watchdog` section controls this behavior. See
 [Configuration](../reference/configuration.md).
 
 ## The collector owns the database
@@ -30,65 +30,59 @@ All of it is configurable under `watchdog` — see
 One collector runs per swarm, on the load-balancer node
 (`domyn_swarm.runtime.collector`). It:
 
-- listens on `--host` / `--port` for watchdog updates
-- is the **only writer** to the per-swarm SQLite database, `watchdog.db`
-- upserts into a `replica_status` table keyed by `(swarm_id, replica_id)`
-- enables WAL and `busy_timeout` on a best-effort basis
-- ignores malformed packets and transient SQLite errors rather than dying
+- It listens on `--host` and `--port` for watchdog updates.
+- It is the only writer to the per-swarm SQLite database, `watchdog.db`.
+- It upserts into a `replica_status` table keyed by `(swarm_id, replica_id)`.
+- It enables WAL and `busy_timeout` on a best-effort basis.
+- It ignores malformed packets and transient SQLite errors instead of stopping.
 
 Watchdogs find it via `--collector-address host:port`, which the Slurm backend
 injects. You do not normally wire this by hand.
 
 The port defaults to `9100` and is configurable as
-`backend.endpoint.collector_port`; a `COLLECTOR_PORT` variable exported in the
-submission environment overrides it for that swarm. The host is always the
+`backend.endpoint.collector_port`. A `COLLECTOR_PORT` variable in the submission
+environment overrides it for that swarm. The host is always the
 load-balancer node, and replicas read both values from the swarm's
 `serving/collector.env`.
 
-A collector that cannot bind that port — something else on the node already
-owns it — exits with `collector: FATAL: cannot bind <host>:<port>: ...` in
-`logs/collector.log`. The load-balancer job waits for the collector to create
+A collector exits if another process owns its port. It writes
+`collector: FATAL: cannot bind <host>:<port>: ...` to `logs/collector.log`.
+The load-balancer job waits for the collector to create
 `run/collector.ready` before it carries on, and fails with that log excerpt if
-it never appears. Watchdogs tolerate a collector that is missing, so without
-that gate the swarm would serve traffic normally while reporting no replica
-health at all, indistinguishable from a swarm that has only just started.
+it never appears. Watchdogs tolerate a missing collector. Without the readiness
+file, the swarm can serve traffic without reporting replica health.
 
 ## Why a single writer
 
 This is the design decision the split exists to make.
 
-SQLite tolerates one writer at a time. With every replica writing its own status
-directly, a large swarm would produce constant write contention on a shared
-filesystem — exactly the conditions where SQLite locking behaves worst — and the
-failures would be intermittent, load-dependent, and worst precisely when the swarm
-is biggest and health information matters most.
+SQLite supports one writer at a time. Direct writes from every replica cause
+contention on a shared filesystem. The risk increases with the number of
+replicas and can cause intermittent failures.
 
-Funnelling every write through one process removes the contention entirely
-instead of trying to tune around it. The cost is one extra process and a TCP hop;
-the benefit is that health reporting has no concurrency story at all.
+One collector serializes all writes and removes this contention. This design
+adds one process and one TCP hop.
 
-It also explains the tolerance for bad input. A collector that died on a malformed
-packet or a transient lock would take down health reporting for the whole swarm,
-so it drops what it cannot parse and carries on. Losing one status update is
-recoverable — the next probe supersedes it. Losing the collector is not.
+The collector drops malformed packets and continues after transient lock errors.
+The next probe replaces a lost status update. This behavior keeps one bad update
+from stopping health reporting for the swarm.
 
 ## What reads it
 
-`domyn-swarm status` reads `watchdog.db` to show per-replica health — running,
-unhealthy or failed — with HTTP readiness and failure reasons, alongside the load
-balancer endpoint.
+`domyn-swarm status` reads `watchdog.db`. It shows whether each replica is
+running, unhealthy, or failed. It also shows HTTP readiness, failure reasons,
+and the load-balancer endpoint.
 
-So `status` reports **observed** health rather than asking the platform what it
+`status` reports observed health rather than asking the platform what it
 thinks it scheduled. A replica Slurm believes is running will still show as
 unhealthy here if it stopped answering probes.
 
 Operational guidance: [Monitoring and troubleshooting](../guides/monitoring.md).
 
-## Ray-aware checks
+## Ray-aware probes
 
-With `watchdog.ray.enabled`, the watchdog additionally probes Ray cluster liveness
-and capacity, on top of the HTTP check. `ray.expected_tp` is the expected
-tensor-parallel world size and enables the capacity check; leaving it unset
-disables capacity enforcement while keeping liveness. `ray.status_grace_s` requires
-Ray to report healthy for a window before the replica counts as ready, which
-avoids flapping on a cluster that is still assembling.
+With `watchdog.ray.enabled`, the watchdog also probes Ray cluster liveness and
+capacity. `ray.expected_tp` sets the expected tensor-parallel world size and
+enables capacity probes. If it is unset, the watchdog probes only liveness.
+`ray.status_grace_s` requires a healthy Ray status for a set period before the
+replica becomes ready.

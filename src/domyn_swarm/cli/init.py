@@ -39,9 +39,6 @@ def get_settings(*args, **kwargs):
     return load_settings(*args, **kwargs)
 
 
-# ----------------------- tiny helpers -----------------------
-
-
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load a YAML mapping, returning an empty dict for missing or invalid files."""
     import yaml
@@ -138,9 +135,6 @@ def _yesno(label: str, default: bool = True) -> bool:
     return typer.confirm(label, default=default)
 
 
-# ----------------------- interactive flow -----------------------
-
-
 def _configure_slurm_defaults(existing: dict[str, Any]) -> dict[str, Any]:
     base = "slurm"
     base_endpoint = f"{base}.endpoint"
@@ -233,13 +227,10 @@ def _configure_lepton_defaults(existing: dict[str, Any]) -> dict[str, Any]:
     typer.secho("\nConfigure defaults for LEPTON (DGX Cloud)", fg=typer.colors.CYAN, bold=True)
 
     out: dict[str, Any] = {}
-    # You can keep this minimal—defaults file is for *defaults*, not per-deployment specifics
-    # Add only values you want to use as fallbacks in your config model.
     base = "lepton"
     base_ep = f"{base}.endpoint"
     base_job = f"{base}.job"
 
-    # Endpoint defaults
     workspace = _prompt_str(
         "Default Lepton workspace", default=_get(existing, f"{base_ep}.workspace", "")
     )
@@ -257,7 +248,6 @@ def _configure_lepton_defaults(existing: dict[str, Any]) -> dict[str, Any]:
     if node_group.strip():
         _set(out, f"{base_ep}.node_group", node_group)
 
-    # Job defaults
     job_image = _prompt_str(
         "Default job image (e.g., igeniusai/domyn-swarm:latest)",
         default=_get(existing, f"{base_job}.image", "igeniusai/domyn-swarm:latest"),
@@ -265,9 +255,6 @@ def _configure_lepton_defaults(existing: dict[str, Any]) -> dict[str, Any]:
     _set(out, f"{base_job}.image", job_image)
 
     return out
-
-
-# ----------------------- CLI command -----------------------
 
 
 @init_app.command("defaults", help="Create a defaults.yaml configuration file to be used later.")
@@ -309,7 +296,6 @@ def create_defaults(
         typer.secho("No sections selected; nothing to write.", fg=typer.colors.YELLOW)
         raise typer.Abort()
 
-    # Show preview
     import yaml
 
     typer.secho("\nPreview of defaults.yaml:\n", fg=typer.colors.MAGENTA, bold=True)

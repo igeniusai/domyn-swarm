@@ -91,7 +91,6 @@ def test_ray_fatal_exit_is_not_restarted(
     replica_id = 0
     node = "test-node-0"
 
-    # Force the fake child to exit with 190 on the first run
     env_overrides = {
         "FAKE_CHILD_MODE": "ray_fatal_exit",
     }
@@ -105,13 +104,6 @@ def test_ray_fatal_exit_is_not_restarted(
         node=node,
         child_port=child_port,
         extra_args=[
-            # keep Ray behaviour enabled if your CLI needs it; if not,
-            # you can omit these or adjust names to your real flags:
-            # "--ray-enabled", "true",
-            # "--ray-expected-tp", "4",
-            # "--ray-expected-workers", "8",
-            # we keep restart-policy=on-failure so generic non-zero
-            # codes *would* restart, but 190 is special.
             "--restart-policy",
             "on-failure",
             "--max-restarts",
@@ -120,12 +112,9 @@ def test_ray_fatal_exit_is_not_restarted(
         env_overrides=env_overrides,
     )
 
-    # Wait for watchdog to exit; if it hangs, this will fail the test
     stdout, stderr = proc.communicate(timeout=30.0)
 
     if proc.returncode != 0:
-        # This is still okay for the watchdog; we assert on the summary,
-        # but dump logs for debugging if needed.
         print("=== WATCHDOG STDOUT ===", file=sys.stderr)
         print(stdout, file=sys.stderr)
         print("=== WATCHDOG STDERR ===", file=sys.stderr)
@@ -133,14 +122,12 @@ def test_ray_fatal_exit_is_not_restarted(
 
     summary = _parse_watchdog_summary(stdout, stderr, replica_id=replica_id)
 
-    # 1) Classification: we must see the Ray fatal exit code and no restart
     assert summary["exit_code"] == RAY_FATAL_EXIT_CODE
     assert summary["should_restart"] is False
 
     fail_reason = summary.get("fail_reason") or ""
     assert "exit_code=190" in fail_reason
 
-    # 2) The child must have been started exactly once
     assert state_file.exists(), "fake child state file was not created"
     runs_raw = state_file.read_text().strip() or "0"
     runs = int(runs_raw)
@@ -170,10 +157,7 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
     replica_id = 0
     node = "test-node-0"
 
-    # Here we model: Ray alive, but NOT enough capacity:
-    #   FAKE_RAY_NODES          = 2
-    #   FAKE_RAY_GPUS_PER_NODE  = 1
-    # Expected TP = 4 and expected_workers = 4 -> capacity check must fail.
+    # Two single-GPU nodes cannot satisfy four expected tensor-parallel workers.
     env_overrides = {
         "FAKE_CHILD_MODE": "healthy",
         "PATH": f"{fake_ray_bin.as_posix()}:{os.environ.get('PATH', '')}",
@@ -200,7 +184,6 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
             "10",
             "--unhealthy-restart-after",
             "5",
-            # Ray-related CLI flags
             "--ray-enabled",
             "1",
             "--ray-expected-tp",
@@ -217,7 +200,6 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
 
     stdout, stderr = proc.communicate(timeout=60.0)
 
-    # Debug if things go wrong
     print("=== WATCHDOG STDOUT ===", file=sys.stderr)
     print(stdout, file=sys.stderr)
     print("=== WATCHDOG STDERR ===", file=sys.stderr)
@@ -225,7 +207,6 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
 
     summary = _parse_watchdog_summary(stdout, stderr, replica_id=replica_id)
 
-    # Capacity failure → special exit, no restart
     assert summary["exit_code"] == RAY_FATAL_EXIT_CODE
     assert summary["should_restart"] is False
 
@@ -233,7 +214,6 @@ def test_ray_capacity_insufficient_causes_no_restart_and_fatal_exit(
     assert "ray" in fail_reason
     assert "capacity" in fail_reason or "placement group" in fail_reason
 
-    # Child should only have been started once (no restart)
     assert state_file.exists(), "fake child state file was not created"
     runs_raw = state_file.read_text().strip() or "0"
     runs = int(runs_raw)
@@ -265,10 +245,8 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
     _, coll_host, coll_port, _coll_proc = collector_process
     child_port = get_free_port()
 
-    # Ray state file consumed by fake_ray_cli
     ray_state_file = tmp_path / "ray_state.json"
 
-    # Initial state: enough capacity → 2 alive workers, 1 GPU each
     ray_state_file.write_text(
         json.dumps(
             {
@@ -278,10 +256,6 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
         )
     )
 
-    # Environment for the watchdog:
-    # - FAKE_CHILD_MODE=healthy → fake child runs HTTP /health server
-    # - PATH prefixed with directory containing fake_ray_cli ("ray" stub)
-    # - FAKE_RAY_STATE_FILE → fake_ray_cli reads capacity from this file
     env_overrides = {
         "FAKE_CHILD_MODE": "healthy",
         "PATH": f"{fake_ray_bin.as_posix()}:{os.environ.get('PATH', '')}",
@@ -316,14 +290,9 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
     )
 
     try:
-        # 1) Let the watchdog + fake child reach RUNNING / healthy.
-        #    With small probe intervals + readiness_timeout in the fixture,
-        #    a short sleep is enough; we don't strictly need to hit the DB here.
+        # Probe intervals are shortened by the fixture, so three seconds covers startup.
         time.sleep(3.0)
 
-        # 2) Now simulate Ray losing capacity:
-        #    Drop alive_nodes from 2 → 1, while fake_ray_cli still
-        #    reports "status" as success.
         ray_state_file.write_text(
             json.dumps(
                 {
@@ -333,16 +302,12 @@ def test_watchdog_exits_with_ray_special_code_when_capacity_drops_during_run(
             )
         )
 
-        # 3) Wait for watchdog to notice the capacity drop on the next
-        #    Ray probe cycle and exit with the special code.
         exit_code = proc.wait(timeout=30.0)
 
-        # (Optional debugging aid: if needed, print stderr on failure)
         if exit_code != RAY_FATAL_EXIT_CODE and proc.stderr:
             err = proc.stderr.read()
             print("watchdog stderr:\n", err)
 
-        # 4) Assert: watchdog exited with the Ray-special exit code.
         assert exit_code == RAY_FATAL_EXIT_CODE, (
             f"Expected watchdog to exit with Ray special code "
             f"{RAY_FATAL_EXIT_CODE}, got {exit_code}"

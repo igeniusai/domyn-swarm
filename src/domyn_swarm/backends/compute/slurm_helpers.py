@@ -311,7 +311,7 @@ def _slurm_query_state(external_id: str) -> str:
 
     job_id, step_id = _split_step_id(external_id)
 
-    # 1) Live state via squeue (prefer steps if we have one)
+    # Query live state first because accounting data can lag behind squeue.
     if step_id is not None:
         for cmd in (
             ["squeue", "-j", f"{job_id}.{step_id}", "-h", "-o", "%T"],
@@ -330,7 +330,6 @@ def _slurm_query_state(external_id: str) -> str:
             if state and state != "STATE":
                 return state
 
-    # 2) Terminal state via sacct
     sacct_cmd = ["sacct", "-j", external_id, "-o", "State", "-n", "-P"]
     if step_id is None:
         sacct_cmd.append("-X")

@@ -31,6 +31,12 @@ repos:
       - id: ruff
         name: ruff-lint
 
+      - id: ruff
+        name: ruff-public-api-docstrings
+        args: [--select, "D101,D103"]
+        files: >-
+          ^src/domyn_swarm/(__init__|core/(job_run|swarm)|config/swarm|jobs/api/(base|config)|jobs/execution/dispatch)\.py$
+
   - repo: https://github.com/RobertCraigie/pyright-python
     rev: v1.1.404
     hooks:

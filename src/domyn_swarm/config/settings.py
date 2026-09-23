@@ -24,7 +24,6 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # --- General -------------------------------------------------------------
     log_level: str = Field(
         default="INFO",
         description="Global logging level, e.g. `DEBUG`, `INFO` or `WARNING`.",
@@ -33,14 +32,12 @@ class Settings(BaseSettings):
         default=Path("~/.domyn_swarm").expanduser(),
         description="Path to domyn-swarm home directory",
     )
-    # Path to YAML with overridable defaults (used by your defaults loader)
     defaults_file: Path | None = Field(
         default_factory=lambda data: data["home"] / "defaults.yaml",
         alias="DOMYN_SWARM_DEFAULTS",
-        description="Path to YAML with overridable defaults (used by your defaults loader)",
+        description="YAML file containing project-wide configuration defaults.",
     )
 
-    # --- Secrets / tokens ----------------------------------------------------
     api_token: SecretStr | None = Field(
         default=None,
         description="API token for authenticating with the domyn-swarm vllm server",
@@ -66,13 +63,11 @@ class Settings(BaseSettings):
         """
         return self.api_token or self.vllm_api_key or self.singularityenv_vllm_api_key
 
-    # --- Slurm ---------------------------------------------------------------
     mail_user: str | None = Field(
         description="Email address for Slurm job notifications (if enabled)",
         default=None,
     )  # DOMYN_SWARM_MAIL_USER
 
-    # --- Lepton --------------------------------------------------------------
     lepton_api_token: SecretStr | None = Field(
         default=None,
         alias="LEPTONAI_API_TOKEN",
@@ -84,7 +79,6 @@ class Settings(BaseSettings):
         description="Workspace ID for Lepton AI",
     )
 
-    # --- CLI / TUI -----------------------------------------------------------
     ascii: bool = Field(
         default=False,
         description="Use ASCII glyphs instead of Unicode emojis in CLI output",
@@ -94,11 +88,6 @@ class Settings(BaseSettings):
         default=False,
         description="If true, skip automatic database schema upgrades on CLI startup",
     )  # DOMYN_SWARM_SKIP_DB_UPGRADE
-
-    # --- AzureML (placeholders) ---------------------------------------------
-    # azure_subscription_id: Optional[str] = None
-    # azure_resource_group: Optional[str] = None
-    # azure_workspace_name: Optional[str] = None
 
 
 @lru_cache(maxsize=1)

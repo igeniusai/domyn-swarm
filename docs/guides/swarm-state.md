@@ -7,28 +7,28 @@ it is why there is a database to manage.
 ## What is stored and where
 
 State lives in a SQLite database at `<DOMYN_SWARM_HOME>/swarm.db`, which defaults
-to `~/.domyn_swarm/swarm.db`. Move it by setting `DOMYN_SWARM_HOME` — see
+to `~/.domyn_swarm/swarm.db`. Set `DOMYN_SWARM_HOME` to move it. See
 [Environment variables](../reference/environment.md).
 
-Each record holds the deployment name, the configuration the swarm was created
-from, platform identifiers such as job IDs and node assignments, and the endpoint
-URL. `up` creates or updates the record; `down` and `db prune` remove records.
+Each record holds the deployment name and the configuration that created the
+swarm. It also holds platform identifiers, node assignments, and the endpoint
+URL. `up` creates or updates the record. `down` and `db prune` remove records.
 
 This is separate from `watchdog.db`, which is per swarm and holds replica health.
 See [Watchdog and collector](../concepts/watchdog-collector.md).
 
 ## Automatic upgrades
 
-You will not usually run a migration by hand. The CLI callback calls
-`ensure_db_up_to_date` before any command that touches state — it is idempotent
-and guarded by a process-local flag, so it costs nothing after the first call.
+The CLI usually runs migrations for you. Its callback calls
+`ensure_db_up_to_date` before any command that touches state. The operation is
+idempotent and runs once per process.
 
-Three commands skip it deliberately, because they have no business paying for a
-migration: `db`, `init` and `version`.
+Three commands skip the migration because they do not use state: `db`, `init`,
+and `version`.
 
-When a migration does run you will see it reported, since it is invoked with
-`noisy=True`. If a release changes the schema, the first state-touching command
-after upgrading absorbs the change.
+The CLI reports each migration because it invokes the operation with
+`noisy=True`. After a schema change, the first command that uses state applies
+the migration.
 
 ## `db upgrade`
 
@@ -36,10 +36,9 @@ after upgrading absorbs the change.
 domyn-swarm db upgrade
 ```
 
-Applies pending Alembic migrations to `swarm.db`. Mostly redundant given the
-automatic upgrade, but useful to run the migration deliberately — before a batch
-of automation, or to see the output on its own rather than mixed into another
-command's.
+Applies pending Alembic migrations to `swarm.db`. Use this command before an
+automated batch or when you need separate migration output. Other commands apply
+the same migrations automatically.
 
 ## `db stamp`
 
@@ -47,14 +46,11 @@ command's.
 domyn-swarm db stamp
 ```
 
-Marks the database as being at the head revision **without running any
-migrations**.
+Marks the database as being at the head revision without running migrations.
 
 :::{warning}
-`stamp` tells Alembic "this schema is already current" and is believed. Run it on
-a database whose schema is *not* actually current and every future migration
-starts from a false premise — later upgrades will skip the steps that would have
-fixed it, and the failures surface far from the cause.
+Do not run `stamp` on a database with an outdated schema. Alembic will treat the
+schema as current and skip required migrations. Later commands can then fail.
 
 The legitimate use is narrow: a database whose schema is correct but which
 predates Alembic having a revision record for it. If you are not sure that
@@ -71,12 +67,10 @@ domyn-swarm db prune --yes    # skip the prompt
 Deletes records for swarms that are no longer alive. Each record is probed and
 deleted when the serving phase is `FAILED`, `STOPPED` or `UNKNOWN`.
 
-A record whose status probe **raises** is also treated as prunable — the reasoning
-being that a swarm that cannot even be interrogated is not usable. That is
-usually right, and it is worth knowing it is not the same test as "confirmed
-dead": a transient failure to reach the platform during a prune can remove a
-record for a swarm that is still running. Prune when the platform is reachable,
-and prefer the prompt over `--yes` unless scripted.
+A raised status probe also marks a record as prunable. This does not prove that
+the swarm stopped. A temporary platform failure can make `db prune` remove a
+record for a running swarm. Run the command only when the platform is reachable.
+Use the prompt unless automation requires `--yes`.
 
 Records with no resolvable deployment name are skipped rather than deleted. If
 nothing qualifies you get `No dirty swarm records found.`
@@ -88,9 +82,9 @@ domyn-swarm swarm list             # probes live status (default)
 domyn-swarm swarm list --no-probe  # cached info only, much faster
 ```
 
-`list` renders a compact table: name, backend, phase, endpoint and notes. Probing
-contacts each swarm's platform and load balancer, so with many swarms it is
-noticeably slow — `--no-probe` shows what the state database already knows.
+`list` renders the name, backend, phase, endpoint, and notes in a compact table.
+Probing contacts each swarm's platform and load balancer. It can take longer when
+many swarms exist. `--no-probe` shows only the recorded state.
 
 ```bash
 domyn-swarm swarm describe my-swarm
@@ -98,17 +92,16 @@ domyn-swarm swarm describe my-swarm -o yaml
 domyn-swarm swarm describe my-swarm -o json
 ```
 
-`describe` shows one swarm in detail **from local state, with no live probing** —
-including its full resolved configuration, which is the practical way to recover
-the config a running swarm was created with. `-o yaml` or `-o json` makes it
-machine-readable.
+`describe` shows one swarm from local state without a live probe. The output
+includes the resolved configuration that created the swarm. Use `-o yaml` or
+`-o json` for machine-readable output.
 
 For live health rather than recorded state, use `domyn-swarm status`. See
 [Monitoring and troubleshooting](monitoring.md).
 
 ## Job records
 
-Jobs are tracked too, which is what makes detached submission usable:
+The database also tracks jobs. This record supports detached submission:
 
 ```bash
 domyn-swarm job list                     # jobs and their statuses
@@ -118,20 +111,20 @@ domyn-swarm job wait <job-id>             # block until it finishes
 domyn-swarm job cancel <job-id>           # stop it
 ```
 
-`--refresh` matters: without it you see the last recorded status, which may be
+Without `--refresh`, the command shows the last recorded status, which can be
 stale for a job whose process died without updating its record. With it, the
 compute backend is probed and the record reconciled.
 
 ## When a record outlives its jobs
 
-A swarm whose Slurm jobs are gone — cancelled outside domyn-swarm, or lost to a
-node failure — leaves a record that `swarm list` still shows.
+A swarm record can remain after its Slurm jobs stop outside domyn-swarm. This can
+happen after manual cancellation or a node failure.
 
 The order that works:
 
-1. `domyn-swarm swarm list` to confirm the phase looks wrong
-2. `domyn-swarm down <name>` to clear both the platform resources and the record
-3. `domyn-swarm db prune` if `down` cannot resolve the swarm at all
+1. Run `domyn-swarm swarm list` to make sure that the phase is wrong.
+2. Run `domyn-swarm down <name>` to remove the platform resources and record.
+3. If `down` cannot resolve the swarm, run `domyn-swarm db prune`.
 
 `down` is the right first move because it removes both sides. `prune` is the
 fallback for records too broken for `down` to act on.

@@ -58,10 +58,6 @@ import sys
 import time
 from urllib import error as urlerror, request
 
-# ---------------------------------------------------------------------------
-# Replica state model
-# ---------------------------------------------------------------------------
-
 MAX_REASON_LEN = 2048
 
 REPLICA_STATUS_TABLE = "replica_status"
@@ -102,7 +98,6 @@ class WatchdogConfig:
     counterpart: they are injected per replica at launch.
     """
 
-    # HTTP health
     host: str = "127.0.0.1"
     port: int = 8000
     http_path: str = "/health"
@@ -114,7 +109,6 @@ class WatchdogConfig:
 
     kill_grace_seconds: float = 10.0
 
-    # Restart
     restart_policy: str = "on-failure"  # "always" | "on-failure" | "never"
     restart_backoff_initial: float = 5.0
     restart_backoff_max: float = 60.0  # ceiling for the exponential backoff
@@ -122,11 +116,9 @@ class WatchdogConfig:
 
     readiness_timeout: float = 600.0  # seconds to wait for initial readiness
 
-    # Metadata
     agent_version: str = "unknown"
     log_level: str = "info"
 
-    # Ray-aware options
     ray: WatchdogRayConfig = field(default_factory=WatchdogRayConfig)
 
     def http_url(self) -> str:
@@ -225,24 +217,18 @@ def send_status(
         time.sleep(sleep_for)
 
 
-# ---------------------------------------------------------------------------
-# Failure reason builder
-# ---------------------------------------------------------------------------
-
-
 def classify_fail_reason_from_log(log_tail: str) -> tuple[str, bool]:
+    """Classify a failure using known patterns in the log tail.
+
+    Returns:
+        The failure reason and whether the failure is retryable.
     """
-    Returns (fail_reason, retryable).
-    """
-    # Base reason is whatever you already build (unhealthy_timeout, exit code, etc.)
     base = "unhealthy_timeout"
     retryable = True
 
-    # Placement group cannot be created within timeout: cluster too small or bad layout.
     if "Cannot provide a placement group" in log_tail:
         return "ray_pg_insufficient_capacity", False
 
-    # You could add other patterns here (OOM, bad config, etc.)
     return base, retryable
 
 
@@ -265,7 +251,6 @@ def build_fail_reason(
     retryable = True
     tail_text: str | None = None
 
-    # 1) Exit code / signal
     if exit_code is not None:
         parts.append(f"exit_code={exit_code}")
         if exit_code == 137:
@@ -277,29 +262,21 @@ def build_fail_reason(
         except ValueError:
             parts.append(f"signal={exit_signal}")
 
-    # 2) Restart context (optional)
     if restart_attempt is not None and max_restarts is not None:
         parts.append(f"restart_attempt={restart_attempt}/{max_restarts}")
 
-    # 3) Log tail (optional & truncated)
     if log_path and os.path.exists(log_path):
         try:
             with open(log_path, "rb") as f:
                 tail_bytes = f.read()[-4096:]
             tail_text = tail_bytes.decode(errors="replace")
-            lines = tail_text.splitlines()[-10:]  # last 10 lines
+            lines = tail_text.splitlines()[-10:]
             parts.append("log_tail:\n" + "\n".join(lines))
         except Exception:
-            # If we fail to read logs, don't block the reason
+            # Log collection is best-effort and must not obscure the original failure.
             parts.append(f"log_tail: <unavailable: error reading {log_path}>")
 
-    # 4) Classification from log content (non-retryable patterns)
-    #
-    # Example: vLLM / Ray cannot ever satisfy the placement group
-    #   ValueError: Cannot provide a placement group ...
-    #
     if tail_text and "Cannot provide a placement group" in tail_text:
-        # Put a short, machine-greppable tag at the front
         parts.insert(0, "ray_pg_insufficient_capacity")
         retryable = False
 
@@ -311,11 +288,6 @@ def build_fail_reason(
         reason = "unknown failure"
 
     return reason, retryable
-
-
-# ---------------------------------------------------------------------------
-# HTTP & Ray probes
-# ---------------------------------------------------------------------------
 
 
 def _check_http(url: str, timeout: float) -> bool:
@@ -423,11 +395,6 @@ def _ray_probe_once(ray_cfg: WatchdogRayConfig, ray_prefix: Sequence[str]) -> bo
     capacity = _ray_capacity_ok(ray_prefix, ray_cfg.expected_tp, ray_cfg.expected_workers)
     logger.debug("Ray cluster alive=%s, capacity_ok=%s", alive, capacity)
     return alive and capacity
-
-
-# ---------------------------------------------------------------------------
-# Main watchdog logic
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -849,11 +816,9 @@ def run_watchdog(
     restart_count = 0
 
     while True:
-        # 1) Spawn child and mark STARTING/RUNNING
         child, pid = _spawn_child_and_mark_running(collector_address, meta, cfg, child_argv)
 
         logger.info("watchdog[%s]: spawned child with pid %s", meta.replica_id, pid)
-        # 2) Monitor until it exits or we get a stop signal
         exit_code, should_restart, fail_reason = _monitor_child_loop(
             collector_address,
             meta,
@@ -881,7 +846,6 @@ def run_watchdog(
 
         logger.info("watchdog[%s]: restarting child (attempt #%s)", meta.replica_id, restart_count)
 
-        # 3) Mark RESTARTING and backoff before re-spawn
         _mark_state(
             collector_address,
             meta,
@@ -894,11 +858,6 @@ def run_watchdog(
             fail_reason=fail_reason,
         )
         time.sleep(_restart_backoff_delay(cfg, restart_count))
-
-
-# ---------------------------------------------------------------------------
-# CLI entrypoint
-# ---------------------------------------------------------------------------
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -921,7 +880,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Watchdog/agent version string.",
     )
 
-    # HTTP / restart tuning (basic subset; can be overridden from YAML/env in your launcher)
     parser.add_argument(
         "--http-path",
         type=str,
@@ -995,7 +953,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Seconds in UNHEALTHY state before considering restart.",
     )
 
-    # Ray-aware flags
     parser.add_argument(
         "--ray-enabled",
         type=int,
@@ -1066,10 +1023,8 @@ def split_watchdog_and_child(argv: list[str]) -> tuple[list[str], list[str]]:
       -> watchdog_argv = ['--foo', '1', '--bar', 'x']
          child_argv    = ['child', 'cmd']
     """
-    # argv is expected to be sys.argv (including script name)
     if "--" in argv:
         sep = argv.index("--")
-        # everything between script name and `--`
         watchdog_argv = argv[:sep]
         child_argv = argv[sep + 1 :]
     else:

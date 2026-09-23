@@ -1,30 +1,26 @@
 # Serving vs compute backends
 
 :::{note}
-"Backend" means two unrelated things in domyn-swarm. This page is about
-**serving** and **compute** backends, which decide *where the model runs and
-where jobs execute*. A **data** backend decides how job input and output are read
-and written — that is [Choosing a data backend](../guides/data-backends.md).
-Readers conflate these constantly.
+"Backend" has two meanings in domyn-swarm. Serving and compute backends control
+where models and jobs run. A data backend controls how jobs read and write data.
+See [Choosing a data backend](../guides/data-backends.md).
 :::
 
 ## Why two protocols instead of one backend type
 
-A single `Backend` abstraction would have to answer both "how do I serve a model
-here" and "how do I run a process here", and those questions have different
-shapes and different failure modes. Splitting them buys three things:
+A single `Backend` abstraction must serve models and run processes. These tasks
+have different interfaces and failure modes. Separate protocols provide these
+benefits:
 
-- **Mixing.** Serving and compute are chosen independently, so a model served in
+- Serving and compute are selected independently. A model served in
   one place can be driven by work executing somewhere else.
-- **Independent evolution.** Adding a readiness strategy touches only the serving
-  side; adding a way to launch processes touches only compute.
-- **Honest health reporting.** "The endpoint is ready" and "the job succeeded"
-  are separate states with separate owners, which is why
+- A new readiness strategy changes only the serving backend. A new process
+  launcher changes only the compute backend.
+- Endpoint readiness and job success remain separate states. As a result,
   `domyn-swarm status` can report a healthy endpoint and a failed job at once.
 
-Both are `typing.Protocol` definitions, so a backend conforms structurally — no
-inheritance required, and no base class to fight when a platform does something
-unusual.
+Both are `typing.Protocol` definitions. A backend conforms through its methods
+and does not need to inherit a base class.
 
 ## ServingBackend
 
@@ -32,14 +28,14 @@ Owns the model endpoint and its lifetime.
 
 | Method | Responsibility |
 | --- | --- |
-| `create_or_update(name, spec, extras)` | Create the endpoint or reconcile an existing one; returns a `ServingHandle` |
+| `create_or_update(name, spec, extras)` | Create or reconcile the endpoint and return a `ServingHandle` |
 | `wait_ready(handle, timeout_s, extras)` | Block until the endpoint can serve |
 | `ensure_ready(handle)` | Assert readiness for an already-created endpoint |
 | `status(handle)` | Report a `ServingStatus`, carrying a `ServingPhase` |
 | `delete(handle)` | Remove the endpoint |
 
-`create_or_update` rather than `create` is deliberate: re-running `up` against an
-existing swarm reconciles instead of failing or duplicating.
+`create_or_update` reconciles an existing swarm when you run `up` again. It does
+not fail or create a duplicate swarm.
 
 ## ComputeBackend
 
@@ -47,8 +43,8 @@ Owns the processes that call the endpoint.
 
 | Method | Responsibility |
 | --- | --- |
-| `submit(...)` | Start a job; returns a `JobHandle` |
-| `wait(handle, stream_logs=True)` | Block until completion; returns a `JobStatus` |
+| `submit(...)` | Start a job and return a `JobHandle` |
+| `wait(handle, stream_logs=True)` | Block until completion and return a `JobStatus` |
 | `cancel(handle)` | Stop a running job |
 | `probe(handle)` | Report a `JobProbe`, which is how `job status --refresh` works |
 | `default_python(cfg)` | Interpreter to run the job with |
@@ -56,38 +52,31 @@ Owns the processes that call the endpoint.
 | `default_resources(cfg)` | Platform resource request |
 | `default_env(cfg)` | Environment the job needs |
 
-The four `default_*` methods keep platform knowledge out of the submission path:
-the caller does not need to know that Slurm wants a `venv_path` while Lepton
-wants a Docker image. `DefaultComputeMixin` supplies the common implementations,
-including a `probe` that most backends can use unchanged.
+The four `default_*` methods keep platform details out of the submission path.
+The caller does not need to know that Slurm uses a `venv_path` and Lepton uses a
+Docker image. `DefaultComputeMixin` supplies the common implementations. Most
+backends can use its `probe` unchanged.
 
 ## How the two platforms satisfy them
 
-**Slurm.** Serving is an array job of vLLM replicas plus an Nginx load-balancer
-job; readiness is an HTTP probe against `/v1/health` through the load balancer.
-Compute is `srun` into the allocation, with `require_allocated_node` guarding
-against work landing on the load-balancer node.
+Slurm uses an array job of vLLM replicas and an Nginx load-balancer job. An HTTP
+probe calls `/v1/health` through the load balancer. Compute uses `srun` in the
+allocation. `require_allocated_node` prevents work on the load-balancer node.
 
-**Lepton.** Serving is a Lepton endpoint, which fronts its own replicas, so there
-is no load balancer to manage; readiness is deployment-state polling rather than
-an HTTP probe. Compute is a Lepton batch job.
+Lepton uses an endpoint that manages its own replicas. It polls deployment state
+instead of an HTTP health endpoint. Compute uses a Lepton batch job.
 
-Notice that the *readiness strategies differ entirely* while the protocol does
-not. That is the separation earning its keep.
+The readiness strategies differ, but both implement the same protocol.
 
 ## Adding a platform
 
-The README describes new targets as "easy to add", which is worth qualifying.
-What the protocols genuinely give you is a closed list of methods and no base
-class to satisfy — the interface is small and the compiler-checkable part is
-straightforward.
+The protocols provide a small, closed list of methods. They do not require a
+base class.
 
-What they do not remove is the real work: readiness semantics, log retrieval,
-identifier mapping into `ServingHandle` and `JobHandle`, cancellation that
-actually stops things, and the config model plus its `type` discriminator. Look at
-`backends/serving/` and `backends/compute/` for either existing platform to
-gauge it honestly — the protocol is a day, the semantics are not.
+Each backend must still implement readiness, log retrieval, identifier mapping,
+and cancellation. It also needs a configuration model with a `type`
+discriminator. See `backends/serving/` and `backends/compute/` for examples.
 
-For the step-by-step version — the method sets, the handle contract, the
-registration line, and which features are not backend-agnostic — see
+For method sets, handle contracts, registration, and platform-specific features,
+see
 [Implementing a backend](../guides/implementing-a-backend.md).

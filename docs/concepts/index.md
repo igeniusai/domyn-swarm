@@ -1,13 +1,13 @@
 # Concepts
 
-Explanation rather than instruction: why domyn-swarm is built the way it is. Read
-these before changing the code, or when a guide's advice seems arbitrary.
+These pages explain the design of domyn-swarm. Read them before you change the
+related code.
 
-- [Architecture](architecture.md) — the components and how they fit together
-- [Serving vs compute backends](backends.md) — two protocols, and why not one
-- [The SwarmJob lifecycle](swarmjob-lifecycle.md) — from CLI invocation to output file
-- [Watchdog and collector](watchdog-collector.md) — why health reporting has its own process
-- [Configuration precedence](configuration.md) — where a value actually comes from
+- [Architecture](architecture.md): Components and their relationships
+- [Serving vs compute backends](backends.md): Separate protocols for serving and compute
+- [The SwarmJob lifecycle](swarmjob-lifecycle.md): From CLI invocation to output file
+- [Watchdog and collector](watchdog-collector.md): Health reporting processes
+- [Configuration precedence](configuration.md): Sources and priority of values
 
 ```{toctree}
 :hidden:
