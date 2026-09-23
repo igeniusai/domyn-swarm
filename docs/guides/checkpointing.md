@@ -1,17 +1,15 @@
 # Checkpointing and resuming
 
-A long batch run will be interrupted — a wall-clock limit, a preempted node, an
-endpoint that stops answering. Checkpointing means the next attempt continues
-rather than repaying for work already done.
+A wall-clock limit, a preempted node, or an unavailable endpoint can interrupt a
+long batch run. Checkpointing lets the next attempt continue from completed work.
 
 It is on by default.
 
 ## What gets written, and where
 
 `--checkpoint-dir` sets the location, defaulting to `<swarm-dir>/checkpoints`.
-`--checkpoint-tag` gives a run a stable identity, which is what makes it
-resumable across separate invocations — without a tag, a later run has no way to
-recognise earlier work as its own.
+`--checkpoint-tag` gives a run a stable identity across invocations. Without a
+tag, a later run cannot identify earlier work from the same run.
 
 Around the checkpoint file, four things appear on disk:
 
@@ -22,106 +20,100 @@ Around the checkpoint file, four things appear on disk:
 | `<name>.parquet.meta.json` | the input fingerprint, see below |
 | `<name>.parquet.lock` | guards concurrent flushes |
 
-Flushes go to a *new part file* rather than rewriting the result, so a crash
-mid-flush cannot corrupt completed work. `finalize()` merges the parts into the
-main file, deduplicating by row id and keeping the last write, then deletes them.
+Each flush creates a new part file instead of rewriting the result. A crash
+during a flush cannot corrupt completed work. `finalize()` merges the parts into
+the main file, keeps the last write for each row id, and deletes the parts.
 
 Every write is atomic: content goes to a `.tmp` path and is moved into place with
 `os.replace`, so a reader never sees a half-written file.
 
 ## How a resume decides what to skip
 
-On startup the manager reads the completed rows and every unmerged part, builds
-the set of finished row ids, and filters them out of the work list.
+On startup, the manager reads the completed rows and every unmerged part. It
+builds the set of finished row ids and removes them from the work list.
 
-That filtering is by **id, not position**, which is why
+The filter uses the id, not the position. This behavior is why
 [`--id-column`](submitting-jobs.md#row-identity) matters. Without a stable id
-column, pandas uses the DataFrame index and polars generates `_row_id`, and a
-resume is only correct if the input ordering is identical between runs.
+column, pandas uses the DataFrame index and polars generates `_row_id`. A resume
+is correct only if the input order is identical between runs.
 
 ## The input fingerprint
 
 This is the safety mechanism most likely to surprise you.
 
-When a checkpoint is created, a blake3 fingerprint of the input — its index plus
-the input column — is recorded in `.meta.json`. On resume the fingerprint is
-recomputed and compared, and a mismatch raises:
+When a checkpoint is created, `.meta.json` stores a BLAKE3 fingerprint of the
+input index and input column. A resume computes the fingerprint again. A
+mismatch raises:
 
 ```text
 Checkpoint input fingerprint does not match current data.
 ```
 
-That is deliberate and it is protecting you. The alternative is silently joining
-new results onto rows they do not belong to. If you changed the input, the
-checkpoint is not resumable: use `--no-resume` to recompute, or a fresh
-`--checkpoint-tag`.
+This error prevents results from joining the wrong input rows. If the input
+changed, use `--no-resume` to recompute it or use a new `--checkpoint-tag`.
 
-Three other consistency checks fire on resume:
+Three other consistency rules apply on resume:
 
-- a checkpoint whose index contains duplicates is rejected outright
-- a checkpoint missing the job's expected output columns is rejected — usually a
-  sign the tag is being reused across two different jobs
-- rows present in the checkpoint but absent from the input are dropped with a
-  warning rather than an error, since a shrunken input is a normal thing to do
+- The manager rejects a checkpoint with duplicate index values.
+- The manager rejects a checkpoint without the expected output columns. This
+  often means that two jobs use the same tag.
+- The manager drops checkpoint rows that are absent from the input and writes a
+  warning. This permits a smaller input on resume.
 
 ## Flush frequency
 
 `--checkpoint-interval` is the number of items per flush, default 16.
 
-The trade-off is direct: each flush costs a Parquet write, and everything since
-the last flush is lost on a crash. Slow expensive calls justify a small interval;
-fast cheap ones do not. If you find yourself raising it above a few hundred, the
-run is probably fast enough not to need checkpointing at all.
+Each flush writes a Parquet file. A crash loses all work after the last flush.
+Use a small interval for slow or expensive calls. A large interval is suitable
+for fast calls.
 
 ## Turning it off
 
-Two flags that sound similar and are not:
+The two flags have different effects:
 
 `--no-resume`
-: keep writing checkpoints, but ignore any that exist. Forces recompute of
-  everything. This is what you want after changing the input or fixing a bug that
-  produced wrong output.
+: Keep writing checkpoints, but ignore existing checkpoints. This option
+  recomputes all results. Use it after an input change or a fix for incorrect
+  output.
 
 `--no-checkpointing`
-: do not write checkpoints at all. Appropriate for short runs, or when the output
-  is cheap to regenerate and you would rather not leave files behind.
+: Do not write checkpoints. Use this option for short runs or inexpensive output
+  that you can regenerate.
 
 ## Sharded runs and `--global-resume`
 
-With `--num-shards > 1`, each shard keeps its own checkpoint directory — that is
-what makes concurrent flushing safe, since exactly one writer per directory is
-assumed by construction.
+With `--num-shards > 1`, each shard uses a separate checkpoint directory. This
+keeps one writer in each directory and permits concurrent flushes.
 
-The consequence: if `--num-shards` or `--limit` changes between runs, shard
-assignment changes, and a row completed by shard 3 last time may be assigned to
-shard 5 now, where its checkpoint is invisible.
+If `--num-shards` or `--limit` changes between runs, the shard assignment also
+changes. Shard 5 can then receive a row that shard 3 completed. The checkpoint
+for shard 3 is not visible to shard 5.
 
-`--global-resume` fixes that by filtering the input against the union of done ids
-across *all* shards rather than per-shard. Use it when you have deliberately
-changed the shard count or the limit. Otherwise keep `--num-shards` fixed
-between resumed runs and leave it off.
+`--global-resume` filters the input against completed ids from all shards. Use it
+after a deliberate change to the shard count or limit. Otherwise, keep
+`--num-shards` fixed between resumed runs and leave this option off.
 
 See [Sharding and concurrency](sharding-concurrency.md).
 
 ## Cloud storage
 
-The shard store resolves its location through `fsspec`, so a checkpoint directory
-can be an object-store URI:
+The shard store resolves its location through `fsspec`. A checkpoint directory
+can therefore be an object-store URI:
 
 ```bash
 --checkpoint-dir s3://bucket/checkpoints/run
 ```
 
-This needs the relevant filesystem extra installed — `s3fs`, `gcsfs`, `adlfs` —
-and raises an `ImportError` naming them if `fsspec` cannot resolve the URI.
+Install the required filesystem package, such as `s3fs`, `gcsfs`, or `adlfs`.
+If `fsspec` cannot resolve the URI, the error names the required package.
 
 ## A caution on concurrency
 
-Exactly one writer process per checkpoint directory is assumed, and holds by
-construction: one driver process per job, a distinct directory per shard, and
-resumed runs skipping done ids. Ordering within a directory comes from a
-process-wide counter, not from timestamps, because millisecond-resolution
-filenames can sort in the opposite order of the writes.
+Each checkpoint directory must have one writer process. Each job has one driver
+process, and each shard has a separate directory. Resumed runs skip completed
+identifiers. A process-wide counter orders writes. Timestamps can sort files in
+the wrong order.
 
-It is **not** safe to point two separate job invocations at the same checkpoint
-directory simultaneously. Give them different tags.
+Do not use the same checkpoint directory for two concurrent job invocations.
+Give each invocation a different tag.

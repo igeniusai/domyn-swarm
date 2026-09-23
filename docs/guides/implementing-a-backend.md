@@ -1,10 +1,8 @@
 # Implementing a backend
 
-Adding a platform — another cloud, another scheduler — means writing two classes
-and a config model. Nothing in the job layer, the CLI or the state database needs
-to change, which is the point of splitting serving from compute in the first
-place: see [Serving vs compute backends](../concepts/backends.md) for why the
-seam is drawn where it is.
+Adding a cloud or scheduler requires two backend classes and one configuration
+model. The job layer, CLI, and state database do not change. See
+[Serving vs compute backends](../concepts/backends.md) for this boundary.
 
 This is a guide for contributors. It describes internal interfaces, which are not
 covered by the public API promise in [Reference](../reference/index.md) and can
@@ -12,16 +10,16 @@ change between releases.
 
 ## The shape of it
 
-Three pieces, and a fourth line to register them:
+Implement and register these components:
 
-1. a **serving backend** that creates an endpoint and reports when it is ready
-2. a **compute backend** that runs a job against that endpoint
-3. a **config model** carrying your platform's settings, which builds the pair
-4. an entry in the backend union so `type: yours` in YAML selects it
+1. A serving backend that creates an endpoint and reports readiness
+2. A compute backend that runs a job against the endpoint
+3. A configuration model that builds the backend pair
+4. A backend union entry that selects the model from its YAML `type`
 
-Both backends are `typing.Protocol` definitions, not base classes. You do not
-inherit from them — implementing the methods is enough, and
-`isinstance` still works because they are `runtime_checkable`.
+Both backends are `typing.Protocol` definitions, not base classes. Implement
+their methods without inheritance. `isinstance` works because the protocols are
+`runtime_checkable`.
 
 ## 1. The serving backend
 
@@ -48,19 +46,17 @@ class ServingHandle:
     meta: dict[str, Any]     # ports, job ids, workspace, whatever you need back
 ```
 
-Put everything reattachment needs in `meta`. The process that ran `up` is gone by
-the time someone runs `job submit --name my-swarm`, and `meta` is how your backend
-recognises what it created — this is what makes
-[swarm state](swarm-state.md) work.
+Put all reattachment data in `meta`. The original `up` process has ended when a
+later command uses `job submit --name my-swarm`. The backend uses `meta` to find
+its resources. See [swarm state](swarm-state.md).
 
 `status` returns a `ServingStatus(phase, url, detail)`, where `phase` is a
 `ServingPhase`: `UNKNOWN`, `PENDING`, `INITIALIZING`, `RUNNING`, `FAILED` or
-`STOPPED`. Map your platform's vocabulary onto those six — `domyn-swarm status`
-and the JSON contract are written against the enum, not your strings, and
-anything platform-specific belongs in `detail`.
+`STOPPED`. Map platform states to these six values. `domyn-swarm status` and the
+JSON contract use this enum. Put platform-specific information in `detail`.
 
-`create_or_update` is named for a reason: it must be safe to call against a name
-that already exists, reconciling rather than failing or duplicating.
+`create_or_update` must reconcile an existing name without failure or
+duplication.
 
 ## 2. The compute backend
 
@@ -90,36 +86,32 @@ class MyComputeBackend(DefaultComputeMixin):
     def cancel(self, handle): ...
 ```
 
-The mixin's defaults are deliberately conservative: the current interpreter, no
-image, no resources, no extra environment. Override the `default_*` hooks when
-your platform can infer better, so that a job submission does not have to name
-an interpreter or an image the platform already knows.
+The mixin uses the current interpreter without an image, resources, or extra
+environment. Override a `default_*` hook when the platform can infer a better
+value.
 
-`JobStatus` is the five-state vocabulary — `PENDING`, `RUNNING`, `SUCCEEDED`,
-`FAILED`, `CANCELLED`. Use `coerce_job_status()` to normalise a raw payload rather
-than mapping strings yourself; it falls back to `PENDING` on anything it does not
-recognise.
+`JobStatus` contains `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, and `CANCELLED`.
+Use `coerce_job_status()` to normalize a raw payload. Unknown values become
+`PENDING`.
 
 ### probe versus wait
 
-`wait` blocks. `probe` must not: it answers "what is this job doing right now",
-and it is what `job status --refresh` calls. Returning a `JobProbe` with `error`
-set is how you say *I could not tell* — which is not the same as *it failed*, and
-the distinction matters, because [`db prune`](swarm-state.md) removes records
-whose probe raises.
+`wait` blocks, but `probe` must return immediately. `job status --refresh` calls
+`probe`. Set `JobProbe.error` when the backend cannot determine the state. This
+state is different from a failed job. [`db prune`](swarm-state.md) removes
+records when a probe raises an exception.
 
-The mixin's `probe` just echoes the handle's last known status with
-`source="local"`. That is honest but useless for a platform you can actually
-query, so implement it if you can.
+The mixin returns the last recorded status with `source="local"`. Implement
+`probe` when the platform provides live job state.
 
 ### Sharding
 
-`nshards` and `shard_id` are passed through to your `submit`. You do not have to
-schedule shards yourself — each shard arrives as its own `submit` call. Just make
-sure both values reach the job process, since the job layer uses them to decide
-which rows it owns. See [Sharding and concurrency](sharding-concurrency.md).
+`nshards` and `shard_id` pass through to `submit`. Each shard has a separate
+`submit` call. Make sure that both values reach the job process because the job
+layer uses them to select rows. See
+[Sharding and concurrency](sharding-concurrency.md).
 
-## 3. The config model
+## 3. The configuration model
 
 A Pydantic model with a literal `type`, which is the discriminator, and a `build`
 that returns the assembled pair:
@@ -152,21 +144,19 @@ class MyBackendConfig(BaseModel):
         )
 ```
 
-Two conventions worth following rather than discovering:
+Follow these conventions:
 
-**Describe every field.** `Field(description=...)` is what the
-[configuration reference](../reference/configuration.md) renders, and a test
-fails on any field without one. It walks the config graph from the root, so a
-model reachable from your config is covered automatically.
+1. Add `Field(description=...)` to every field. The
+   [configuration reference](../reference/configuration.md) renders this text.
+   A test fails when a reachable model contains a field without a description.
 
-**Import platform SDKs inside `build`.** Every backend does this. Loading a YAML
-config must not require the SDKs of platforms you are not using — the Lepton SDK
-is an optional extra precisely so Slurm users need not install it.
+2. Import platform SDKs inside `build`. Loading a YAML configuration must not
+   import an unused platform SDK. For example, Slurm users do not install the
+   optional Lepton SDK.
 
-`cfg_ctx` is the whole `DomynLLMSwarmConfig`, which is where the
-platform-independent settings live: `replicas`, `gpus_per_replica`, `model`,
-`env`. Your `serving_spec` is the dict handed to `create_or_update`, so merge in
-whatever your backend needs from both.
+`cfg_ctx` contains the full `DomynLLMSwarmConfig`, including `replicas`,
+`gpus_per_replica`, `model`, and `env`. `create_or_update` receives
+`serving_spec`. Add all required values from both configuration objects.
 
 ## 4. Register it
 
@@ -180,9 +170,9 @@ BackendConfig = Annotated[
 ]
 ```
 
-That is the whole registration. `DomynLLMSwarmConfig.backend` is typed as
-`BackendConfig`, so `type: mybackend` in YAML now selects your model, `PlanBuilder`
-calls your `build`, and the CLI works unchanged.
+`DomynLLMSwarmConfig.backend` uses the `BackendConfig` union. A YAML value of
+`type: mybackend` selects the new model. `PlanBuilder` then calls `build`. The
+CLI does not need another registration step.
 
 ```yaml
 model: "some-org/some-model"
@@ -194,13 +184,11 @@ backend:
 
 ## What you will hit
 
-**`DeploymentPlan.platform` is a closed literal.** It is typed
-`Literal["lepton", "slurm"]`, so a third platform needs that annotation widened.
-It is also worth checking where `platform` is read before assuming a new value is
-handled everywhere.
+`DeploymentPlan.platform` is a closed literal. It uses
+`Literal["lepton", "slurm"]`. Add the new platform to this annotation and inspect
+each consumer of `platform`.
 
-**Not every feature is backend-agnostic.** Some deliberately are not, and it is
-better to know which up front than to discover a half-working feature:
+Some features are platform-specific:
 
 | Feature | Where it lives |
 | --- | --- |
@@ -208,10 +196,9 @@ better to know which up front than to discover a half-working feature:
 | [Prometheus monitoring](metrics.md) | Slurm only, built out of load-balancer sidecars |
 | Swarm state, jobs, checkpointing, data backends | platform-independent |
 
-A new backend gets the whole job layer for free, and gets no health reporting
-until someone writes it. That is not a bug in your backend — `status` reporting
-`RUNNING` from the platform with no per-replica rows is the expected shape for a
-backend that has no watchdog.
+A new backend can use the existing job layer. It has no replica health data
+until it implements health reporting. Without a watchdog, `status` can report
+platform state as `RUNNING` without per-replica rows.
 
 ## Testing it
 
@@ -226,10 +213,9 @@ def test_backends_satisfy_the_protocols():
     assert isinstance(MyComputeBackend(cfg=cfg), ComputeBackend)
 ```
 
-Be aware of what that does *not* check: `runtime_checkable` protocols verify
-method *names*, not signatures. A `submit` with the wrong keyword arguments passes
-`isinstance` and fails when called, so test a real `submit` and `probe` against a
-faked platform client as well.
+`runtime_checkable` protocols inspect method names, not signatures. A `submit`
+method with incorrect keyword arguments can pass `isinstance`. Test `submit`
+and `probe` with a fake platform client.
 
 The existing backends under `src/domyn_swarm/backends/` are the reference
 implementations, and `tests/backends/` shows how they are tested without a

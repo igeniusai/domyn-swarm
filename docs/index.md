@@ -1,8 +1,8 @@
 # domyn-swarm
 
-A CLI and Python library for launching **LLM serving endpoints** and running
-**high-throughput batch jobs** against them, with first-class support for
-**Slurm** and **NVIDIA DGX Cloud Lepton**.
+A CLI and Python library for launching LLM serving endpoints and running
+high-throughput batch jobs against them. It supports Slurm and NVIDIA DGX Cloud
+Lepton.
 
 ```bash
 domyn-swarm up -c config.yaml
@@ -12,15 +12,12 @@ domyn-swarm down my-swarm
 
 ## Why domyn-swarm
 
-Serving a model at scale and running work against it are usually two unrelated
-chores: one person writes the launch scripts, another writes the batch loop, and
-the two agree by convention about where the endpoint lives. domyn-swarm makes
-that one workflow. A YAML file describes the swarm; `up` stands up replicas
-behind a load balancer and waits until they actually answer; `job submit` runs a
-typed job against them with batching, retries and checkpointing; `down` removes
-everything it created.
+Model serving and batch processing often use separate tools. domyn-swarm joins
+them in one workflow. A YAML file describes the swarm. `up` starts replicas
+behind a load balancer and waits for them to respond. `job submit` runs a typed
+job with batching, retries, and checkpointing. `down` removes the deployment.
 
-The same commands work on an HPC cluster and in the cloud. Only the config's
+The same commands work on an HPC cluster and in the cloud. Only the configuration's
 `backend` section changes.
 
 ::::{grid} 1 2 2 2
@@ -58,37 +55,35 @@ CLI, configuration and Python API, generated from the source.
 
 ## What it does
 
-- **One CLI across platforms** — `up`, `job submit`, `status`, `down` behave the
-  same on Slurm and Lepton
-- **Endpoints that are ready when they say they are** — replicas are health-probed
-  before `up` returns, so a job never starts against a model that is still loading
-- **Jobs that survive failure** — DataFrame in, DataFrame out, with bounded
-  concurrency, retries with backoff, and Parquet checkpointing that can resume a
-  half-finished run
-- **A script escape hatch** — when a job class is the wrong shape, submit any
-  Python file to the compute backend instead
-- **Swarms you can find again** — state is kept in a local SQLite database, so a
-  swarm is addressable by name from any later command
-- **Backends behind protocols** — serving and compute are separate interfaces, so
-  supporting a new platform adds code rather than changing it
+- One CLI supports Slurm and Lepton. `up`, `job submit`, `status`, and `down`
+  use the same interface on both platforms.
+- Health probes run before `up` returns. Jobs do not start while a model is still
+  loading.
+- Jobs support bounded concurrency, retries with backoff, and Parquet
+  checkpoints. An interrupted job can resume from completed work.
+- `job submit-script` submits a Python file when a job class does not fit the
+  task.
+- A local SQLite database stores swarm state. Later commands can address the
+  swarm by name.
+- Separate serving and compute protocols isolate platform-specific code.
 
 ## Supported backends
 
-Serving and compute — where the model runs, and where jobs execute:
+Serving and compute backends control where models and jobs run:
 
 | Backend | Notes |
 | --- | --- |
-| **Slurm** | Singularity containers and a job array for replicas, behind an Nginx load balancer |
-| **NVIDIA DGX Cloud Lepton** | Endpoint plus batch job through the Lepton SDK (`domyn-swarm[lepton]`) |
+| Slurm | Singularity containers and a job array for replicas, behind an Nginx load balancer |
+| NVIDIA DGX Cloud Lepton | Endpoint plus batch job through the Lepton SDK (`domyn-swarm[lepton]`) |
 
-Data — how job input and output are read, written and iterated. See
+Data backends control how jobs read, write, and iterate over data. See
 [Choosing a data backend](guides/data-backends.md):
 
 | Backend | Install |
 | --- | --- |
-| **pandas** | always available; the default |
-| **polars** | `domyn-swarm[polars]` |
-| **ray** | `domyn-swarm[ray]` |
+| pandas | always available and used by default |
+| polars | `domyn-swarm[polars]` |
+| ray | `domyn-swarm[ray]` |
 
 ## Where to go next
 

@@ -1,14 +1,14 @@
 # Architecture
 
 Serving a model and running work against it are two different problems, and
-domyn-swarm keeps them apart. That separation is the single idea most worth
-understanding before changing anything.
+domyn-swarm keeps them separate. This boundary determines the structure of the
+system.
 
 ## DomynLLMSwarm owns the lifecycle
 
 {py:class}`~domyn_swarm.core.swarm.DomynLLMSwarm` is a context manager. Entering
-it brings an endpoint up and waits for readiness; leaving it tears the endpoint
-down, unless `delete_on_exit=False` keeps the allocation alive for later.
+it starts an endpoint and waits for readiness. Leaving it stops the endpoint
+unless `delete_on_exit=False` keeps the allocation alive.
 
 ```python
 with DomynLLMSwarm(cfg=cfg) as swarm:
@@ -24,12 +24,12 @@ It is a thin coordinator. The platform-specific work lives below it.
 
 `Deployment` composes exactly two collaborators and nothing else:
 
-- a **`ServingBackend`**, which owns the model endpoint
-- a **`ComputeBackend`**, which owns the processes that call that endpoint
+- `ServingBackend` owns the model endpoint.
+- `ComputeBackend` owns the processes that call that endpoint.
 
-Its flow is `up(name, ctx)` → `wait_ready(timeout_s)` → `run(...)` → `down(handle)`,
-and it is itself a context manager, so a raised exception still deletes the
-endpoint rather than leaking an allocation.
+Its flow is `up(name, ctx)` → `wait_ready(timeout_s)` → `run(...)` →
+`down(handle)`. It is also a context manager. A raised exception still deletes
+the endpoint instead of leaving an allocation active.
 
 The handle passed between those calls is a `ServingHandle`, carrying the endpoint
 URL and whatever platform metadata the backend needs to find its resources again.
@@ -64,76 +64,73 @@ The compute side provides:
 `probe`
 : report a `JobProbe` for a handle, which is how status refresh works
 
-Compute backends also supply defaults — `default_python`, `default_image`,
-`default_resources`, `default_env` — so that a job submission does not have to
-name a Python interpreter or an image the platform can infer. `DefaultComputeMixin`
-provides the common answers.
+Compute backends also supply `default_python`, `default_image`,
+`default_resources`, and `default_env`. A job submission does not need to name
+values that the platform can infer. `DefaultComputeMixin` provides common
+implementations.
 
-Both are `Protocol` definitions rather than base classes, so a backend satisfies
-them structurally. See
+Both are `Protocol` definitions rather than base classes. A backend satisfies
+them through its methods. See
 [Serving vs compute backends](backends.md).
 
 ## Jobs run beside the endpoint, not inside it
 
 A job never runs in the serving container. The compute backend starts a separate
-process — `srun` on Slurm, a batch job on Lepton — with `ENDPOINT` and `MODEL` in
-its environment, and that process talks to the endpoint over HTTP like any other
-client.
+process. Slurm uses `srun`, and Lepton uses a batch job. The process receives
+`ENDPOINT` and `MODEL` in its environment and calls the endpoint over HTTP.
 
-This is why `job submit-script` can run arbitrary Python: from the endpoint's
-point of view there is no difference between a `SwarmJob` and a script you wrote,
-and adding a new job type needs no change to the serving side.
+As a result, `job submit-script` can run arbitrary Python. The endpoint handles a
+`SwarmJob` and a submitted script in the same way. A new job type does not
+require a change to the serving backend.
 
 See [The SwarmJob lifecycle](swarmjob-lifecycle.md).
 
 ## State makes swarms outlive processes
 
-Every swarm is recorded in a local SQLite database: deployment metadata, resource
-handles, the configuration it was created from, platform identifiers such as job
-IDs and node assignments, and the endpoint URL.
+Every swarm has a record in a local SQLite database. The record contains
+deployment metadata, resource handles, and the configuration that created the
+swarm. It also contains platform identifiers, node assignments, and the endpoint
+URL.
 
-That record is why `--name` works. The process that ran `up` is long gone by the
-time you run `job submit --name my-swarm`; the swarm is rehydrated from state
-rather than re-derived. It is also what makes `DomynLLMSwarm.from_state(name)`
-possible, and what `swarm list` reads.
+That record is why `--name` works. The original `up` process has ended by the
+time you run `job submit --name my-swarm`. The command restores the swarm from
+state. `DomynLLMSwarm.from_state(name)` and `swarm list` read the same record.
 
 See [Managing swarm state](../guides/swarm-state.md).
 
 ## The load balancer reconciles rather than being configured
 
-Nginx needs to know where the replicas are, but nothing knows that at submission
-time — Slurm decides placement, and replicas appear one by one. So the
-load-balancer config is not written once; it converges.
+Nginx needs the location of each replica. Slurm decides placement after
+submission, and replicas appear one at a time. The load-balancer configuration
+must converge as locations become available.
 
 Each replica writes a `replica-<id>.head` file, holding its `host:port`, into the
-swarm's shared serving directory. A **supervisor** process watches that directory
-and regenerates `00-upstreams.conf` from whatever is currently there, plus
-Prometheus's target files when monitoring is on. Adding or losing a replica is
-therefore a file appearing or vanishing, not an event anyone has to deliver.
+swarm's shared serving directory. A supervisor process watches that directory
+and regenerates `00-upstreams.conf` from the current files. It also writes
+Prometheus target files when monitoring is on. A file addition or removal
+represents a replica change.
 
-The supervisor only *writes*. It never reloads Nginx — and that split is forced
-rather than chosen. Nginx runs in its own Singularity instance, and
-`singularity instance start` puts it in a private PID namespace, so a process in
-another container cannot signal the Nginx master. Instead the load-balancer script
-watches the generated file host-side and, when it changes, runs `nginx -t` and
-then `nginx -s reload` through `singularity exec instance://`. A config that
-fails validation is not loaded, so a partial write cannot take the endpoint down.
+The supervisor writes files but does not reload Nginx. Nginx runs in a separate
+Singularity instance with a private PID namespace. A process in another
+container cannot signal the Nginx master. The load-balancer script watches the
+generated file on the host. After a change, it runs `nginx -t` and then
+`nginx -s reload` through `singularity exec instance://`. It does not load an
+invalid configuration.
 
-The same reconcile loop is what makes metrics work without configuration: the
-targets Prometheus reads are generated from the same head files as the upstreams,
-which is why a new replica is scraped without anyone editing a scrape config. See
+The same reconcile loop generates Prometheus targets from the replica head
+files. Prometheus can scrape a new replica without a manual configuration
+change. See
 [Metrics and dashboards](../guides/metrics.md).
 
 ## Health is reported, not inferred
 
-Replicas do not simply run and hope. Each is supervised by a watchdog that probes
-it and reports to a single collector, which owns the health database that
-`domyn-swarm status` reads. That indirection exists for a specific reason,
-explained in [Watchdog and collector](watchdog-collector.md).
+Each replica has a watchdog that probes it. The watchdog reports to one
+collector, which owns the health database for `domyn-swarm status`. See
+[Watchdog and collector](watchdog-collector.md) for the reason for this design.
 
 ## Where to go next
 
-- [Serving vs compute backends](backends.md) — the two protocols in detail
-- [The SwarmJob lifecycle](swarmjob-lifecycle.md) — from CLI to output file
-- [Watchdog and collector](watchdog-collector.md) — why health has its own process
-- [Configuration precedence](configuration.md) — where a value actually comes from
+- [Serving vs compute backends](backends.md): The two protocols
+- [The SwarmJob lifecycle](swarmjob-lifecycle.md): From CLI to output file
+- [Watchdog and collector](watchdog-collector.md): Health reporting processes
+- [Configuration precedence](configuration.md): Sources and priority of values

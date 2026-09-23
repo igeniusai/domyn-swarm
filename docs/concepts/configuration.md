@@ -1,24 +1,24 @@
 # Configuration precedence
 
-A value reaching a running swarm can come from four places. Knowing which one
-won is the difference between a five-minute fix and an afternoon.
+A swarm value can come from four sources. The source determines which value the
+swarm uses.
 
 ## The chain
 
 Highest priority first:
 
-1. **CLI arguments and the YAML config** — what you wrote for this swarm
-2. **`defaults.yaml`** — written by `domyn-swarm init defaults`
-3. **Built-in defaults** — the values in the Pydantic models
-4. **Environment variables** — a separate axis; see below
+1. CLI arguments and the YAML configuration for the swarm
+2. `defaults.yaml`, written by `domyn-swarm init defaults`
+3. Built-in defaults from the Pydantic models
+4. Environment variables, which use separate precedence rules
 
-Any field you omit inherits from the next level down, which is why configs can
-stay to three or four lines.
+Any field you omit inherits from the next level down. A configuration can
+therefore contain only three or four lines.
 
 ## `domyn-swarm init defaults`
 
-Records the values that are the same for every swarm on your cluster, so they stop
-being repeated in every config:
+This command records the values that are the same for every swarm on your
+cluster. You do not need to repeat these values in each configuration:
 
 ```bash
 domyn-swarm init defaults
@@ -28,10 +28,9 @@ It prompts for Slurm partition, account and QoS, the endpoint's Nginx image and
 port, the polling interval, and optionally the Lepton workspace and images. The
 answers are written to `~/.domyn_swarm/defaults.yaml`, or to `-o/--output`.
 
-Re-run it whenever the cluster changes; `--force` overwrites an existing file.
-Individual values can still be overridden per swarm — switch the `partition`,
-`qos` or `nginx_image` for one deployment while everything else keeps the
-recorded defaults.
+Run the command again after the cluster configuration changes. The `--force`
+flag overwrites an existing file. A swarm configuration can override individual
+values such as `partition`, `qos`, or `nginx_image`.
 
 ## How defaults.yaml is found
 
@@ -46,25 +45,23 @@ The file is loaded once and cached for the process.
 
 ## "Computed" defaults that are actually required
 
-This is the part that surprises people, and it is visible in the generated
-[Configuration reference](../reference/configuration.md).
+The generated [Configuration reference](../reference/configuration.md) marks
+some fields as computed.
 
-Fields like `backend.partition`, `backend.account` and `backend.qos` are shown as
-*computed* rather than **required**, because their default is a factory that reads
-`defaults.yaml`. But that factory has no fallback: if the key is missing or empty
-in `defaults.yaml`, and you did not supply it in your YAML, it raises
+Fields such as `backend.partition`, `backend.account` and `backend.qos` are shown
+as computed. Their default is a factory that reads `defaults.yaml`. The factory
+has no fallback. It raises this error if the key is empty or absent from both
+`defaults.yaml` and the swarm YAML:
 
 ```text
 Missing required configuration key: slurm.partition
 ```
 
-So *computed* means "resolved from `defaults.yaml`, or an error" — not "safe to
-omit". A field is genuinely safe to omit only when its description names a
-concrete default or a formula.
+Here, computed means that the field resolves from `defaults.yaml` or raises an
+error. A field is optional only when its description gives a default or formula.
 
-This is also why the same config file works for one colleague and fails for
-another: their `defaults.yaml` differs, and nothing in the config file records
-the dependency.
+The same swarm configuration can behave differently with another
+`defaults.yaml` file. The swarm configuration does not record this dependency.
 
 ## Environment variables are a different axis
 
@@ -72,22 +69,23 @@ the dependency.
 working directory and `~/.domyn_swarm/.env`. Some fields carry explicit aliases
 that drop the prefix, such as `VLLM_API_KEY`.
 
-These are not swarm config fields, and they do not sit in the chain above. They
-configure the *process*: where state lives, log verbosity, API tokens. Full list:
-[Environment variables](../reference/environment.md).
+These are not swarm configuration fields, so they are not part of the chain
+above. They configure the process, including state storage, log verbosity, and
+API tokens. See [Environment variables](../reference/environment.md) for the full
+list.
 
-Two of them do reach into swarm configuration, which is worth knowing:
+Two environment variables affect swarm configuration:
 
-- **`DOMYN_SWARM_HOME`** supplies the default for `home_directory`, so it moves
-  where state, logs and checkpoints are written
-- **`DOMYN_SWARM_DEFAULTS`** selects which `defaults.yaml` is read, and therefore
-  changes level 2 of the chain wholesale
+- `DOMYN_SWARM_HOME` supplies the default for `home_directory`. It changes
+  where state, logs and checkpoints are written.
+- `DOMYN_SWARM_DEFAULTS` selects the `defaults.yaml` file. It changes the second
+  level of the precedence chain.
 
 Both are read when the value is first resolved, so exporting them after a process
 has started has no effect on it.
 
 ## Debugging where a value came from
 
-Set `DOMYN_SWARM_LOG_LEVEL=DEBUG`. The defaults loader logs each key it resolves
-and the fallback it considered, which is usually enough to see whether a value
-came from your YAML, from `defaults.yaml`, or from a built-in default.
+Set `DOMYN_SWARM_LOG_LEVEL=DEBUG`. The defaults loader logs each resolved key and
+the fallback that it considered. The log identifies values from the swarm YAML,
+`defaults.yaml`, and built-in defaults.

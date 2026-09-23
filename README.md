@@ -9,7 +9,7 @@
 **Deploy LLMs and run resumable batch inference on Slurm and NVIDIA DGX Cloud Lepton.**
 
 domyn-swarm is a CLI and Python library that combines model deployment and batch processing in one
-workflow. vLLM handles inference; domyn-swarm manages replicas, load balancing, and job execution.
+workflow. vLLM handles inference. domyn-swarm manages replicas, load balancing, and job execution.
 
 [![Documentation](https://img.shields.io/badge/docs-latest-blue)](https://domynswarm.domyn.com/)
 [![CI](https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml/badge.svg)](https://github.com/igeniusai/domyn-swarm/actions/workflows/ci.yaml)
@@ -62,8 +62,8 @@ show inference throughput, queue depth, and GPU utilization.
 ## Quick start
 
 > [!NOTE]
-> domyn-swarm is not yet published on PyPI. Install from the repository for now; `pip install domyn-swarm`
-> will work from the first published release.
+> domyn-swarm is not yet published on PyPI. Install it from the repository.
+> `pip install domyn-swarm` will work after the first published release.
 
 ```bash
 uv tool install --from git+https://github.com/igeniusai/domyn-swarm.git@v0.30.0 --python 3.12 domyn-swarm
@@ -90,8 +90,8 @@ pip install 'domyn-swarm[all]'      # everything
 The [`examples/configs/`](examples/configs/) directory holds ready-made configurations. This one
 serves NVIDIA Nemotron-3-Super-120B-A12B across two replicas of four GPUs each, following the
 [vLLM recipe](https://recipes.vllm.ai/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16)
-([`nemotron_3_super.yaml`](examples/configs/nemotron_3_super.yaml)) — fill in the image paths,
-partition, account and QoS for your cluster:
+([`nemotron_3_super.yaml`](examples/configs/nemotron_3_super.yaml)). Set the image paths,
+partition, account, and QoS for your cluster:
 
 ```yaml
 # NVIDIA Nemotron-3-Super-120B-A12B (BF16) — a ~120B latent-MoE with ~12B active
@@ -127,11 +127,11 @@ backend:
     nginx_image: "/path/to/nginx.sif"
 ```
 
-**2. Launch it**
+### 2. Launch the swarm
 
 `up` submits the replica and load-balancer jobs and returns once the endpoint answers a health check.
-Every swarm gets a unique name — the one in the config plus a short suffix — and `up` writes it to
-stdout so it can be captured:
+Every swarm name combines the configured name with a short suffix. `up` writes
+this name to standard output so that a script can capture it:
 
 ```console
 $ SWARM=$(domyn-swarm up -c examples/configs/nemotron_3_super.yaml)
@@ -144,7 +144,7 @@ $ echo $SWARM
 nemotron-3-super-120b-01m1bq26m7
 ```
 
-**3. Run a batch job**
+### 3. Run a batch job
 
 ```console
 $ domyn-swarm job submit \
@@ -160,11 +160,11 @@ $ domyn-swarm job submit \
 ```
 
 This is the built-in chat-completion job reading the `messages` column. The example dataset has 65
-rows; checkpoints are flushed every 16 by default, so an interrupted run picks up from the last flush
-rather than starting over. Raising `replicas` spreads the same job across more of them, with the load
-balancer distributing requests.
+rows. By default, the job writes a checkpoint after every 16 rows. An interrupted
+run continues from the last checkpoint. A higher `replicas` value distributes
+requests across more replicas.
 
-**4. Inspect it, then release it**
+### 4. Inspect and stop the swarm
 
 ```console
 $ domyn-swarm status $SWARM      # live panel: replica states, endpoint, recorded jobs
@@ -217,12 +217,13 @@ See the [Jobs API reference](https://domynswarm.domyn.com/latest/reference/api/j
 
 ## Backends
 
-The same core commands—`up`, `job submit`, `status`, and `down`—are available on both platforms:
+The same core commands are available on both platforms: `up`, `job submit`,
+`status`, and `down`.
 
-- **Slurm** — included in the base installation. See [Slurm setup](https://domynswarm.domyn.com/latest/guides/slurm.html).
-- **NVIDIA DGX Cloud Lepton** — requires the `lepton` extra and workspace credentials. See [Lepton setup](https://domynswarm.domyn.com/latest/guides/lepton.html).
+- Slurm is included in the base installation. See [Slurm setup](https://domynswarm.domyn.com/latest/guides/slurm.html).
+- NVIDIA DGX Cloud Lepton requires the `lepton` extra and workspace credentials. See [Lepton setup](https://domynswarm.domyn.com/latest/guides/lepton.html).
 
-Job input and output support **pandas** (default), **polars**, and **Ray Data**.
+Job input and output support pandas (default), polars, and Ray Data.
 See [Choosing a data backend](https://domynswarm.domyn.com/latest/guides/data-backends.html).
 
 To add support for another platform, see [Implementing a backend](https://domynswarm.domyn.com/latest/guides/implementing-a-backend.html).
@@ -238,20 +239,20 @@ The full documentation is published at **[domynswarm.domyn.com](https://domynswa
 | [Getting started](https://domynswarm.domyn.com/latest/getting-started/index.html) | install, launch a swarm, write your first custom job |
 | [Guides](https://domynswarm.domyn.com/latest/guides/index.html) | Slurm and Lepton, checkpointing, sharding, data backends, monitoring |
 | [Concepts](https://domynswarm.domyn.com/latest/concepts/index.html) | architecture, backend protocols, the `SwarmJob` lifecycle, configuration |
-| [Reference](https://domynswarm.domyn.com/latest/reference/index.html) | CLI, configuration, environment variables and Python API — generated from source |
+| [Reference](https://domynswarm.domyn.com/latest/reference/index.html) | CLI, configuration, environment variables, and Python API generated from source |
 
 ---
 
 ## Contributing
 
 Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the development
-setup, coding style and commit conventions; participation is governed by our
+setup, coding style, and commit conventions. Participation is governed by our
 [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, follow our
 [security policy](SECURITY.md).
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The project uses the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## Citation
 
