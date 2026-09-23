@@ -33,13 +33,7 @@ import sys
 import time
 from typing import Any
 
-# Same table name as in watchdog
 REPLICA_STATUS_TABLE = "replica_status"
-
-
-# ---------------------------------------------------------------------------
-# SQLite helpers
-# ---------------------------------------------------------------------------
 
 
 def open_db(path: Path) -> sqlite3.Connection:
@@ -189,11 +183,6 @@ def upsert_status(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
                 normalized["agent_version"],
             ),
         )
-
-
-# ---------------------------------------------------------------------------
-# Collector loop (TCP)
-# ---------------------------------------------------------------------------
 
 
 def _bind_listener(host: str, port: int) -> socket.socket | None:
@@ -408,11 +397,6 @@ def run_collector(
 
     print("collector: shutting down.", file=sys.stderr)
     return 0
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

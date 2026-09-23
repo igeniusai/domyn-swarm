@@ -328,14 +328,11 @@ class MultiTurnChatCompletionJob(SwarmJob):
 
 
 class MultiTurnTranslationJob(SwarmJob):
-    """
-    For each row's `messages` (a list of dicts), replay the conversation
-    turn by turn, replacing the messages with the assistant's translation.
-    The translation system prompt is assumed to be the first message in the list
-    and is prepended to each query.
+    """Translate each non-system message while preserving its original role.
 
-    - Input  column: `messages`
-    - Output column: `results`
+    The first message supplies the translation system prompt and is prepended
+    to each request. The input column is `messages`; the output column is
+    `results`.
     """
 
     def __init__(
@@ -361,15 +358,17 @@ class MultiTurnTranslationJob(SwarmJob):
             **extra_kwargs,
         )
 
-    async def _run_translation(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        extra_body = self._request_kwargs()
+    async def _run_translation(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        extra_body: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        if extra_body is None:
+            extra_body = self._request_kwargs()
         running: list[dict[str, Any]] = []
 
         for i in range(1, len(messages)):
-            # # skip assistant messages, only translate system/user/tool messages
-            # if messages[i]["role"] == "assistant":
-            #     continue
-
             query = [
                 messages[0],
                 {
@@ -383,7 +382,6 @@ class MultiTurnTranslationJob(SwarmJob):
             )
             choice = resp.choices[0]
 
-            # append the assistant's translation to the messages
             running.append(
                 _assistant_message_dict(
                     role=messages[i]["role"], content=choice.message.content, message=choice.message
@@ -393,35 +391,5 @@ class MultiTurnTranslationJob(SwarmJob):
         return running
 
     async def transform_items(self, items: list[list[dict[str, Any]]]) -> list[Any]:
-        outs = []
         extra_body = self._request_kwargs()
-        for msgs in items:
-            running: list[dict[str, Any]] = []
-
-            for i in range(1, len(msgs)):
-                # # skip assistant messages, only translate system/user/tool messages
-                # if msgs[i]["role"] == "assistant":
-                #     continue
-
-                query = [
-                    msgs[0],
-                    {
-                        "role": "user",
-                        "content": msgs[i]["content"],
-                    },
-                ]
-
-                resp: ChatCompletion = await self.client.chat.completions.create(
-                    model=self.model, messages=query, extra_body=extra_body
-                )
-                choice = resp.choices[0]
-
-                # append the assistant's translation to the messages
-                running.append(
-                    _assistant_message_dict(
-                        role=msgs[i]["role"], content=choice.message.content, message=choice.message
-                    )
-                )
-
-            outs.append(running)
-        return outs
+        return [await self._run_translation(messages, extra_body=extra_body) for messages in items]

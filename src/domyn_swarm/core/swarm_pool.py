@@ -4,7 +4,7 @@
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, suppress
-from typing import Any, cast
+from typing import cast
 
 from ..config.swarm import DomynLLMSwarmConfig
 from .swarm import DomynLLMSwarm
@@ -14,59 +14,50 @@ from .swarm import DomynLLMSwarm
 def create_swarm_pool(
     *configs_or_swarms: "DomynLLMSwarmConfig | DomynLLMSwarm",
     config_or_swarm_list: list[DomynLLMSwarmConfig] | list[DomynLLMSwarm] | None = None,
-    max_workers=None,
-) -> Generator[tuple["DomynLLMSwarm"], Any, None]:
+    max_workers: int | None = None,
+) -> Generator[tuple["DomynLLMSwarm", ...], None, None]:
+    """Enter multiple swarms concurrently and yield them in input order.
+
+    Args:
+        *configs_or_swarms: Swarm configurations or existing swarm instances.
+        config_or_swarm_list: List-form alternative to positional inputs.
+        max_workers: Maximum number of concurrent context entries.
+
+    Yields:
+        Entered swarm instances in the same order as the inputs.
+
+    Raises:
+        ValueError: If inputs are missing, conflicting, or unsupported.
     """
-    You can use this utility function like this:
+    if configs_or_swarms and config_or_swarm_list is not None:
+        raise ValueError("Pass either positional inputs or config_or_swarm_list, not both")
 
-    ::
-
-        with create_swarm_pool(cfg1, cfg2, cfg3, max_workers=3) as (sw1, sw2, sw3):
-            sw1.submit_job()
-            sw2.submit_job()
-            sw3.submit_job()
-
-    or
-
-    ::
-
-        with create_swarm_pool(*my_cfg_list, max_workers=5) as swarms:
-            for swarm in swarms:
-                swarm.submit_job()
-
-    """
-
-    # 1) instantiate all the context-manager objects
-    # Casting required by pyright to understand the type
-    if configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarmConfig):
-        configs = cast(list[DomynLLMSwarmConfig], configs_or_swarms)
-        cms = [DomynLLMSwarm(cfg=config) for config in configs]
-    elif configs_or_swarms and isinstance(configs_or_swarms[0], DomynLLMSwarm):
-        cms = cast(list[DomynLLMSwarm], configs_or_swarms)
+    input_items = (
+        tuple(config_or_swarm_list) if config_or_swarm_list is not None else configs_or_swarms
+    )
+    if input_items and isinstance(input_items[0], DomynLLMSwarmConfig):
+        cms = [DomynLLMSwarm(cfg=cast(DomynLLMSwarmConfig, item)) for item in input_items]
+    elif input_items and isinstance(input_items[0], DomynLLMSwarm):
+        cms = [cast(DomynLLMSwarm, item) for item in input_items]
     else:
         raise ValueError(
             "configs_or_swarms must be either a sequence of DomynLLMSwarmConfig or DomynLLMSwarm"
         )
 
-    entered = []
+    entered: list[tuple[DomynLLMSwarm, DomynLLMSwarm]] = []
+    entered_by_index: dict[int, DomynLLMSwarm] = {}
     try:
-        # 2) call each __enter__ in parallel
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
-            # submit each cm.__enter__(); collect futures keyed by cm
-            futures = {exe.submit(cm.__enter__): cm for cm in cms}
+            futures = {exe.submit(cm.__enter__): (index, cm) for index, cm in enumerate(cms)}
             for future in as_completed(futures):
-                cm = futures[future]
-                res = future.result()  # will re-raise if __enter__ failed
+                index, cm = futures[future]
+                res = future.result()
                 entered.append((cm, res))
+                entered_by_index[index] = res
 
-        # 3) yield the tuple of entered results in the original order
-        #    (filter out any that didn't make it into 'entered' if one failed)
-        #    Note: if one __enter__ raised, we jump straight to finally, cleaning up
-        yield tuple(res for _, res in entered)
+        yield tuple(entered_by_index[index] for index in range(len(cms)))
 
     finally:
-        # 4) tear them all down, in reverse order of successful entry
-        #    pass None for exc_type, exc_val, tb if no exception
         for cm, _ in reversed(entered):
             with suppress(Exception):
                 cm.__exit__(None, None, None)

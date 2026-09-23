@@ -7,16 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-# SUT module (adjust path if your file lives elsewhere)
 import domyn_swarm.backends.compute.slurm as mod
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 import domyn_swarm.backends.compute.slurm_helpers as helpers
 from domyn_swarm.platform.protocols import JobProbe, JobStatus
 
 
-# ----------------------------
-# Fake SrunCommandBuilder
-# ----------------------------
 class FakeBuilder:
     last = None
 
@@ -38,7 +34,6 @@ class FakeBuilder:
         return self
 
     def build(self, exe):
-        # Return a concrete srun + flags + the exe tail
         self._exe = list(exe)
         return [
             "srun",
@@ -49,14 +44,9 @@ class FakeBuilder:
         ]
 
 
-# ----------------------------
-# Fixtures
-# ----------------------------
 @pytest.fixture(autouse=True)
 def patch_builder(monkeypatch):
-    # Replace the builder used inside the module
     monkeypatch.setattr(mod, "SrunCommandBuilder", FakeBuilder)
-    # Silence rich printing
     monkeypatch.setattr(mod, "rprint", lambda *a, **k: None)
     yield
 
@@ -69,9 +59,6 @@ def _mk_swarm_cfg():
     return SimpleNamespace(backend=_mk_cfg())
 
 
-# ----------------------------
-# FIFO helpers
-# ----------------------------
 def test_create_step_id_fifo_uses_swarm_jobs_dir(tmp_path, monkeypatch):
     created = {}
 
@@ -94,9 +81,6 @@ def test_create_step_id_fifo_uses_swarm_jobs_dir(tmp_path, monkeypatch):
     assert fifo.exists()
 
 
-# ----------------------------
-# submit(detach=True)
-# ----------------------------
 def test_submit_detach_uses_popen_and_returns_running(monkeypatch, tmp_path: Path):
     popen_calls = {}
     wait_calls = {}
@@ -132,14 +116,12 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch, tmp_path: Pat
         extras={"swarm_directory": str(tmp_path / "swarm")},
     )
 
-    # Builder captured env & exe
     b = FakeBuilder.last
     assert b is not None
     assert b.env == {"A": "B"}
     assert b._exe[0:2] == ["bash", "-lc"]
     assert 'echo "${SLURM_JOB_ID}.${SLURM_STEP_ID}"' in b._exe[2]
 
-    # Popen got the cmd returned by build (wrapped with bash -lc)
     assert popen_calls["cmd"][:4] == [
         "srun",
         "--jobid=123",
@@ -153,12 +135,10 @@ def test_submit_detach_uses_popen_and_returns_running(monkeypatch, tmp_path: Pat
     assert popen_calls["cmd"][bash_idx + 1] == "-lc"
     assert 'echo "${SLURM_JOB_ID}.${SLURM_STEP_ID}"' in popen_calls["cmd"][bash_idx + 2]
     assert "exec python -c 'print(1)'" in popen_calls["cmd"][bash_idx + 2]
-    # sanity on flags passed
     assert popen_calls["start_new_session"] is True
     assert popen_calls["close_fds"] is True
     assert popen_calls["text"] is True
 
-    # Handle fields
     assert handle.status is JobStatus.RUNNING
     assert handle.meta["pid"] == 5555
     assert handle.meta["external_id"] == "123.0"
@@ -198,9 +178,6 @@ def test_submit_detach_fails_if_external_id_unresolved(monkeypatch):
     assert terminate_calls == [5555]
 
 
-# ----------------------------
-# submit(detach=False)
-# ----------------------------
 def test_submit_sync_uses_run_and_returns_succeeded(monkeypatch):
     run_calls = {}
 
@@ -221,11 +198,9 @@ def test_submit_sync_uses_run_and_returns_succeeded(monkeypatch):
         detach=False,
     )
 
-    # subprocess.run invoked with builder's cmd and check=True
     assert run_calls["cmd"] == ["srun", "--jobid=42", "--nodelist=n1", "echo", "ok"]
     assert run_calls["check"] is True
 
-    # Handle
     assert handle.status is JobStatus.SUCCEEDED
     assert handle.id == "job-1"
     assert handle.meta["cmd"] == shlex.join(run_calls["cmd"])
@@ -250,11 +225,9 @@ def test_submit_adds_resource_flags(monkeypatch):
         detach=False,
     )
 
-    # Extra args passed to builder in order and False skipped
     b = FakeBuilder.last
     assert b.extra_args == ["--cpus-per-task=8", "--mem=24G", "--exclusive"]
 
-    # subprocess.run invoked with extra args before the exe tail
     assert run_calls["cmd"] == [
         "srun",
         "--jobid=11",
@@ -269,9 +242,6 @@ def test_submit_adds_resource_flags(monkeypatch):
     assert handle.id == "job-res"
 
 
-# ----------------------------
-# default_python
-# ----------------------------
 def test_default_python_uses_venv_when_dir_exists(tmp_path: Path):
     venv_dir = tmp_path / "venv"
     venv_dir.mkdir()
@@ -284,7 +254,6 @@ def test_default_python_uses_venv_when_dir_exists(tmp_path: Path):
 
 
 def test_default_python_falls_back_to_mixin(monkeypatch):
-    # Patch the mixin default to a sentinel to ensure super() is called
     monkeypatch.setattr(
         mod.DefaultComputeMixin,
         "default_python",
@@ -297,9 +266,6 @@ def test_default_python_falls_back_to_mixin(monkeypatch):
     assert be.default_python(cfg) == "SENTINEL_PY"
 
 
-# ----------------------------
-# wait()
-# ----------------------------
 def test_probe_with_external_id_uses_slurm_probe(monkeypatch):
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"external_id": "123.0"})
@@ -364,9 +330,6 @@ def test_probe_without_external_id_returns_failed():
     assert probe.raw_status == "MISSING_EXTERNAL_ID"
 
 
-# ----------------------------
-# cancel()
-# ----------------------------
 def test_cancel_without_external_id_is_noop():
     be = SlurmComputeBackend(cfg=_mk_cfg(), lb_jobid=1, lb_node="n")
     handle = SimpleNamespace(status=JobStatus.RUNNING, meta={"pid": 777})

@@ -6,16 +6,10 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-# Adjust this import to where your Typer app lives
 import domyn_swarm.cli.job as mod
 from domyn_swarm.platform.protocols import JobHandle, JobStatus
 
 runner = CliRunner()
-
-
-# ---------------------------
-# Helpers
-# ---------------------------
 
 
 def _mk_files(tmp_path: Path):
@@ -31,11 +25,6 @@ def _parse_last_json_line(text: str) -> dict:
     return json.loads(lines[-1])
 
 
-# ---------------------------
-# submit-script
-# ---------------------------
-
-
 def test_submit_script_with_config_runs_in_context(mocker, tmp_path: Path):
     script = tmp_path / "script.py"
     script.write_text("print('hi')")
@@ -46,7 +35,6 @@ def test_submit_script_with_config_runs_in_context(mocker, tmp_path: Path):
     cfg_obj = object()
     mocker.patch.object(mod, "_load_swarm_config", return_value=cfg_obj)
 
-    # Mock DomynLLMSwarm to return a context manager whose __enter__ returns a swarm
     swarm = mocker.MagicMock()
     cm = mocker.MagicMock()
     cm.__enter__.return_value = swarm
@@ -117,7 +105,6 @@ def test_submit_script_mutual_exclusion(mocker, tmp_path: Path):
             "my-swarm",
         ],
     )
-    # Should error because both --config and --name were provided
     assert result.exit_code != 0
 
 
@@ -130,21 +117,14 @@ def test_submit_script_raises_without_config_or_name(mocker, tmp_path: Path):
     assert "State is null" in str(result.exception)
 
 
-# ---------------------------
-# submit (job)
-# ---------------------------
-
-
 def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     in_path, out_path = _mk_files(tmp_path)
     config_path = tmp_path / "cfg.yaml"
     config_path.write_text("model: my-model\nname: my-swarm")
 
-    # Mock config loader
     cfg_obj = object()
     mocker.patch.object(mod, "_load_swarm_config", return_value=cfg_obj)
 
-    # Mock swarm context manager
     swarm = mocker.MagicMock()
     swarm.endpoint = "http://host:9000"
     swarm.model = "my-model"
@@ -159,7 +139,6 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
     cm.__exit__.return_value = None
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
-    # Mock JobBuilder to return a job object and assert some inputs
     job_obj = object()
 
     def _fake_build(job_class, job_kwargs, **kwargs):
@@ -167,7 +146,6 @@ def test_submit_job_with_config_happy_path(mocker, tmp_path: Path):
         assert isinstance(job_kwargs, str)
         assert kwargs["endpoint"] == swarm.endpoint
         assert kwargs["model"] == swarm.model
-        # Ensure the kwargs JSON is parseable
         _ = json.loads(job_kwargs)
         return job_obj
 
@@ -288,7 +266,6 @@ def test_submit_job_keyboard_interrupt_abort(mocker, tmp_path: Path):
     cfg_obj = object()
     mocker.patch.object(mod, "_load_swarm_config", return_value=cfg_obj)
 
-    # Context manager
     swarm = mocker.MagicMock()
     cm = mocker.MagicMock()
     cm.__enter__.return_value = swarm
@@ -296,13 +273,11 @@ def test_submit_job_keyboard_interrupt_abort(mocker, tmp_path: Path):
     cm.cleanup = mocker.MagicMock()
     mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
 
-    # Raise KeyboardInterrupt from job builder
     def _boom(*a, **k):
         raise KeyboardInterrupt()
 
     mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", side_effect=_boom)
 
-    # User chooses to abort → True; expect cleanup and abort
     mocker.patch.object(mod.typer, "confirm", return_value=True)
 
     res = runner.invoke(

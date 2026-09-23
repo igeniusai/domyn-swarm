@@ -23,6 +23,8 @@ logger = setup_logger(__name__)
 
 
 class SlurmDriver:
+    """Submit and inspect Slurm serving allocations for one swarm."""
+
     def __init__(self, cfg: DomynLLMSwarmConfig):
         self.cfg: DomynLLMSwarmConfig = cfg
 
@@ -36,8 +38,7 @@ class SlurmDriver:
         replicas_per_node: int,
         swarm_directory: str,
     ) -> int:
-        """Submit the replica array job to Slurm.
-        Returns the job ID of the submitted job."""
+        """Submit the replica array job and return its Slurm job ID."""
 
         assert isinstance(self.cfg.backend, SlurmConfig)
         env = jinja2.Environment(
@@ -69,11 +70,10 @@ class SlurmDriver:
         sbatch_cmd = ["sbatch", "--parsable", "--export=ALL"]
         array_spec = None
         if self.cfg.backend.requires_ray:
-            if self.cfg.backend.requires_ray:
-                logger.info(
-                    "Detected gpus_per_replica > gpus_per_node with "
-                    "multiple nodes: enabling Ray support."
-                )
+            logger.info(
+                "Detected gpus_per_replica > gpus_per_node with "
+                "multiple nodes: enabling Ray support."
+            )
             array_spec = f"0-{replicas - 1}%{replicas}"
             # In this case, the nodes are the total number of nodes to be allocated
             # So we divide by replicas to get the number of nodes per array task
@@ -184,29 +184,16 @@ class SlurmDriver:
         return head_node
 
     def get_job_state(self, jobid: int) -> str:
-        """Get the current state of a Slurm job.
+        """Return the current state of a Slurm job.
 
-        This method attempts to determine the job state using multiple approaches
-        in order of preference:
-
-        1. Live states from `squeue` for active jobs
-        2. Terminal states from `sacct` for completed jobs
-        3. Fallback to `scontrol show job` parsing
+        Queries `squeue`, `sacct`, and `scontrol` in order so active and
+        recently completed jobs are both discoverable.
 
         Args:
-            jobid (int): The Slurm job ID to query.
+            jobid: Slurm job ID to query.
 
         Returns:
-            str: The job state as a string. Possible values include:
-                - Live states: RUNNING, PENDING, CONFIGURING, COMPLETING, etc.
-                - Terminal states: COMPLETED, FAILED, CANCELLED, TIMEOUT,
-                  NODE_FAIL, OUT_OF_MEMORY, etc.
-                - 'UNKNOWN' if the state cannot be determined.
-
-        Note:
-            The method tries multiple Slurm commands to handle cases where jobs
-            may have transitioned between live and terminal states, or when
-            different commands may be unavailable or return different information.
+            The normalized Slurm state, or `UNKNOWN` if no command reports one.
         """
 
         def _run(cmd: list[str]) -> str:
@@ -218,7 +205,6 @@ class SlurmDriver:
                 pass
             return ""
 
-        # 1) Live state via squeue
         out = _run(["squeue", "-j", str(jobid), "-h", "-o", "%T"])
         if out:
             # %T returns a single token (e.g., RUNNING). Be cautious if someone changes the format.
@@ -227,9 +213,6 @@ class SlurmDriver:
             if state != "STATE":
                 return state
 
-        # 2) Final/terminal state via sacct (exclude steps with -X, machine-parsable with -P)
-        #    This returns lines like "COMPLETED" or "FAILED" (one per job or step).
-        #    With -X, we avoid step rows and keep the job record only.
         out = _run(["sacct", "-j", str(jobid), "-o", "State", "-n", "-X", "-P"])
         if out:
             # sacct may still return multiple lines in some schedulers (array parent/children).
@@ -244,7 +227,6 @@ class SlurmDriver:
                 if s and s != "STATE":
                     return s
 
-        # 3) Fallback: scontrol show job -o (one-line). Parse JobState=...
         out = _run(["scontrol", "show", "job", "-o", str(jobid)])
         if out:
             # one line of key=val pairs, e.g., "... JobState=FAILED Reason=..."

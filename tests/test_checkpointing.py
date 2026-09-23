@@ -14,14 +14,10 @@ def test_checkpoint_manager_filters_and_flushes(tmp_path):
     todo = manager.filter_todo()
     assert len(todo) == 3
 
-    # Simulate batched output: pretend todo_df has indices 0,1,2 → original index map
-    idx_map = [0, 1, 2]
-
-    # Simulate out_list aligned with todo_df, e.g., results of inference
+    index_map = [0, 1, 2]
     out_list = ["out0", "out1", "out2"]
 
-    # Simulate flushing rows 0 and 2 (in todo_df's index space)
-    manager.flush(out_list, new_ids=[0, 2], output_cols="c", idx_map=idx_map)
+    manager.flush(out_list, new_ids=[0, 2], output_cols="c", idx_map=index_map)
     manager.finalize()
 
     flushed_df = pd.read_parquet(path)
@@ -29,5 +25,3 @@ def test_checkpoint_manager_filters_and_flushes(tmp_path):
 
     final = manager.finalize()
     assert isinstance(final, pd.DataFrame)
-    # Disabled as long as checkpoint deletion is not implemented
-    # assert os.path.exists(path) is False

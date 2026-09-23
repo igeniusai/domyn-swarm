@@ -6,7 +6,8 @@ jobs against them with retries and checkpointing.
 
 ## Quick start
 
-- Install development and optional dependencies: `uv sync --all-extras`.
+- Install development, optional, and documentation dependencies:
+  `uv sync --all-extras --group docs`.
 - Inspect the CLI: `uv run domyn-swarm --help`.
 - Create environment defaults: `uv run domyn-swarm init defaults`.
 - Run a focused test: `uv run pytest tests/cli/test_main.py -q --no-cov`.
@@ -90,8 +91,10 @@ jobs against them with retries and checkpointing.
   container and must remain standard-library-only. Do not import
   `domyn_swarm` or third-party packages there.
 - Treat names exported by `src/domyn_swarm/__init__.py` as the supported Python
-  API. When adding or moving an export, update the targeted public-docstring
-  hook in `.pre-commit-config.yaml`.
+  API. Documented backend and platform extension contracts are also public;
+  other non-underscore names are not public merely because they are importable.
+  When adding or moving a package-root export, update the targeted
+  public-docstring hook in `.pre-commit-config.yaml`.
 - Keep top-level job compatibility shims working until a documented removal.
 - Pydantic `Field(description=...)` text is user-facing and feeds the generated
   configuration reference. Add or update it with every config field.
@@ -125,6 +128,8 @@ jobs against them with retries and checkpointing.
   implementation steps.
 - Use test docstrings only for a behavior contract, regression history, or
   fixture constraint that the test name cannot express.
+- Normalize legacy docstrings when changing the contract they describe. Do not
+  perform unrelated repository-wide normalization.
 
 ### Comments
 
@@ -132,6 +137,9 @@ jobs against them with retries and checkpointing.
   an external constraint, a non-local side effect, or a non-obvious tradeoff
   would otherwise surprise a careful reader. Do not narrate straightforward
   code.
+- Apply the same standard to tests. Avoid decorative section banners,
+  `Arrange`/`Act`/`Assert` labels, numbered walkthroughs, “should” comments, and
+  comments that repeat a test name.
 - Prefer clearer naming, types, and control flow over an explanatory comment.
 - Keep necessary comments concise and explain why the code has its present
   shape. Remove a comment when its rationale no longer applies.
@@ -165,6 +173,13 @@ jobs against them with retries and checkpointing.
 Run the relevant focused checks while iterating. Before review, run the full
 suite and pre-commit hooks unless the change is documentation-only and the
 omitted checks cannot exercise it.
+Behavioral claims about ordering, retries, caching, cleanup, or failure handling
+need tests that would fail if the claim stopped being true. Treat configured
+complexity limits as ceilings rather than targets; avoid adding branches to a
+function already near a limit.
+
+Files under `docs/_generated/` are build artifacts. Change their source models
+or documentation extensions instead of editing the generated files.
 
 ## Runtime paths and environment
 
@@ -174,10 +189,10 @@ omitted checks cannot exercise it.
 - Per-swarm health database: `.../swarms/<swarm-name>/watchdog.db`.
 - Load-balancer configuration and logs live in the per-swarm `serving/` and
   `logs/` directories.
-- Defaults search order is `DOMYN_SWARM_DEFAULTS`, `./defaults.yaml`,
-  `./.domyn_swarm/defaults.yaml`, then `~/.domyn_swarm/defaults.yaml`; the first
-  existing file wins.
-- `.env` is loaded from the current repository directory and
+- Defaults lookup checks `Settings.defaults_file` first. That setting uses
+  `DOMYN_SWARM_DEFAULTS` when set and otherwise defaults to
+  `~/.domyn_swarm/defaults.yaml`; working-directory candidates are fallbacks.
+- `.env` is loaded from the current working directory and
   `~/.domyn_swarm/.env`.
 - User-facing settings include `DOMYN_SWARM_HOME`, `DOMYN_SWARM_LOG_LEVEL`,
   `DOMYN_SWARM_DEFAULTS`, `DOMYN_SWARM_SKIP_DB_UPGRADE`, and

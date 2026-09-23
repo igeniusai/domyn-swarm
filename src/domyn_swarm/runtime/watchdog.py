@@ -58,10 +58,6 @@ import sys
 import time
 from urllib import error as urlerror, request
 
-# ---------------------------------------------------------------------------
-# Replica state model
-# ---------------------------------------------------------------------------
-
 MAX_REASON_LEN = 2048
 
 REPLICA_STATUS_TABLE = "replica_status"
@@ -102,7 +98,6 @@ class WatchdogConfig:
     counterpart: they are injected per replica at launch.
     """
 
-    # HTTP health
     host: str = "127.0.0.1"
     port: int = 8000
     http_path: str = "/health"
@@ -114,7 +109,6 @@ class WatchdogConfig:
 
     kill_grace_seconds: float = 10.0
 
-    # Restart
     restart_policy: str = "on-failure"  # "always" | "on-failure" | "never"
     restart_backoff_initial: float = 5.0
     restart_backoff_max: float = 60.0  # ceiling for the exponential backoff
@@ -122,11 +116,9 @@ class WatchdogConfig:
 
     readiness_timeout: float = 600.0  # seconds to wait for initial readiness
 
-    # Metadata
     agent_version: str = "unknown"
     log_level: str = "info"
 
-    # Ray-aware options
     ray: WatchdogRayConfig = field(default_factory=WatchdogRayConfig)
 
     def http_url(self) -> str:
@@ -403,11 +395,6 @@ def _ray_probe_once(ray_cfg: WatchdogRayConfig, ray_prefix: Sequence[str]) -> bo
     capacity = _ray_capacity_ok(ray_prefix, ray_cfg.expected_tp, ray_cfg.expected_workers)
     logger.debug("Ray cluster alive=%s, capacity_ok=%s", alive, capacity)
     return alive and capacity
-
-
-# ---------------------------------------------------------------------------
-# Main watchdog logic
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -829,11 +816,9 @@ def run_watchdog(
     restart_count = 0
 
     while True:
-        # 1) Spawn child and mark STARTING/RUNNING
         child, pid = _spawn_child_and_mark_running(collector_address, meta, cfg, child_argv)
 
         logger.info("watchdog[%s]: spawned child with pid %s", meta.replica_id, pid)
-        # 2) Monitor until it exits or we get a stop signal
         exit_code, should_restart, fail_reason = _monitor_child_loop(
             collector_address,
             meta,
@@ -861,7 +846,6 @@ def run_watchdog(
 
         logger.info("watchdog[%s]: restarting child (attempt #%s)", meta.replica_id, restart_count)
 
-        # 3) Mark RESTARTING and backoff before re-spawn
         _mark_state(
             collector_address,
             meta,
