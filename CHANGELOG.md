@@ -1,3 +1,23 @@
+## v0.33.0 (2026-09-25)
+
+### Feat
+
+- **docs**: apply the Domyn brand theme to the documentation site
+- **config**: check config paths before submitting a swarm
+
+### Fix
+
+- **deps**: override anyio to 4.14.2 for TLS and deadlock advisories
+
+### Refactor
+
+- align code and prose with development guidelines
+- trim nonessential source comments
+
+### Perf
+
+- **slurm**: scale the nginx load balancer with the replica count
+
 ## v0.32.0 (2026-09-07)
 
 ### Feat
