@@ -131,7 +131,12 @@ all = [
 # dispatch). We only ever use leptonai as an API client
 # (leptonai.api.v1/v2), never its photon server, so the pin buys us nothing
 # and the override lifts starlette to a patched release.
+#
+# leptonai also caps anyio at <=4.9.0, which blocks the fixes for the TLSStream
+# IDNA hostname spoofing and process-pool stderr deadlock advisories. The API
+# client imports leptonai.util, which only uses stable anyio 4 APIs.
 override-dependencies = [
+    "anyio>=4.14.2,<5",
     "prometheus-fastapi-instrumentator>=8.0.0",
 ]
 
