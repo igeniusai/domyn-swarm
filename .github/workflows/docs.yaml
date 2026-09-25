@@ -120,15 +120,33 @@ jobs:
               | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
+          # Released versions take the brand theme from main, so the version
+          # switcher never lands a reader on an older look. Every tag gets
+          # main's stylesheet, fonts and icons. Tags that predate the theme
+          # also get the switcher template, and -D supplies the conf.py entries
+          # that load both; those tags all set html_css_files = ["custom.css"].
+          apply_current_theme() {
+            local docs="$1/docs"
+            cp -r docs/_static/brand.css docs/_static/fonts docs/_static/icons "$docs/_static/"
+            if ! grep -q '"brand.css"' "$docs/conf.py"; then
+              mkdir -p "$docs/_templates"
+              cp docs/_templates/theme-switcher.html "$docs/_templates/"
+              echo "-D html_css_files=brand.css,custom.css -D templates_path=_templates"
+            fi
+          }
+
           for minor in $keep; do
             tag="${newest_patch_for_minor[$minor]}"
             echo "::group::building ${minor} from ${tag}"
             rm -rf "../docs-${minor}"
             git worktree add --detach "../docs-${minor}" "$tag"
+            theme_overrides=$(apply_current_theme "../docs-${minor}")
             (
               cd "../docs-${minor}"
               uv sync --all-extras --group docs --frozen
-              DOCS_VERSION="$minor" uv run sphinx-build -b html docs "$GITHUB_WORKSPACE/site/${minor}"
+              # Word splitting is intended: the value is a list of -D options.
+              # shellcheck disable=SC2086
+              DOCS_VERSION="$minor" uv run sphinx-build -b html $theme_overrides docs "$GITHUB_WORKSPACE/site/${minor}"
             )
             git worktree remove --force "../docs-${minor}"
             echo "::endgroup::"

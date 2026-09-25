@@ -1,0 +1,14 @@
+{# Displays an icon to switch between light mode, dark mode, and auto (use browser's setting). #}
+{# As the theme switcher will only work when JavaScript is enabled, we hide it with `pst-js-only`. #}
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="{{ _('Color mode') }}">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="{{ _('Color mode') }}" data-bs-toggle="dropdown">
+    <span class="theme-switch domyn-icon domyn-icon--sun" data-mode="light" title="{{ _('Light') }}" aria-hidden="true"></span>
+    <span class="theme-switch domyn-icon domyn-icon--moon" data-mode="dark" title="{{ _('Dark') }}" aria-hidden="true"></span>
+    <span class="theme-switch domyn-icon domyn-icon--contrast" data-mode="auto" title="{{ _('System Settings') }}" aria-hidden="true"></span>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><span class="domyn-icon domyn-icon--contrast me-1" aria-hidden="true"></span>{{ _('System Settings') }}</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><span class="domyn-icon domyn-icon--sun me-1" aria-hidden="true"></span>{{ _('Light') }}</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><span class="domyn-icon domyn-icon--moon me-1" aria-hidden="true"></span>{{ _('Dark') }}</button></li>
+  </ul>
+</div>

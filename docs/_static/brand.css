@@ -1,0 +1,176 @@
+/* Domyn brand layer over pydata-sphinx-theme. Layout fixes stay in custom.css. */
+
+/* DM Sans is variable: each file covers weights 100-1000. The unicode ranges are
+   the Google Fonts subsets, so a browser downloads latin-ext only when a page
+   uses those characters. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("fonts/dm-sans-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("fonts/dm-sans-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: italic;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("fonts/dm-sans-italic-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: italic;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("fonts/dm-sans-italic-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+html {
+  --pst-font-family-base: "DM Sans", var(--pst-font-family-base-system);
+  --pst-font-family-heading: "DM Sans", var(--pst-font-family-base-system);
+  --pst-font-weight-heading: 500;
+  --pst-sidebar-header-font-weight: 500;
+  --pst-admonition-font-weight-heading: 500;
+}
+
+/* Headings take the primary foreground and body text the secondary one. The
+   theme leaves data-theme unset when JavaScript is off, so the light palette
+   also covers that case. The theme's h1-h4 rule reads --pst-heading-color with
+   a malformed fallback, so that variable is set here. */
+html:not([data-theme]),
+html[data-theme="light"] {
+  --pst-color-primary: #1a57ff;
+  --pst-color-link-higher-contrast: var(--pst-color-primary);
+  --pst-color-primary-text: #ffffff;
+  --pst-color-primary-highlight: #0f45d9;
+  --pst-color-primary-bg: #e3ebff;
+  --pst-color-secondary: #0f45d9;
+  --pst-color-secondary-bg: #e3ebff;
+  --pst-color-accent: var(--pst-color-primary);
+  --pst-color-accent-bg: var(--pst-color-primary-bg);
+  --pst-color-heading: #000000;
+  --pst-heading-color: var(--pst-color-heading);
+  --pst-color-text-base: #252525;
+  --pst-color-text-muted: #5c5c5c;
+  --pst-color-inline-code: var(--pst-color-heading);
+  --pst-color-background: #ffffff;
+  --pst-color-on-background: #ffffff;
+  --pst-color-surface: #fafafa;
+  --pst-color-on-surface: #252525;
+  --pst-color-border: #d9d9d9;
+  --pst-color-blockquote-notch: #8c8c8c;
+  --pst-color-table: #000000;
+  --pst-color-table-inner-border: #ebebeb;
+  --pst-color-table-row-hover-bg: var(--pst-color-primary-bg);
+  --domyn-color-footer-bg: #fafafa;
+}
+
+/* #1A57FF reaches only 2.7:1 on #292929, so dark mode uses the lighter blue
+   that domyn.com uses for text on dark backgrounds (5.3:1). */
+html[data-theme="dark"] {
+  --pst-color-primary: #5c9bff;
+  --pst-color-link-higher-contrast: var(--pst-color-primary);
+  --pst-color-primary-text: #000000;
+  --pst-color-primary-highlight: #8db9ff;
+  --pst-color-primary-bg: #0d2266;
+  --pst-color-secondary: #8db9ff;
+  --pst-color-secondary-bg: #0d2266;
+  --pst-color-accent: var(--pst-color-primary);
+  --pst-color-accent-bg: var(--pst-color-primary-bg);
+  --pst-color-heading: #ffffff;
+  --pst-heading-color: var(--pst-color-heading);
+  --pst-color-text-base: #fafafa;
+  --pst-color-text-muted: #b3b3b3;
+  --pst-color-inline-code: var(--pst-color-heading);
+  --pst-color-background: #292929;
+  --pst-color-on-background: #292929;
+  --pst-color-surface: #252525;
+  --pst-color-on-surface: #fafafa;
+  --pst-color-border: #4a4a4a;
+  --pst-color-border-muted: #3a3a3a;
+  --pst-color-blockquote-notch: #9e9e9e;
+  --pst-color-table-inner-border: #3a3a3a;
+  --pst-color-table-row-hover-bg: var(--pst-color-primary-bg);
+  --domyn-color-footer-bg: #252525;
+}
+
+h5,
+h6 {
+  color: var(--pst-color-heading);
+}
+
+.bd-footer {
+  background-color: var(--domyn-color-footer-bg);
+}
+
+/* Bootstrap draws the switcher menus with its own gray, not the theme surface. */
+.dropdown-menu {
+  --bs-dropdown-bg: var(--pst-color-on-background);
+}
+
+/* Material Symbols Sharp icons, painted through a mask so they take the text
+   color of the active theme. The theme's own icons are Font Awesome, whose
+   script swaps each <i> for an inline <svg> after load, so the sidebar chevron
+   hides whichever element is present and draws the brand arrow itself. */
+.domyn-icon::before,
+.dropdown-toggle::after,
+.bd-sidebar-primary .toctree-toggle::before {
+  content: "";
+  display: inline-block;
+  background-color: currentColor;
+  mask: var(--domyn-icon) center / contain no-repeat;
+}
+
+.domyn-icon::before {
+  width: 1.25em;
+  height: 1.25em;
+  vertical-align: -0.3em;
+}
+
+.domyn-icon--sun { --domyn-icon: url("icons/wb_sunny.svg"); }
+.domyn-icon--moon { --domyn-icon: url("icons/bedtime.svg"); }
+.domyn-icon--contrast { --domyn-icon: url("icons/contrast.svg"); }
+
+.dropdown-toggle::after {
+  --domyn-icon: url("icons/keyboard_arrow_down.svg");
+  width: 1.25em;
+  height: 1.25em;
+  margin-left: 0.125em;
+  border: 0;
+  vertical-align: -0.3em;
+}
+
+.bd-sidebar-primary .toctree-toggle > * {
+  display: none;
+}
+
+.bd-sidebar-primary .toctree-toggle::before {
+  --domyn-icon: url("icons/keyboard_arrow_down.svg");
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.bd-sidebar-primary details[open] > summary .toctree-toggle::before {
+  transform: rotate(180deg);
+}
+
+/* In forced-colors mode, browsers replace background-color with the system
+   Canvas color, which would paint each mask icon invisible on its background. */
+@media (forced-colors: active) {
+  .domyn-icon::before,
+  .dropdown-toggle::after,
+  .bd-sidebar-primary .toctree-toggle::before {
+    forced-color-adjust: none;
+  }
+}

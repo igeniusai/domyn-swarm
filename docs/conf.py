@@ -92,12 +92,15 @@ intersphinx_mapping = {
 }
 
 html_theme = "pydata_sphinx_theme"
+# The theme appends its own component folder after this one, so a file here
+# replaces the theme component of the same name.
+templates_path = ["_templates"]
 html_title = "domyn-swarm"
 # The logo lives at the repository root because the README renders it on GitHub
 # too. Sphinx merges every entry here into a single _static/, so listing both
 # keeps one copy of the asset rather than a copy per consumer.
 html_static_path = ["_static", "../static"]
-html_css_files = ["custom.css"]
+html_css_files = ["brand.css", "custom.css"]
 # The Pages custom domain rather than the github.io URL, which redirects to it.
 # Canonical links and the switcher's json_url are absolute, so they have to name
 # the address readers actually land on.
