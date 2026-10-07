@@ -3,17 +3,22 @@
 
 from types import SimpleNamespace
 
-from leptonai.api.v1.types.deployment import (
-    EnvValue,
-    EnvVar,
-    LeptonContainer,
-    LeptonDeploymentState,
-)
-from leptonai.api.v1.types.job import LeptonJobUserSpec
 import pytest
 
 from domyn_swarm.backends.compute.lepton import LeptonComputeBackend
 from domyn_swarm.platform.protocols import JobStatus
+
+deployment_types = pytest.importorskip(
+    "leptonai.api.v1.types.deployment", reason="leptonai does not support Python 3.14"
+)
+job_types = pytest.importorskip(
+    "leptonai.api.v1.types.job", reason="leptonai does not support Python 3.14"
+)
+EnvValue = deployment_types.EnvValue
+EnvVar = deployment_types.EnvVar
+LeptonContainer = deployment_types.LeptonContainer
+LeptonDeploymentState = deployment_types.LeptonDeploymentState
+LeptonJobUserSpec = job_types.LeptonJobUserSpec
 
 
 # ------------------------------

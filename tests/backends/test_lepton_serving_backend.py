@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: 2025-2026 Domyn
 # SPDX-License-Identifier: Apache-2.0
 
+import importlib.util
 from types import SimpleNamespace
 
 import pytest
 
 from domyn_swarm.backends.serving.lepton import LeptonServingBackend
 from domyn_swarm.platform.protocols import ServingHandle, ServingPhase
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("leptonai") is None, reason="leptonai does not support Python 3.14"
+)
 
 # ------------------------------
 # Test Doubles for Lepton SDK

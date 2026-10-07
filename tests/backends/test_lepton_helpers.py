@@ -3,12 +3,17 @@
 
 from types import SimpleNamespace
 
-from leptonai.api.v1.types.deployment import EnvVar
+import pytest
 
 from domyn_swarm.helpers.lepton import (
     get_env_var_by_name,
     sanitize_tokens_in_deployment,
 )
+
+deployment_types = pytest.importorskip(
+    "leptonai.api.v1.types.deployment", reason="leptonai does not support Python 3.14"
+)
+EnvVar = deployment_types.EnvVar
 
 # ------------------------------
 # get_env_var_by_name

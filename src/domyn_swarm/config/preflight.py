@@ -11,6 +11,7 @@ break ``down``/``status`` whenever an image moved.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import os
 from pathlib import Path
 import re
@@ -41,11 +42,17 @@ class PathProblem:
     hint: str | None = None
 
 
+# The errors that `Path.exists` treated as "missing" up to Python 3.13. From
+# 3.14 it returns False for every OSError, so an unreadable parent would look
+# like a missing path.
+_MISSING_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
+
+
 def _exists(path: Path) -> bool | None:
     """Report whether ``path`` exists, or ``None`` when that cannot be told.
 
-    ``Path.exists`` only swallows "not found"; an unreadable parent raises
-    ``PermissionError``. A path we may not look at is not one we can fault.
+    A path we may not look at, for example under an unreadable parent, is not
+    one we can fault.
 
     Args:
         path: The path to probe.
@@ -54,9 +61,12 @@ def _exists(path: Path) -> bool | None:
         ``True``/``False``, or ``None`` if the filesystem refused the question.
     """
     try:
-        return path.exists()
-    except OSError:
-        return None
+        path.stat()
+    except OSError as exc:
+        return False if exc.errno in _MISSING_ERRNOS else None
+    except ValueError:
+        return False
+    return True
 
 
 def _resolve_local_path(value: Any) -> str | None:

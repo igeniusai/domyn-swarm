@@ -5,8 +5,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 import importlib
+import sys
 
 _LEPTON_IMPORT_ERR: Exception | None = None
+# Every leptonai release declares requires-python <3.14, so the `lepton` extra
+# carries a matching marker and installs nothing on newer interpreters.
+_LEPTON_MAX_PYTHON = (3, 13)
 
 
 @lru_cache(maxsize=1)
@@ -56,9 +60,14 @@ def _require_lepton() -> None:
             if _LEPTON_IMPORT_ERR
             else ""
         )
-        raise ImportError(
-            "Install `domyn-swarm[lepton]` to use the Lepton backend." + hint
-        ) from _LEPTON_IMPORT_ERR
+        if tuple(sys.version_info[:2]) > _LEPTON_MAX_PYTHON:
+            message = (
+                "The Lepton backend needs Python 3.13 or older, because the Lepton "
+                "SDK does not support newer Python versions."
+            )
+        else:
+            message = "Install `domyn-swarm[lepton]` to use the Lepton backend."
+        raise ImportError(message + hint) from _LEPTON_IMPORT_ERR
 
 
 def make_lepton_client(*, token: str | None = None, workspace: str | None = None):

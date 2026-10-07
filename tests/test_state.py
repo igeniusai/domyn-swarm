@@ -3,6 +3,7 @@
 
 """Test the state persistence."""
 
+import importlib.util
 from pathlib import Path
 import sqlite3
 
@@ -174,6 +175,9 @@ class TestSwarmStateManager:
         # Compute backend should be attached
         assert swarm._deployment.compute is not None  # type: ignore[attr-defined]
 
+    @pytest.mark.skipif(
+        importlib.util.find_spec("leptonai") is None, reason="leptonai does not support Python 3.14"
+    )
     def test_load_lepton_without_jobid_does_not_raise(self, lepton_swarm: DomynLLMSwarm) -> None:
         """Lepton handles have no jobid; load() must not apply the Slurm-only guard.
 
