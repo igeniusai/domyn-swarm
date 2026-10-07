@@ -3,7 +3,7 @@ name = "domyn-swarm"
 version = "0.33.0"
 description = "CLI and programmatic API to launch LLM inference endpoints on Slurm, using simple configuration files"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10,<3.15"
 license = { text = "Apache-2.0" }
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
@@ -13,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
@@ -111,7 +112,7 @@ dswarm = "domyn_swarm.cli:app"
 
 [project.optional-dependencies]
 lepton = [
-    "leptonai>=0.27.2",
+    "leptonai>=0.27.2; python_version < '3.14'",
 ]
 polars = [
     "polars>=1.31.0",
@@ -120,7 +121,7 @@ ray = [
     "ray[data]>=2.55.0",
 ]
 all = [
-    "leptonai>=0.26.2",
+    "leptonai>=0.27.2; python_version < '3.14'",
     "polars>=1.31.0",
     "ray[data]>=2.53.0",
 ]

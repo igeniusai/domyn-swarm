@@ -23,8 +23,18 @@ def test_require_lepton_raises_import_error(monkeypatch):
         monkeypatch: Pytest monkeypatch fixture.
     """
     monkeypatch.setattr(imports_mod, "_lepton_client_cls", lambda: None)
+    monkeypatch.setattr(imports_mod.sys, "version_info", (3, 13, 0))
     with pytest.raises(ImportError, match="domyn-swarm\\[lepton\\]"):
         imports_mod._require_lepton()
+
+
+def test_require_lepton_names_the_python_limit_on_314(monkeypatch):
+    """The `lepton` extra installs nothing on 3.14, so installing it cannot help."""
+    monkeypatch.setattr(imports_mod, "_lepton_client_cls", lambda: None)
+    monkeypatch.setattr(imports_mod.sys, "version_info", (3, 14, 0))
+    with pytest.raises(ImportError, match=r"Python 3\.13 or older") as excinfo:
+        imports_mod._require_lepton()
+    assert "domyn-swarm[lepton]" not in str(excinfo.value)
 
 
 def test_make_lepton_client_uses_overrides(monkeypatch):

@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: 2025-2026 Domyn
 # SPDX-License-Identifier: Apache-2.0
 
+import importlib.util
 from types import SimpleNamespace
+
+import pytest
 
 from domyn_swarm.config.lepton import LeptonConfig
 from domyn_swarm.config.slurm import SlurmConfig, SlurmEndpointConfig
@@ -48,6 +51,9 @@ def test_slurm_plan_output_consistency():
     assert plan.serving_spec["gpus_per_replica"] == 1
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("leptonai") is None, reason="leptonai does not support Python 3.14"
+)
 def test_lepton_plan_output_consistency():
     cfg_ctx = SimpleNamespace(
         replicas=1,
