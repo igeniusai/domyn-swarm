@@ -3,6 +3,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -430,6 +431,125 @@ def test_submit_job_forwards_ray_address(mocker, tmp_path: Path):
     swarm.submit_job.assert_called_once()
     run = swarm.submit_job.call_args.kwargs["run"]
     assert run.ray_address == "ray://head:10001"
+
+
+def _mock_config_swarm(mocker, *, backend_type: str):
+    cfg_obj = SimpleNamespace(backend=SimpleNamespace(type=backend_type))
+    mocker.patch.object(mod, "_load_swarm_config", return_value=cfg_obj)
+    swarm = mocker.MagicMock()
+    swarm.name = "my-swarm"
+    cm = mocker.MagicMock()
+    cm.__enter__.return_value = swarm
+    cm.__exit__.return_value = None
+    deploy = mocker.patch.object(mod, "DomynLLMSwarm", return_value=cm)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", return_value=object())
+    return swarm, deploy
+
+
+def _submit_args(tmp_path: Path, *extra: str) -> list[str]:
+    in_path, out_path = _mk_files(tmp_path)
+    config_path = tmp_path / "cfg.yaml"
+    config_path.write_text("model: my-model\nname: my-swarm")
+    return [
+        "submit",
+        "--input",
+        str(in_path),
+        "--output",
+        str(out_path),
+        "-c",
+        str(config_path),
+        *extra,
+    ]
+
+
+def test_submit_job_forwards_job_step_resources(mocker, tmp_path: Path):
+    swarm, _ = _mock_config_swarm(mocker, backend_type="slurm")
+
+    res = runner.invoke(mod.job_app, _submit_args(tmp_path, "--mem", "64G", "--cpus-per-task", "8"))
+
+    assert res.exit_code == 0, res.output
+    run = swarm.submit_job.call_args.kwargs["run"]
+    assert run.job_resources == {"mem": "64G", "cpus_per_task": 8}
+
+
+def test_submit_job_without_resource_options_keeps_defaults(mocker, tmp_path: Path):
+    swarm, _ = _mock_config_swarm(mocker, backend_type="slurm")
+
+    res = runner.invoke(mod.job_app, _submit_args(tmp_path))
+
+    assert res.exit_code == 0, res.output
+    assert swarm.submit_job.call_args.kwargs["run"].job_resources is None
+
+
+def test_submit_job_rejects_resource_options_on_lepton(mocker, tmp_path: Path):
+    swarm, deploy = _mock_config_swarm(mocker, backend_type="lepton")
+
+    res = runner.invoke(mod.job_app, _submit_args(tmp_path, "--mem", "64G"))
+
+    assert res.exit_code != 0
+    assert "resource_shape" in res.output
+    deploy.assert_not_called()
+    swarm.submit_job.assert_not_called()
+
+
+def test_submit_job_with_name_forwards_job_step_resources(mocker, tmp_path: Path):
+    in_path, out_path = _mk_files(tmp_path)
+    swarm = mocker.MagicMock()
+    swarm.name = "my-swarm"
+    swarm.cfg.backend.type = "slurm"
+    mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
+    mocker.patch.object(mod.helpers.JobBuilder, "from_class_path", return_value=object())
+
+    res = runner.invoke(
+        mod.job_app,
+        [
+            "submit",
+            "--input",
+            str(in_path),
+            "--output",
+            str(out_path),
+            "-n",
+            "my-swarm",
+            "--mem",
+            "0",
+        ],
+    )
+
+    assert res.exit_code == 0, res.output
+    assert swarm.submit_job.call_args.kwargs["run"].job_resources == {"mem": "0"}
+
+
+def test_submit_script_forwards_job_step_resources(mocker, tmp_path: Path):
+    script = tmp_path / "script.py"
+    script.write_text("print('hi')")
+    swarm = mocker.MagicMock()
+    swarm.name = "my-swarm"
+    swarm.cfg.backend.type = "slurm"
+    mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
+
+    res = runner.invoke(
+        mod.job_app,
+        ["submit-script", str(script), "-n", "my-swarm", "--cpus-per-task", "16"],
+    )
+
+    assert res.exit_code == 0, res.output
+    assert swarm.submit_script.call_args.kwargs["job_resources"] == {"cpus_per_task": 16}
+
+
+def test_submit_script_rejects_resource_options_on_lepton(mocker, tmp_path: Path):
+    script = tmp_path / "script.py"
+    script.write_text("print('hi')")
+    swarm = mocker.MagicMock()
+    swarm.cfg.backend.type = "lepton"
+    mocker.patch.object(mod.DomynLLMSwarm, "from_state", return_value=swarm)
+
+    res = runner.invoke(
+        mod.job_app, ["submit-script", str(script), "-n", "my-swarm", "--mem", "8G"]
+    )
+
+    assert res.exit_code != 0
+    assert "resource_shape" in res.output
+    swarm.submit_script.assert_not_called()
 
 
 def test_wait_job_with_job_id_updates_status_and_emits_json(mocker):

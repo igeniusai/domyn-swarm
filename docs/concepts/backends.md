@@ -62,6 +62,8 @@ backends can use its `probe` unchanged.
 Slurm uses an array job of vLLM replicas and an Nginx load-balancer job. An HTTP
 probe calls `/v1/health` through the load balancer. Compute uses `srun` in the
 allocation. `require_allocated_node` prevents work on the load-balancer node.
+With that setting, a job step gets all the memory and the CPU count of the
+allocation that submits it.
 
 Lepton uses an endpoint that manages its own replicas. It polls deployment state
 instead of an HTTP health endpoint. Compute uses a Lepton batch job.

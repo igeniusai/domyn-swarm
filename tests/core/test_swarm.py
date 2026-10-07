@@ -549,6 +549,24 @@ def test_submit_script_updates_job_record_success(cfg_stub, tmp_path):
     assert FakeStateMgr.last_updated["external_id"] == "456.0"
 
 
+def test_submit_script_job_resources_override_defaults(cfg_stub, tmp_path):
+    swarm = make_swarm(cfg_stub)
+    with swarm:
+        pass
+
+    script = tmp_path / "script.py"
+    script.write_text("print('ok')\n")
+
+    dep = swarm._deployment  # type: ignore[attr-defined]
+    compute = FakeComputeBackend()
+    compute.default_resources = lambda cfg: {"mem": "0", "cpus_per_task": 4}
+    dep.compute = compute
+
+    swarm.submit_script(script_path=script, detach=False, job_resources={"mem": "64G"})
+
+    assert dep.run_calls[-1]["resources"] == {"mem": "64G", "cpus_per_task": 4}
+
+
 def test_cleanup_calls_deployment_down_when_handle_present(cfg_stub):
     swarm = make_swarm(cfg_stub)
     with swarm:

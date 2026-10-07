@@ -207,11 +207,17 @@ class SlurmEndpointConfig(BaseModel):
 
     cpus_per_task: int = Field(
         default=32,
-        description=("vCPUs for the driver process that launches and monitors the swarm."),
+        description=(
+            "vCPUs for the driver process that launches and monitors the swarm. "
+            "Job steps use the same value unless `require_allocated_node` is set."
+        ),
     )
     mem: str = Field(
         default="16GB",
-        description="Physical memory for the driver job.",
+        description=(
+            "Physical memory for the driver job. Job steps use the same value "
+            "unless `require_allocated_node` is set."
+        ),
     )
     threads_per_core: int = Field(
         default=1,
@@ -299,7 +305,9 @@ class SlurmEndpointConfig(BaseModel):
         description=(
             "Refuse to build an `srun` command unless already inside a Slurm "
             "allocation. Guards against large data jobs accidentally running on the "
-            "load-balancer node."
+            "load-balancer node. Job steps then get all the memory of that "
+            "allocation (`--mem=0`) and its `--cpus-per-task` value. The `--mem` and "
+            "`--cpus-per-task` options of `job submit` override both."
         ),
     )
     monitoring: MonitoringConfig = Field(
