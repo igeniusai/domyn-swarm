@@ -120,7 +120,9 @@ submit from:
   allocation, with `endpoint.mem` and `endpoint.cpus_per_task`.
 - With `endpoint.require_allocated_node: true`, you must submit from your own
   `sbatch` or `salloc` allocation. The step gets all the memory of that
-  allocation (`--mem=0`) and its `--cpus-per-task` value.
+  allocation (`--mem=0`) and its `--cpus-per-task` value. A shell inside the
+  load-balancer job, for example from `srun --jobid=<lb_jobid> --pty bash`, is
+  refused.
 
 `--mem` and `--cpus-per-task` override these defaults for one job:
 
