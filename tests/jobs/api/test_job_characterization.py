@@ -79,8 +79,7 @@ def test_missing_model_raises() -> None:
 
 
 def test_provider_params_reach_request_kwargs() -> None:
-    """Unrecognised kwargs are forwarded as provider request parameters."""
-    job = Plain(model="m", temperature=0.2, top_p=0.9)
+    job = Plain(model="m", request_params={"temperature": 0.2, "top_p": 0.9})
     assert job._request_kwargs() == {"temperature": 0.2, "top_p": 0.9}
 
 
@@ -121,7 +120,7 @@ def test_multi_chat_without_output_cols_uses_the_default_base_name() -> None:
         lambda: MultiChatCompletionJob(model="m", output_cols="gen", n=2),
         lambda: MultiTurnChatCompletionJob(model="m"),
         lambda: MultiTurnTranslationJob(model="m"),
-        lambda: Plain(model="m", temperature=0.2),
+        lambda: Plain(model="m", request_params={"temperature": 0.2}),
     ],
 )
 def test_serialize_reconstruct_round_trip(factory) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import contextlib
-import dataclasses
 import logging
 import os
 from pathlib import Path
@@ -557,8 +556,7 @@ class DomynLLMSwarm(BaseModel):
         self,
         job: SwarmJob,
         *,
-        run: JobRunSpec | None = None,
-        **legacy: Any,
+        run: JobRunSpec,
     ) -> JobHandle:
         """Launch a serialized :class:`~domyn_swarm.SwarmJob` inside the current
         SLURM swarm allocation.
@@ -574,25 +572,11 @@ class DomynLLMSwarm(BaseModel):
                 checkpointing, engine selection, and resources. See
                 :class:`~domyn_swarm.core.job_run.JobRunSpec` for the full
                 field list and their semantics.
-            **legacy: Deprecated. `JobRunSpec` fields (`input_path`,
-                `output_path`, `num_shards`, `shard_output`, `detach`,
-                `limit`, `mail_user`, `checkpoint_dir`, `checkpoint_interval`,
-                `no_resume`, `no_checkpointing`, `runner`, `engine`,
-                `shard_mode`, `global_resume`, `job_resources`,
-                `checkpoint_tag`, `ray_address`, `num_threads`) passed as
-                flat keyword arguments instead of via `run=JobRunSpec(...)`.
-                Folded into a `JobRunSpec` with a `DeprecationWarning`; will
-                become a `TypeError` in domyn-swarm 0.33. Cannot be combined
-                with `run`, and an unrecognized keyword raises `TypeError`
-                immediately.
 
         Returns:
             JobHandle: Compute job handle with normalized status and metadata.
 
         Raises:
-            TypeError: Neither `run` nor any legacy keyword was given, `run`
-                and one or more legacy keywords were given together, or an
-                unrecognized legacy keyword was passed.
             RuntimeError: The swarm is not ready (`self.serving_handle` or
                 `self.endpoint` is ``None``).
             FileNotFoundError: `run.input_path` does not exist.
@@ -617,29 +601,6 @@ class DomynLLMSwarm(BaseModel):
                     ),
                 )
         """
-        if legacy:
-            if run is not None:
-                raise TypeError(
-                    "submit_job() received both run=JobRunSpec(...) and legacy "
-                    f"keyword arguments {sorted(legacy)}; pass one or the other, "
-                    "not both."
-                )
-            warnings.warn(
-                f"Passing run parameters to submit_job individually is deprecated: "
-                f"{sorted(legacy)}. Pass run=JobRunSpec(...) instead. This will be "
-                f"an error in domyn-swarm 0.33.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            known = {f.name for f in dataclasses.fields(JobRunSpec)}
-            unknown = sorted(set(legacy) - known)
-            if unknown:
-                raise TypeError(f"submit_job() got unexpected keyword arguments: {unknown}")
-            run = JobRunSpec(**legacy)
-
-        if run is None:
-            raise TypeError("submit_job() requires run=JobRunSpec(...)")
-
         num_shards = run.num_shards
         if run.num_threads is not None:
             warnings.warn(

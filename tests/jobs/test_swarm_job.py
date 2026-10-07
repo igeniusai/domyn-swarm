@@ -63,22 +63,10 @@ def test_misspelled_parameter_is_caught_before_it_reaches_a_request():
         DummyJob(endpoint="http://localhost", model="fake", chekpoint_interval=4)
 
 
-def test_genuine_request_parameters_still_pass_through():
-    """`--job-kwargs '{"temperature":0.2}'` is a documented feature; keep it working.
-
-    Bare constructor kwargs are deprecated in favour of `request_params={...}`,
-    but still route into it rather than being rejected.
-    """
-    with pytest.warns(DeprecationWarning, match="request_params"):
-        job = DummyJob(
-            endpoint="http://localhost",
-            model="fake",
-            temperature=0.2,
-            top_p=0.9,
-        )
-
-    assert job.kwargs["temperature"] == 0.2
-    assert job._request_kwargs() == {"temperature": 0.2, "top_p": 0.9}
+def test_bare_request_parameters_are_rejected():
+    """`--job-kwargs '{"temperature":0.2}'` must now use `request_params`."""
+    with pytest.raises(TypeError, match="request_params"):
+        DummyJob(endpoint="http://localhost", model="fake", temperature=0.2)
 
 
 def test_correctly_spelled_parameters_are_not_flagged():
