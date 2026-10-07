@@ -33,21 +33,27 @@ class SrunCommandBuilder:
         return self
 
     def build(self, exe: Sequence[str], ntasks: int = 1) -> list[str]:
-        """
-        Build the srun command with the configured parameters.
+        """Build the srun command with the configured parameters.
 
-        :param exe: The executable command to run.
-        :param ntasks: Number of tasks to run.
-        :return: A list representing the srun command.
+        Inside a Slurm allocation the step runs in that allocation; outside one
+        it is pinned to the load-balancer job and node.
+
+        Raises:
+            ValueError: If `require_allocated_node` is enabled and the caller is
+                outside a Slurm allocation or inside the load-balancer one.
         """
-        # If we're already inside a Slurm allocation (i.e. SLURM_JOB_ID is set),
-        # avoid pinning execution to the load-balancer allocation/node. This prevents
-        # large data jobs from running on the LB node when launched from a Slurm job.
-        in_slurm_allocation = (os.getenv("SLURM_JOB_ID") or os.getenv("SLURM_JOBID")) is not None
+        current_job = os.getenv("SLURM_JOB_ID") or os.getenv("SLURM_JOBID")
+        in_slurm_allocation = current_job is not None
         require_allocated = getattr(self.cfg.endpoint, "require_allocated_node", False)
         if require_allocated and not in_slurm_allocation:
             raise ValueError(
                 "srun requires running inside a Slurm allocation when "
+                "`require_allocated_node` is enabled."
+            )
+        if require_allocated and current_job == str(self.jobid):
+            raise ValueError(
+                f"srun is running inside the load-balancer allocation (job {self.jobid}). "
+                "Submit from a separate Slurm allocation when "
                 "`require_allocated_node` is enabled."
             )
 

@@ -176,3 +176,14 @@ def test_build_requires_allocation_allows_in_alloc(monkeypatch):
 
     assert "--jobid=123" not in cmd
     assert "--nodelist=nodeA" not in cmd
+
+
+@pytest.mark.parametrize("env_var", ["SLURM_JOB_ID", "SLURM_JOBID"])
+def test_build_requires_allocation_rejects_lb_allocation(monkeypatch, env_var):
+    cfg = _fake_cfg(mem="16GB", cpus=2)
+    cfg.endpoint.require_allocated_node = True
+    b = SrunCommandBuilder(cfg=cfg, jobid=123, nodelist="nodeA")
+    monkeypatch.setenv(env_var, "123")
+
+    with pytest.raises(ValueError, match="load-balancer allocation"):
+        b.build(["/bin/true"])

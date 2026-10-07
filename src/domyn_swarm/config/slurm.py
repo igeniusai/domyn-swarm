@@ -304,10 +304,11 @@ class SlurmEndpointConfig(BaseModel):
         default=False,
         description=(
             "Refuse to build an `srun` command unless already inside a Slurm "
-            "allocation. Guards against large data jobs accidentally running on the "
-            "load-balancer node. Job steps then get all the memory of that "
-            "allocation (`--mem=0`) and its `--cpus-per-task` value. The `--mem` and "
-            "`--cpus-per-task` options of `job submit` override both."
+            "allocation other than the load-balancer job. Guards against large data "
+            "jobs accidentally running on the load-balancer node. Job steps then get "
+            "all the memory of that allocation (`--mem=0`) and its `--cpus-per-task` "
+            "value. The `--mem` and `--cpus-per-task` options of `job submit` "
+            "override both."
         ),
     )
     monitoring: MonitoringConfig = Field(
