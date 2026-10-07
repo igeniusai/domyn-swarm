@@ -324,12 +324,11 @@ class _Plain(SwarmJob):
         return items
 
 
-def test_unknown_kwargs_become_request_params_with_a_warning(monkeypatch) -> None:
-    """The pre-0.32 way of passing provider parameters still works, and warns."""
+def test_unknown_kwargs_are_rejected(monkeypatch) -> None:
+    """Bare provider parameters warned through 0.33 and are now an error."""
     monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
-    with pytest.warns(DeprecationWarning, match="request_params"):
-        job = _Plain(model="m", temperature=0.2, top_p=0.9)
-    assert job._request_kwargs() == {"temperature": 0.2, "top_p": 0.9}
+    with pytest.raises(TypeError, match=r"request_params=\{\.\.\.\}"):
+        _Plain(model="m", temperature=0.2)
 
 
 def test_explicit_request_params_do_not_warn(monkeypatch, recwarn) -> None:
@@ -340,31 +339,25 @@ def test_explicit_request_params_do_not_warn(monkeypatch, recwarn) -> None:
     assert [w for w in recwarn if issubclass(w.category, DeprecationWarning)] == []
 
 
-def test_nested_kwargs_form_still_works(monkeypatch) -> None:
-    """`kwargs={...}` was the documented escape hatch and keeps working."""
+def test_nested_kwargs_form_is_rejected(monkeypatch) -> None:
     monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
-    with pytest.warns(DeprecationWarning):
-        job = _Plain(model="m", kwargs={"temperature": 0.2})
-    assert job._request_kwargs() == {"temperature": 0.2}
+    with pytest.raises(TypeError, match="'kwargs' is not a configuration field"):
+        _Plain(model="m", kwargs={"temperature": 0.2})
 
 
 def test_a_near_miss_of_a_field_name_is_rejected(monkeypatch) -> None:
-    """A typo'd configuration name is an error, not a silent provider parameter.
-
-    Routing it to `request_params` would leave `retries` at its default while
-    appearing to have set it.
-    """
     monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
     with pytest.raises(TypeError, match="did you mean 'retries'"):
         _Plain(model="m", retres=3)
 
 
-def test_a_name_resembling_nothing_is_a_provider_param(monkeypatch) -> None:
-    """Only near misses are rejected; genuine provider names pass through."""
+def test_a_name_resembling_nothing_points_to_request_params(monkeypatch) -> None:
+    """Only near misses get a field suggestion; other names point to `request_params`."""
     monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
-    with pytest.warns(DeprecationWarning):
-        job = _Plain(model="m", frequency_penalty=0.4)
-    assert job._request_kwargs() == {"frequency_penalty": 0.4}
+    with pytest.raises(TypeError) as excinfo:
+        _Plain(model="m", frequency_penalty=0.4)
+    assert "did you mean" not in str(excinfo.value)
+    assert "request_params={...}" in str(excinfo.value)
 
 
 def test_a_provider_param_named_like_a_config_field_is_expressible(monkeypatch) -> None:
@@ -390,47 +383,24 @@ def test_output_column_name_is_still_deprecated_and_still_works(monkeypatch) -> 
 def test_an_everyday_typo_just_below_a_stricter_cutoff_is_rejected(monkeypatch) -> None:
     """`retrys` is an everyday typo of `retries`, at resemblance ratio 0.769.
 
-    It is why the cutoff is 0.75 and not 0.8: above 0.769 it would route
-    silently into `request_params` while `retries` stayed at its default.
+    It is why the cutoff is 0.75 and not 0.8: above 0.769 the error would not
+    suggest `retries`.
     """
     monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
     with pytest.raises(TypeError, match="did you mean 'retries'"):
         _Plain(model="m", retrys=3)
 
 
-def test_a_provider_param_sharing_a_prefix_with_a_field_still_passes(monkeypatch) -> None:
-    """The cutoff must not reject real provider parameters.
+def test_a_provider_param_sharing_a_prefix_with_a_field_is_not_called_a_typo(
+    monkeypatch,
+) -> None:
+    """The cutoff must not report real provider parameters as typos.
 
     `max_tokens` is a common provider parameter sharing a `max_` prefix with
-    the `max_concurrency` field; at ratio 0.56 it is well below the 0.75 raise
-    threshold, so it passes through as a (deprecated but accepted) request
-    parameter.
+    the `max_concurrency` field; at ratio 0.56 it is well below the 0.75
+    suggestion threshold.
     """
     monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
-    with pytest.warns(DeprecationWarning):
-        job = _Plain(model="m", max_tokens=256)
-    assert job._request_kwargs() == {"max_tokens": 256}
-
-
-def test_the_warning_hints_at_a_near_but_not_close_enough_match(monkeypatch) -> None:
-    """A name close to a field but below the raise threshold is named in the warning.
-
-    `model_name` resembles `model` at ratio 0.667: too far to reject, close
-    enough that a typo is worth flagging rather than letting it vanish into
-    `request_params`.
-    """
-    monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
-    with pytest.warns(DeprecationWarning, match="'model_name' resembles 'model'"):
-        _Plain(model="m", model_name="other")
-
-
-def test_explicit_request_params_wins_over_the_legacy_bare_kwarg_form(monkeypatch) -> None:
-    """When both forms name the same parameter, `request_params` wins.
-
-    The bare-kwarg form is the deprecated one; it must not override the form
-    callers are being steered towards.
-    """
-    monkeypatch.setenv("ENDPOINT", "http://dummy-endpoint")
-    with pytest.warns(DeprecationWarning):
-        job = _Plain(model="m", temperature=0.2, request_params={"temperature": 0.1})
-    assert job._request_kwargs() == {"temperature": 0.1}
+    with pytest.raises(TypeError) as excinfo:
+        _Plain(model="m", max_tokens=256)
+    assert "did you mean" not in str(excinfo.value)

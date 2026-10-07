@@ -164,17 +164,14 @@ class SwarmJob(abc.ABC):
             client: A pre-built async LLM client. Not configuration, and not
                 serialized.
             **overrides: Individual configuration fields, taking precedence over
-                `config` and over any class-level declaration. A name that is not
-                a configuration field is folded into `request_params` instead,
-                with a `DeprecationWarning`, unless it closely resembles a field
-                name -- then it is treated as a typo and raises.
+                `config` and over any class-level declaration. Provider request
+                parameters go in `request_params`.
 
         Raises:
             RuntimeError: If no endpoint is given and `ENDPOINT` is unset.
             ValueError: If the model name is empty.
-            TypeError: If an override is not a configuration field and closely
-                resembles one -- almost certainly a typo rather than a genuine
-                provider request parameter.
+            TypeError: If an override is not a configuration field. The message
+                suggests the closest field name when one is similar.
         """
         if config is not None and not isinstance(config, self.config_class):
             raise TypeError(
@@ -205,63 +202,19 @@ class SwarmJob(abc.ABC):
                 )
                 overrides["output_cols"] = legacy_output_col
 
-        nested = overrides.pop("kwargs", None)
-        unknown = [k for k in overrides if k not in fields]
-
-        # A name that closely resembles a field is a typo, not a provider
-        # parameter: routing it to request_params would silently leave the field
-        # at its default. Only inexact names reach here, so an exact field name
-        # can never be reported as a misspelling of itself.
-        #
-        # 0.75 rather than 0.8 so that 'retrys' (an ordinary typo of 'retries',
-        # ratio 0.769) is caught; checked against the common provider parameter
-        # names for false positives, which score well below it.
-        NEAR_MISS_CUTOFF = 0.75
-        for name in unknown:
+        unknown = [name for name in overrides if name not in fields]
+        if unknown:
+            # 0.75 rather than 0.8 so that 'retrys' (an ordinary typo of
+            # 'retries', ratio 0.769) gets a suggestion; checked against the
+            # common provider parameter names, which score well below it.
+            NEAR_MISS_CUTOFF = 0.75
+            name = unknown[0]
             close = difflib.get_close_matches(name, fields, n=1, cutoff=NEAR_MISS_CUTOFF)
-            if close:
-                raise TypeError(
-                    f"{name!r} is not a configuration field -- did you mean "
-                    f"{close[0]!r}? If it really is a provider request parameter, "
-                    f"pass request_params={{{name!r}: ...}}."
-                )
-
-        legacy_request_params = {k: overrides.pop(k) for k in unknown}
-        if isinstance(nested, dict):
-            legacy_request_params.update(nested)
-
-        if legacy_request_params:
-            # A fixed cutoff always has a tail of typos just below it, so the
-            # warning names the closest field for anything loosely similar. Well
-            # short of the raise threshold, and above the score common provider
-            # parameter names reach against any field.
-            HINT_CUTOFF = 0.6
-            hints = {
-                name: match[0]
-                for name in unknown
-                if (match := difflib.get_close_matches(name, fields, n=1, cutoff=HINT_CUTOFF))
-            }
-            hint = ""
-            if hints:
-                resemblances = ", ".join(f"{n!r} resembles {f!r}" for n, f in sorted(hints.items()))
-                hint = f" ({resemblances})"
-            warnings.warn(
-                f"Passing provider request parameters as constructor arguments is "
-                f"deprecated: {sorted(legacy_request_params)}{hint}. Pass "
-                f"request_params={{...}} instead. This will be an error in "
-                f"domyn-swarm 0.33.",
-                DeprecationWarning,
-                stacklevel=2,
+            suggestion = f" -- did you mean {close[0]!r}?" if close else "."
+            raise TypeError(
+                f"{name!r} is not a configuration field{suggestion} Pass provider "
+                "request parameters as request_params={...}."
             )
-            # An explicit request_params={...} is the recommended, non-deprecated
-            # form, so it takes precedence over the deprecated bare-kwarg form
-            # when both name the same parameter.
-            merged_request_params = {
-                **base.request_params,
-                **legacy_request_params,
-                **overrides.pop("request_params", {}),
-            }
-            overrides["request_params"] = merged_request_params
 
         # Always a fresh config: the resolution above writes to it, and neither
         # a caller's config nor a class-level declaration may be mutated -- deep,
