@@ -1,3 +1,25 @@
+## v0.34.0 (2026-10-07)
+
+### BREAKING CHANGE
+
+- DomynLLMSwarm.submit_job requires run=JobRunSpec(...)
+and no longer accepts flat run parameters. SwarmJob constructors raise
+TypeError for names that are not configuration fields, including
+kwargs={...}. Pass provider parameters as request_params={...}, also in
+--job-kwargs.
+
+### Feat
+
+- support Python 3.14
+- remove run and request parameters deprecated for 0.33
+- **slurm**: size job steps from the submitting allocation
+
+### Fix
+
+- **preflight**: keep unreadable paths unreported on Python 3.14
+- **slurm**: refuse job steps inside the load-balancer allocation
+- **deps**: resolve 11 of 12 open Dependabot advisories
+
 ## v0.33.0 (2026-09-25)
 
 ### Feat
