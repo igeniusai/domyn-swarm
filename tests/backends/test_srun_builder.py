@@ -28,15 +28,14 @@ def test_build_basic_no_env_no_mail_no_extra():
     cmd = b.build(exe)
 
     # Must start with srun and core flags
-    assert cmd[:8] == [
+    assert cmd[:7] == [
         "srun",
         "--jobid=123",
         "--nodelist=nodeA",
         "--ntasks=1",
         "--nodes=1",
         "--overlap",
-        "--mem=16GB",
-        "--cpus-per-task=2",
+        "--export=ALL",
     ]
 
     # With no env, we should get a plain --export=ALL
@@ -117,23 +116,22 @@ def test_export_all_without_env_is_exact_flag():
     assert export_args == ["--export=ALL"]
 
 
-def test_extra_args_override_default_mem_and_cpus():
+def test_build_leaves_mem_and_cpus_to_extra_args():
+    """The compute backend owns the job-step resource defaults, not the builder."""
     cfg = _fake_cfg(mem="64GB", cpus=16)
-    extra = ["--mem=4GB", "--cpus-per-task=2", "--qos=debug"]
-    cmd = (
+
+    bare = SrunCommandBuilder(cfg=cfg, jobid=8, nodelist="n8").build(["/bin/true"])
+    explicit = (
         SrunCommandBuilder(cfg=cfg, jobid=8, nodelist="n8")
-        .with_extra_args(extra)
+        .with_extra_args(["--mem=4GB", "--cpus-per-task=2"])
         .build(["/bin/true"])
     )
 
-    # Default mem/cpus should be suppressed when provided via extra args
-    assert "--mem=64GB" not in cmd
-    assert "--cpus-per-task=16" not in cmd
-
-    # Extra args appear once and before the executable tail
-    for flag in extra:
-        assert flag in cmd
-        assert cmd.index(flag) < len(cmd) - 1
+    assert not any(a.startswith(("--mem", "--cpus-per-task")) for a in bare)
+    assert [a for a in explicit if a.startswith(("--mem", "--cpus-per-task"))] == [
+        "--mem=4GB",
+        "--cpus-per-task=2",
+    ]
 
 
 def test_build_inside_slurm_job_does_not_pin_to_lb(monkeypatch):

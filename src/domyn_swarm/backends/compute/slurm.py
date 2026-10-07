@@ -258,14 +258,18 @@ class SlurmComputeBackend(DefaultComputeMixin):  # type: ignore[misc]
         return super().default_python(cfg)
 
     def default_resources(self, cfg):
-        if self.cfg.endpoint.cpus_per_task is not None or self.cfg.endpoint.mem is not None:
-            res: dict = {}
-            if self.cfg.endpoint.cpus_per_task is not None:
-                res["cpus_per_task"] = self.cfg.endpoint.cpus_per_task
-            if self.cfg.endpoint.mem is not None:
-                res["mem"] = self.cfg.endpoint.mem
-            return res
-        return super().default_resources(cfg)
+        """Return the job-step resources used when the caller sets none.
+
+        With ``require_allocated_node`` the step runs in the caller's own
+        allocation, so it takes all of that allocation's memory (``--mem=0``)
+        and leaves the CPU count to ``srun``, which reads
+        ``SLURM_CPUS_PER_TASK`` from the allocation. Otherwise the step runs
+        in the load-balancer allocation and is sized like the driver job.
+        """
+        endpoint = self.cfg.endpoint
+        if endpoint.require_allocated_node:
+            return {"mem": "0"}
+        return {"cpus_per_task": endpoint.cpus_per_task, "mem": endpoint.mem}
 
 
 def _extract_log_paths(cmd: Sequence[str]) -> dict[str, str]:

@@ -61,18 +61,6 @@ class SrunCommandBuilder:
             cmd.insert(1, f"--jobid={self.jobid}")
             cmd.insert(2, f"--nodelist={self.nodelist}")
 
-        if (
-            any("--mem" in arg for arg in self.extra_args) is False
-            and self.cfg.endpoint.mem is not None
-        ):
-            cmd.append(f"--mem={self.cfg.endpoint.mem}")
-
-        if (
-            any("--cpus-per-task" in arg for arg in self.extra_args) is False
-            and self.cfg.endpoint.cpus_per_task is not None
-        ):
-            cmd.append(f"--cpus-per-task={self.cfg.endpoint.cpus_per_task}")
-
         if self.env:
             export_env = ",".join(f"{k}={v}" for k, v in self.env.items())
             cmd.append(f"--export=ALL,{export_env}")

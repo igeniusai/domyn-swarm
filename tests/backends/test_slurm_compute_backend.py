@@ -10,6 +10,7 @@ import pytest
 import domyn_swarm.backends.compute.slurm as mod
 from domyn_swarm.backends.compute.slurm import SlurmComputeBackend
 import domyn_swarm.backends.compute.slurm_helpers as helpers
+from domyn_swarm.backends.serving.srun_builder import SrunCommandBuilder
 from domyn_swarm.platform.protocols import JobProbe, JobStatus
 
 
@@ -355,3 +356,49 @@ def test_cancel_then_wait_returns_cancelled(monkeypatch):
     be.cancel(handle)
     status = be.wait(handle, stream_logs=False)
     assert status is JobStatus.CANCELLED
+
+
+def _mk_endpoint_cfg(*, require_allocated_node: bool):
+    endpoint = SimpleNamespace(
+        mem="16GB", cpus_per_task=32, require_allocated_node=require_allocated_node
+    )
+    return SimpleNamespace(venv_path=None, endpoint=endpoint)
+
+
+def test_default_resources_uses_endpoint_values():
+    cfg = _mk_endpoint_cfg(require_allocated_node=False)
+    be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n1")
+
+    assert be.default_resources(cfg) == {"cpus_per_task": 32, "mem": "16GB"}
+
+
+def test_default_resources_take_whole_allocation_when_required():
+    cfg = _mk_endpoint_cfg(require_allocated_node=True)
+    be = SlurmComputeBackend(cfg=cfg, lb_jobid=1, lb_node="n1")
+
+    assert be.default_resources(cfg) == {"mem": "0"}
+
+
+@pytest.mark.parametrize(
+    ("resources", "expected_mem", "expected_cpus"),
+    [
+        ({"mem": "0"}, ["--mem=0"], []),
+        ({"mem": "64G", "cpus_per_task": 8}, ["--mem=64G"], ["--cpus-per-task=8"]),
+    ],
+)
+def test_submit_in_allocation_renders_only_requested_mem_and_cpus(
+    monkeypatch, resources, expected_mem, expected_cpus
+):
+    monkeypatch.setattr(mod, "SrunCommandBuilder", SrunCommandBuilder)
+    monkeypatch.setenv("SLURM_JOB_ID", "999")
+    run_calls = {}
+    monkeypatch.setattr(mod.subprocess, "run", lambda cmd, check: run_calls.setdefault("cmd", cmd))
+    cfg = _mk_endpoint_cfg(require_allocated_node=True)
+    be = SlurmComputeBackend(cfg=cfg, lb_jobid=11, lb_node="lb-node")
+
+    be.submit(name="job", image=None, command=["true"], resources=resources)
+
+    cmd = run_calls["cmd"]
+    assert [a for a in cmd if a.startswith("--mem")] == expected_mem
+    assert [a for a in cmd if a.startswith("--cpus-per-task")] == expected_cpus
+    assert "--jobid=11" not in cmd

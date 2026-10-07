@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError, field_validator
 import typer
 
+from domyn_swarm.config.swarm import DomynLLMSwarmConfig
 from domyn_swarm.core.job_run import JobRunSpec as JobRunSpec
 from domyn_swarm.core.state.state_manager import SwarmStateManager
 from domyn_swarm.core.swarm import DomynLLMSwarm
@@ -335,6 +336,31 @@ def submit_loaded_job(*, swarm: DomynLLMSwarm, request: JobSubmitRequest) -> Job
         Submitted job handle.
     """
     return swarm.submit_job(request.job, run=request.run)
+
+
+def job_step_resources(
+    *, mem: str | None, cpus_per_task: int | None, cfg: DomynLLMSwarmConfig
+) -> dict | None:
+    """Build job-step resource overrides from ``--mem`` and ``--cpus-per-task``.
+
+    ``cfg.backend`` is read only when an option is set, so a config that does
+    not resolve a backend still submits without these options.
+
+    Raises:
+        typer.BadParameter: If an option is set for a swarm that does not run on
+            Slurm.
+    """
+    requested = {"mem": mem, "cpus_per_task": cpus_per_task}
+    resources = {key: value for key, value in requested.items() if value is not None}
+    if not resources:
+        return None
+    if cfg.backend is None or cfg.backend.type != "slurm":
+        raise typer.BadParameter(
+            "applies to Slurm job steps only. Lepton jobs take their size from "
+            "`backend.job.resource_shape`.",
+            param_hint="'--mem' / '--cpus-per-task'",
+        )
+    return resources
 
 
 def maybe_cancel_swarm_on_keyboard_interrupt(swarm_ctx: DomynLLMSwarm) -> None:

@@ -111,6 +111,30 @@ survives your terminal. Track it afterwards with `domyn-swarm job list`,
 `--mail-user` enables email notification on completion where the compute backend
 supports it.
 
+## Sizing the job step on Slurm
+
+On Slurm, the job runs as an `srun` step. The step size depends on where you
+submit from:
+
+- Without `endpoint.require_allocated_node`, the step runs in the load-balancer
+  allocation, with `endpoint.mem` and `endpoint.cpus_per_task`.
+- With `endpoint.require_allocated_node: true`, you must submit from your own
+  `sbatch` or `salloc` allocation. The step gets all the memory of that
+  allocation (`--mem=0`) and its `--cpus-per-task` value.
+
+`--mem` and `--cpus-per-task` override these defaults for one job:
+
+```bash
+domyn-swarm job submit \
+  --name my-swarm-name \
+  --input data.parquet --output out.parquet \
+  --mem 64G --cpus-per-task 16
+```
+
+If your allocation does not set `--cpus-per-task`, `srun` gives the step one
+CPU. In that case, pass `--cpus-per-task`. Lepton rejects both options because
+`backend.job.resource_shape` sets the job size.
+
 ## Submitting a plain script
 
 When the job shape does not fit, send a script to the head node instead:
@@ -124,6 +148,7 @@ domyn-swarm job submit-script \
 - the script file must exist
 - exactly one of `--config` or `--name`, as above
 - everything after `--` is forwarded to your script, not consumed by domyn-swarm
+- `--mem` and `--cpus-per-task` size the step as for `job submit`
 
 The script runs with `ENDPOINT` and `MODEL` already set in its environment, so it
 can build its own client against the swarm.

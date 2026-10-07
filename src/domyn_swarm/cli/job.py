@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from pathlib import Path
 from typing import Literal
@@ -64,6 +65,27 @@ SKIP_PREFLIGHT_OPTION = typer.Option(
 )
 
 
+JOB_MEM_OPTION = typer.Option(
+    None,
+    "--mem",
+    help=(
+        "Slurm only. Memory for the job step, for example `64G`. `0` gives the step "
+        "all the memory of its allocation. Default: `0` with "
+        "`endpoint.require_allocated_node`, otherwise `endpoint.mem`."
+    ),
+)
+JOB_CPUS_PER_TASK_OPTION = typer.Option(
+    None,
+    "--cpus-per-task",
+    min=1,
+    help=(
+        "Slurm only. CPUs for the job step. Default: the `--cpus-per-task` value of "
+        "the enclosing allocation with `endpoint.require_allocated_node`, otherwise "
+        "`endpoint.cpus_per_task`."
+    ),
+)
+
+
 def _load_swarm_config(*args, **kwargs):
     """Load a swarm config lazily."""
     from domyn_swarm.config.swarm import _load_swarm_config as load_swarm_config
@@ -84,6 +106,8 @@ def submit_script(
     name: str | None = typer.Option(None, "-n", "--name", exists=True, help="Swarm name."),
     args: list[str] = typer.Argument(None, help="extra CLI args passed to script"),
     skip_preflight: bool = SKIP_PREFLIGHT_OPTION,
+    mem: str | None = JOB_MEM_OPTION,
+    cpus_per_task: int | None = JOB_CPUS_PER_TASK_OPTION,
 ):
     """
     Run an *arbitrary* Python file inside the swarm head node.
@@ -94,11 +118,12 @@ def submit_script(
 
     if config:
         cfg = _load_swarm_config(config)
+        job_resources = helpers.job_step_resources(mem=mem, cpus_per_task=cpus_per_task, cfg=cfg)
         with (
             exit_on_config_path_error(source=config.name),
             DomynLLMSwarm(cfg=cfg, preflight=not skip_preflight) as swarm,
         ):
-            handle = swarm.submit_script(script_file, extra_args=args)
+            handle = swarm.submit_script(script_file, extra_args=args, job_resources=job_resources)
             helpers.emit_submission_json(
                 handle=handle,
                 command="submit-script",
@@ -110,7 +135,10 @@ def submit_script(
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
-        handle = swarm.submit_script(script_file, extra_args=args)
+        job_resources = helpers.job_step_resources(
+            mem=mem, cpus_per_task=cpus_per_task, cfg=swarm.cfg
+        )
+        handle = swarm.submit_script(script_file, extra_args=args, job_resources=job_resources)
         helpers.emit_submission_json(
             handle=handle,
             command="submit-script",
@@ -290,6 +318,8 @@ def submit_job(
         help="Ray cluster address to connect to when --data-backend=ray (optional).",
     ),
     skip_preflight: bool = SKIP_PREFLIGHT_OPTION,
+    mem: str | None = JOB_MEM_OPTION,
+    cpus_per_task: int | None = JOB_CPUS_PER_TASK_OPTION,
 ):
     """
     Submit a strongly-typed job to the swarm for DataFrame processing.
@@ -345,6 +375,10 @@ def submit_job(
 
     if config:
         cfg = _load_swarm_config(config)
+        run_spec = replace(
+            run_spec,
+            job_resources=helpers.job_step_resources(mem=mem, cpus_per_task=cpus_per_task, cfg=cfg),
+        )
         swarm_ctx = DomynLLMSwarm(cfg=cfg, preflight=not skip_preflight)
         try:
             with exit_on_config_path_error(source=config.name), swarm_ctx as swarm:
@@ -376,6 +410,12 @@ def submit_job(
 
     else:
         swarm = DomynLLMSwarm.from_state(deployment_name=name)
+        run_spec = replace(
+            run_spec,
+            job_resources=helpers.job_step_resources(
+                mem=mem, cpus_per_task=cpus_per_task, cfg=swarm.cfg
+            ),
+        )
         job = helpers.build_job_for_swarm(
             swarm=swarm,
             job_class=job_class,

@@ -913,6 +913,7 @@ class DomynLLMSwarm(BaseModel):
         script_path: Path,
         detach: bool = False,
         extra_args: list[str] | None = None,
+        job_resources: dict | None = None,
     ) -> JobHandle:
         """Submit a Python script to the compute backend for execution.
 
@@ -925,6 +926,8 @@ class DomynLLMSwarm(BaseModel):
                 If False, run synchronously. Defaults to False.
             extra_args (list[str] | None, optional): Additional command-line arguments
                 to pass to the script. Defaults to None.
+            job_resources: Scheduler resource overrides for the job step. They
+                take precedence over the compute backend and plan defaults.
 
         Returns:
             JobHandle: Submitted job handle with normalized status and metadata.
@@ -951,6 +954,7 @@ class DomynLLMSwarm(BaseModel):
 
         # Compose runtime (interpreter/image/resources/env) once
         python_interpreter, image, resources, env = self._compose_runtime()
+        resources = self._merge_resources(resources, None, job_resources)
 
         # Build the command
         args = extra_args or []
