@@ -23,6 +23,8 @@ x-compute: &compute
   <<: *node
   cap_add: [SYS_ADMIN]
   security_opt: [apparmor:unconfined]
+  # vLLM needs more than the 64 MiB default for its engine IPC.
+  shm_size: 1gb
 
 services:
   ctl:

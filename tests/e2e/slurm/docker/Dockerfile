@@ -15,3 +15,19 @@ ENTRYPOINT ["/usr/local/bin/e2e-entrypoint"]
 
 FROM base AS fast
 RUN ln -s /workspace/tests/e2e/slurm/shims/fake-vllm/vllm /usr/local/bin/vllm
+
+FROM base AS vllm
+RUN dnf install -y numactl-libs && dnf clean all
+# 0.30.0 and later wheels need glibc 2.39; openEuler 24.03 ships 2.38.
+ARG VLLM_VERSION=0.29.0
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      amd64) arch=x86_64 ;; \
+      arm64) arch=aarch64 ;; \
+      *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && uv venv /opt/vllm \
+    && uv pip install --python /opt/vllm/bin/python --torch-backend cpu \
+      "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cpu-cp38-abi3-manylinux_2_34_${arch}.whl" \
+    && rm -rf /root/.cache/uv
+COPY --chmod=755 vllm-cpu.sh /usr/local/bin/vllm

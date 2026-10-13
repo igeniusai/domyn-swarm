@@ -74,3 +74,36 @@ jobs:
           path: output/e2e-logs/
           if-no-files-found: ignore
           retention-days: 7
+
+  vllm:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tier != 'fast')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the cluster image
+        uses: docker/build-push-action@v6
+        with:
+          context: tests/e2e/slurm/docker
+          target: vllm
+          tags: domyn-swarm-e2e:vllm
+          load: true
+          cache-from: type=gha,scope=e2e-slurm-vllm
+          cache-to: type=gha,mode=max,scope=e2e-slurm-vllm
+
+      - name: Run the vLLM tier
+        env:
+          E2E_SKIP_BUILD: "1"
+        run: tests/e2e/slurm/run.sh vllm
+
+      - name: Upload the cluster logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-slurm-vllm-logs
+          path: output/e2e-logs/
+          if-no-files-found: ignore
+          retention-days: 7

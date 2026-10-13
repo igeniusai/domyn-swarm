@@ -44,6 +44,12 @@ fi
 
 "${compose[@]}" exec -T ctl uv sync --frozen --project /workspace
 
+if [ "$tier" = vllm ]; then
+  # The templates export HF_HUB_OFFLINE=1, so the model must be in HF_HOME first.
+  "${compose[@]}" exec -T ctl /opt/vllm/bin/python -c \
+    'import os; from huggingface_hub import snapshot_download; snapshot_download(os.environ["E2E_VLLM_MODEL"], revision=os.environ["E2E_VLLM_REVISION"])'
+fi
+
 if [ $# -eq 0 ]; then
   set -- /workspace/tests/e2e/slurm/scenarios
 fi
