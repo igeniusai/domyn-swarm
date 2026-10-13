@@ -163,6 +163,8 @@ jobs against them with retries and checkpointing.
 - Full tests: `uv run pytest`.
 - Tests without integration cases: `uv run pytest -m "not integration"`.
 - Integration tests: `uv run pytest -m integration -v`.
+- Slurm end-to-end tests (Docker required): `tests/e2e/slurm/run.sh fast` or
+  `tests/e2e/slurm/run.sh vllm`.
 - Format: `uv run ruff format .`.
 - Check formatting: `uv run ruff format --check .`.
 - Lint: `uv run ruff check .`.
