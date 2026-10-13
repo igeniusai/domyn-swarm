@@ -1,0 +1,52 @@
+name: domyn-swarm-e2e
+
+x-env: &env
+  PATH: /workspace/tests/e2e/slurm/shims/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  TMPDIR: /tmp
+  DOMYN_SWARM_HOME: /shared/home
+  DOMYN_SWARM_DEFAULTS: /shared/no-defaults.yaml
+  HF_HOME: /shared/hf
+  PYTHONDONTWRITEBYTECODE: "1"
+
+x-node: &node
+  image: domyn-swarm-e2e:${E2E_TARGET:-fast}
+  pull_policy: never
+  volumes:
+    # Read-only, so that root in the containers cannot leave files in the checkout.
+    - ../../..:/workspace:ro
+    - shared:/shared
+  environment: *env
+
+# The LB job is submitted with `--export ALL,VAR=...`, which makes slurmd load the
+# login environment in new PID and mount namespaces, as a root slurmd can on a real node.
+x-compute: &compute
+  <<: *node
+  cap_add: [SYS_ADMIN]
+  security_opt: [apparmor:unconfined]
+
+services:
+  ctl:
+    <<: *node
+    build:
+      context: docker
+      target: ${E2E_TARGET:-fast}
+    hostname: ctl
+    command: [controller]
+    environment:
+      <<: *env
+      DOMYN_SWARM_E2E: slurm
+      DOMYN_SWARM_E2E_TIER: ${E2E_TARGET:-fast}
+      DOMYN_SWARM_E2E_TIMEOUT_S: ${E2E_TIMEOUT_S:-600}
+      E2E_VLLM_MODEL: hmellor/tiny-random-LlamaForCausalLM
+      E2E_VLLM_REVISION: 9408c553e5c189a7dcdc5a5dbd2feb476b061759
+  c1:
+    <<: *compute
+    hostname: c1
+    command: [compute]
+  c2:
+    <<: *compute
+    hostname: c2
+    command: [compute]
+
+volumes:
+  shared:
