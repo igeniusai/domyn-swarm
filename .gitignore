@@ -1,5 +1,6 @@
 output
 slurm
+!tests/e2e/slurm/
 hosts.txt
 playground/
 
