@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
 from pathlib import Path
+import uuid
 
 import pytest
 
 from .cluster import queued_jobs
+from .swarm import SwarmFactory
 
 SCENARIOS = Path(__file__).parent
 
@@ -31,3 +34,14 @@ def empty_queue() -> None:
     """Fail fast when an earlier scenario left jobs behind."""
     leftover = queued_jobs()
     assert leftover == [], f"jobs left in the queue by an earlier scenario: {leftover}"
+
+
+@pytest.fixture
+def swarm_factory() -> Iterator[SwarmFactory]:
+    # The images must be on the shared volume: the LB job runs nginx.sif on a compute node.
+    workdir = Path("/shared/e2e") / uuid.uuid4().hex[:8]
+    factory = SwarmFactory(workdir)
+    try:
+        yield factory
+    finally:
+        factory.tear_down()
