@@ -23,7 +23,7 @@ Three things happen:
 
 domyn-swarm uses Singularity as its container engine on Slurm. Build the two
 required images from the definition files in
-[`examples/singularity_images/`](https://github.com/igeniusai/domyn-swarm/tree/main/examples/singularity_images),
+[`examples/singularity_images/`](https://github.com/DomynAI/domyn-swarm/tree/main/examples/singularity_images),
 on a machine with `sudo`, or with `--fakeroot` if your site enables it:
 
 ```bash

@@ -95,9 +95,9 @@ bench = [
 
 [project.urls]
 Homepage = "https://www.domyn.com/"
-Repository = "https://github.com/igeniusai/domyn-swarm"
-Issues = "https://github.com/igeniusai/domyn-swarm/issues"
-Changelog = "https://github.com/igeniusai/domyn-swarm/blob/main/CHANGELOG.md"
+Repository = "https://github.com/DomynAI/domyn-swarm"
+Issues = "https://github.com/DomynAI/domyn-swarm/issues"
+Changelog = "https://github.com/DomynAI/domyn-swarm/blob/main/CHANGELOG.md"
 
 
 [project.scripts]
