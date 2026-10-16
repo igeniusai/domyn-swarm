@@ -112,7 +112,7 @@ html_theme_options = {
         "image_dark": "_static/domyn-swarm-logo-white.svg",
         "alt_text": "domyn-swarm documentation",
     },
-    "github_url": "https://github.com/igeniusai/domyn-swarm",
+    "github_url": "https://github.com/DomynAI/domyn-swarm",
     "navbar_start": ["navbar-logo"],
     "navbar_end": ["theme-switcher", "navbar-icon-links"],
     "show_prev_next": True,
@@ -141,7 +141,7 @@ html_theme_options["navbar_end"] = [
 html_theme_options["show_version_warning_banner"] = True
 
 html_context = {
-    "github_user": "igeniusai",
+    "github_user": "DomynAI",
     "github_repo": "domyn-swarm",
     "github_version": "main",
     "doc_path": "docs",

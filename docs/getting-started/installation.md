@@ -34,7 +34,7 @@ Pin a release rather than tracking the default branch:
 
 ```bash
 RELEASE=v0.29.0
-pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE
+pip install git+ssh://git@github.com/DomynAI/domyn-swarm.git@$RELEASE
 ```
 
 With [uv](https://docs.astral.sh/uv/):
@@ -43,13 +43,13 @@ With [uv](https://docs.astral.sh/uv/):
 RELEASE=v0.29.0
 
 # into the current environment
-uv pip install git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE
+uv pip install git+ssh://git@github.com/DomynAI/domyn-swarm.git@$RELEASE
 
 # as a project dependency; add --extra lepton for the Lepton backend
-uv add git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE
+uv add git+ssh://git@github.com/DomynAI/domyn-swarm.git@$RELEASE
 
 # as a standalone tool
-uv tool install --from git+ssh://git@github.com/igeniusai/domyn-swarm.git@$RELEASE \
+uv tool install --from git+ssh://git@github.com/DomynAI/domyn-swarm.git@$RELEASE \
   --python 3.12 domyn-swarm
 ```
 

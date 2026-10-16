@@ -67,7 +67,7 @@ jobs:
   # shields.io. Keeping it in this repository avoids depending on a third-party
   # coverage service, and needs no secret beyond the built-in GITHUB_TOKEN.
   coverage-badge:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository_owner == 'igeniusai'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository_owner == 'DomynAI'
     needs: [test]
     runs-on: ubuntu-latest
     permissions:
@@ -114,7 +114,7 @@ jobs:
 
   build-dev-image:
     # Build/push dev images only for branch pushes from the main repo (not PRs from forks)
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.repository_owner == 'igeniusai'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.repository_owner == 'DomynAI'
     needs: [test]
     runs-on: ubuntu-latest
     permissions:

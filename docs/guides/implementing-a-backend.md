@@ -161,7 +161,7 @@ Follow these conventions:
 ## 4. Register it
 
 Add the model to the discriminated union in
-[`config/backend.py`](https://github.com/igeniusai/domyn-swarm/blob/main/src/domyn_swarm/config/backend.py):
+[`config/backend.py`](https://github.com/DomynAI/domyn-swarm/blob/main/src/domyn_swarm/config/backend.py):
 
 ```python
 BackendConfig = Annotated[

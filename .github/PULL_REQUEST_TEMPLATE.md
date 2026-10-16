@@ -17,5 +17,5 @@
 - [ ] User-facing behavior and configuration are documented where needed.
 - [ ] Relevant tests, Ruff, Pyright, and pre-commit checks pass.
 - [ ] Commits are signed and signed off.
-- [ ] I read the [contributing guide](https://github.com/igeniusai/domyn-swarm/blob/main/CONTRIBUTING.md).
+- [ ] I read the [contributing guide](https://github.com/DomynAI/domyn-swarm/blob/main/CONTRIBUTING.md).
 - [ ] I checked the [published documentation](https://domynswarm.domyn.com/latest/) for affected guidance.
