@@ -66,7 +66,7 @@ show inference throughput, queue depth, and GPU utilization.
 > `pip install domyn-swarm` will work after the first published release.
 
 ```bash
-uv tool install --from git+https://github.com/DomynAI/domyn-swarm.git@v0.30.0 --python 3.12 domyn-swarm
+uv tool install --from git+https://github.com/DomynAI/domyn-swarm.git@v0.34.0 --python 3.12 domyn-swarm
 ```
 
 <details>
