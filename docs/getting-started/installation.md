@@ -33,14 +33,14 @@ See [Choosing a data backend](../guides/data-backends.md) for when `polars` or
 Pin a release rather than tracking the default branch:
 
 ```bash
-RELEASE=v0.29.0
+RELEASE=v0.34.0
 pip install git+ssh://git@github.com/DomynAI/domyn-swarm.git@$RELEASE
 ```
 
 With [uv](https://docs.astral.sh/uv/):
 
 ```bash
-RELEASE=v0.29.0
+RELEASE=v0.34.0
 
 # into the current environment
 uv pip install git+ssh://git@github.com/DomynAI/domyn-swarm.git@$RELEASE

@@ -149,7 +149,8 @@ version_scheme = "semver"
 version_provider = "uv"
 update_changelog_on_bump = true
 version_files = [
-    "README.md:RELEASE=v",
+    "README.md:domyn-swarm\\.git@v",
+    "docs/getting-started/installation.md:RELEASE=v",
 ]
 major_version_zero = true
 
