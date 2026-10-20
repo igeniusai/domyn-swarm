@@ -27,6 +27,10 @@ workflow. vLLM handles inference. domyn-swarm manages replicas, load balancing, 
 
 </div>
 
+[![Domyn Swarm CLI walkthrough: configure, launch, inspect, submit a batch job, monitor, and shut down a swarm](static/domyn-swarm-cli-demo.gif)](static/domyn-swarm-cli-demo.mp4)
+
+<p align="center"><sub>CLI walkthrough — click the demo to open the MP4.</sub></p>
+
 ---
 
 <table>
