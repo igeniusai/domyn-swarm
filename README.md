@@ -1,10 +1,7 @@
 <div align="center">
 
-<picture>
-  <source srcset="static/domyn-swarm-logo-white.svg" media="(prefers-color-scheme: dark)">
-  <source srcset="static/domyn-swarm-logo-primary.svg" media="(prefers-color-scheme: light)">
-  <img src="static/domyn-swarm-logo-primary.svg" alt="domyn-swarm" height="100">
-</picture>
+<img src="static/domyn-swarm-logo-primary.svg#gh-light-mode-only" alt="Domyn Swarm" height="100">
+<img src="static/domyn-swarm-logo-white.svg#gh-dark-mode-only" alt="Domyn Swarm" height="100">
 
 **Deploy LLMs and run resumable batch inference on Slurm and NVIDIA DGX Cloud Lepton.**
 
